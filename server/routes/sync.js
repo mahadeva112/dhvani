@@ -1467,7 +1467,7 @@ syncRouter.post(
 
 /**
  * POST /api/sync/grammar-check — the user's grammar check of dub lines, from
- * Review's Check grammar button. Body: `{ lines: [{ id, text, sourceText }],
+ * Review's Check grammar button. Body: `{ lines: [{ id, text, sourceText, speaker? }],
  * language }`. Replies `{ fixes: [{ id, fixed, kind, why }], dropped, unread }`
  * (grammarCheck.js). The script is never changed here.
  */

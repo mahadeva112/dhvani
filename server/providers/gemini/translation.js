@@ -26,6 +26,7 @@ import {
   MAX_TERMS,
 } from '../../lib/translationChecks.js';
 import { cuePauses, partSyllables, readPausedLine, withoutSplits, PAUSE_SPLIT } from '../../lib/translationPauses.js';
+import { cleanSpeakerGenders, genderOfCue, speakerField, speakerGenderRule } from '../../lib/speakerGender.js';
 
 /**
  * Gemini translation.
@@ -139,8 +140,9 @@ const contextBlock = (before = [], after = []) => {
 };
 
 /** A cue as the model reads it: its text with "‖" where the speaker paused, and the syllables it (and each piece) has time for. */
-const promptCue = ({ id, text, pausedText, syllables, partSyllables: parts }) => ({
+const promptCue = ({ id, text, pausedText, syllables, partSyllables: parts, speakerIs }) => ({
   id,
+  ...speakerField({ speakerIs }),
   text: pausedText ?? text,
   ...(syllables && { syllables }),
   ...(parts && { partSyllables: parts }),
@@ -204,7 +206,7 @@ A key term (a concept, a name, a technical word; not everyday words) that comes 
 ${briefBlock(brief)}
 THIS PART
 This is part ${batchIndex + 1} of ${batchCount}. ${sourceNote}
-${paused ? `\n${pauseDirective(targetLanguage)}\n` : ''}${contextBlock(before, after)}${termsBlock(terms)}
+${paused ? `\n${pauseDirective(targetLanguage)}\n` : ''}${speakerGenderRule(batch, targetLanguage)}${contextBlock(before, after)}${termsBlock(terms)}
 INPUT CUES (JSON):
 ${JSON.stringify(batch.map(promptCue), null, 2)}
 
@@ -906,6 +908,7 @@ export const translateCueTexts = async (
     onProgress,
     voiceRate,
     speakerRates,
+    speakerGenders,
     check = true,
     fast = false,
     resumeFrom,
@@ -921,6 +924,7 @@ export const translateCueTexts = async (
   }
   const rate = cleanVoiceRate(voiceRate);
   const ownRates = cleanSpeakerRates(speakerRates);
+  const genders = cleanSpeakerGenders(speakerGenders);
 
   customPrompt = withoutThreeStepNotes(customPrompt);
 
@@ -930,10 +934,12 @@ export const translateCueTexts = async (
       const split = cuePauses({ ...cue, text });
       const silent = split ? split.pauses.reduce((sum, pause) => sum + pause, 0) : 0;
       const syllables = syllableTarget(cue, rateForCue(cue, rate, ownRates), silent);
+      const speakerIs = genderOfCue(cue, genders);
       return {
         id: String(cue.id),
         text,
         syllables,
+        ...(speakerIs && { speakerIs }),
         ...(split && {
           pauses: split.pauses,
           pausedText: split.parts.map((part) => part.text).join(` ${PAUSE_SPLIT} `),

@@ -1,6 +1,7 @@
 import { lineSyllables } from './syllables.js';
 import { PAUSE_SPLIT, withoutSplits } from './translationPauses.js';
 import { examplesBlock } from './translationExamples.js';
+import { speakerField, speakerGenderRule, speakerGenderReview } from './speakerGender.js';
 
 /**
  * Checks on a fresh translation that code can make better than the model can:
@@ -234,6 +235,7 @@ const keepPausesRule = (cues) =>
 export const buildFixPrompt = ({ cues, translations, issues, targetLanguage, customPrompt = '', brief = null }) => {
   const rows = cues.map((cue) => ({
     id: cue.id,
+    ...speakerField(cue),
     english: cue.pausedText ?? cue.text,
     translation: translations.get(cue.id) ?? '',
     ...(cue.syllables && { syllables: cue.syllables, now: dubSyllables(translations.get(cue.id)) }),
@@ -253,7 +255,7 @@ RULES
 - Natural spoken ${targetLanguage}, never word for word from the English.
 - A word may move only to the next or previous cue of the same sentence, and only into a cue that has room.${keepPausesRule(cues)}
 - Return only the cues you change, each with its id copied verbatim. Never return an empty cue.
-
+${speakerGenderRule(cues, targetLanguage)}
 CUES (JSON):
 ${JSON.stringify(rows, null, 2)}
 
@@ -278,7 +280,7 @@ Report a problem only when the meaning changed:
 - who does what to whom changed: the doer and the one it is done to swapped, or an action given to the wrong person;
 - a describing word or phrase now describes something else;
 - the tense or aspect changed (did, does, will do, has done, keeps doing), or how two clauses relate (because, if, although, but, so);
-- the translation says something the English does not.
+- the translation says something the English does not;${speakerGenderReview(cues)}
 Do not report style, word choice, length or word order as a meaning problem, nor a small connective ("and", "so", "then") or a subject the language needs that the English left implicit.
 
 Separately, as "englishShaped", say where a sentence keeps the English sentence shape where a native ${targetLanguage} speaker would build it differently: a "which / who / that" part left trailing after its word, "that"-clauses, tag questions or words like "just" and "only" placed as in English, an English idiom said word for word. Report it only when a native speaker would clearly not say it that way. Leave it empty when the sentence sounds the way ${targetLanguage} is spoken, even if its order is close to the English, and never for formality or word choice.
@@ -290,7 +292,7 @@ For every English sentence:
 3. Mark "same" false only when the idea of that word is missing or became something else, by the rules above. A natural expression of the same idea is the same: "people think you need an investigation" said as "people think you should be investigated" keeps every word; "anyone on the spiritual path" said as "spiritual seekers" keeps it.
 
 CUES (JSON):
-${JSON.stringify(cues.map((cue) => ({ id: cue.id, english: cue.text, translation: withoutSplits(translations.get(cue.id)) })), null, 2)}
+${JSON.stringify(cues.map((cue) => ({ id: cue.id, ...speakerField(cue), english: cue.text, translation: withoutSplits(translations.get(cue.id)) })), null, 2)}
 
 Respond with ONLY this JSON, one entry per English sentence, "problem" empty when the sentence keeps its meaning:
 {"sentences":[{"ids":["<id>", "..."],"backTranslation":"<literal English of the translation>","words":[{"english":"<word>","translatedAs":"<literal English of the translation's word, or empty>","same":true}],"problem":"<anything else missing, added or changed, in English; empty if nothing>","englishShaped":"<what follows English instead of ${targetLanguage}, in English; empty if nothing>"}]}`;
@@ -309,9 +311,9 @@ RULES
 - Where it "reads like English", build that sentence again the way ${targetLanguage} builds it, by whole phrases and clauses. Its meaning stays exactly the same: the same ideas, who does what to whom, tense, negation and certainty. A word moves only to the next or previous cue of the same sentence, and each sentence still ends in the cue it ended in.
 - Stay within the time: "syllables" is about how many ${targetLanguage} syllables the voice has in that cue. Make room by tighter wording elsewhere in the line, not by running long.${keepPausesRule(cues)}
 - Return only the cues you change, each with its id copied verbatim.
-
+${speakerGenderRule(cues, targetLanguage)}
 CUES (JSON):
-${JSON.stringify(cues.map((cue) => ({ id: cue.id, english: cue.pausedText ?? cue.text, translation: translations.get(cue.id) ?? '', ...(cue.syllables && { syllables: cue.syllables }) })), null, 2)}
+${JSON.stringify(cues.map((cue) => ({ id: cue.id, ...speakerField(cue), english: cue.pausedText ?? cue.text, translation: translations.get(cue.id) ?? '', ...(cue.syllables && { syllables: cue.syllables }) })), null, 2)}
 
 Respond with ONLY this JSON:
 {"translations":[{"id":"<the same id>","translatedText":"<corrected ${targetLanguage} line>"}]}`;
@@ -446,11 +448,12 @@ RULES
 - Keep the everyday spoken forms the lines use now; never make a line bookish, formal or word for word from the English.
 - A word may move only to the next or previous cue of the same sentence. Copy sound notes in square brackets ([laughs]) exactly as they are.${keepPausesRule(cues)}
 - Most joins already read well. Return only the cues you change, each with its id copied verbatim, or an empty list when the join reads well.
-
+${speakerGenderRule(cues, targetLanguage)}
 CUES (JSON):
 ${JSON.stringify(
   cues.map((cue) => ({
     id: cue.id,
+    ...speakerField(cue),
     ...(cue.id === joinId && { join: true }),
     english: cue.pausedText ?? cue.text,
     translation: translations.get(cue.id) ?? '',

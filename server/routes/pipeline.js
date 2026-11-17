@@ -117,11 +117,13 @@ pipelineRouter.post(
  * from the caller's existing cues and are returned unchanged. `voiceRate`,
  * the dub voice's speaking rate in syllables a second, sizes each cue for it;
  * `speakerRates` does the same for the speakers who have a voice of their own.
+ * `speakerGenders` (`{ name: 'woman' | 'man' }`) says who speaks each cue, so
+ * a speaker's words about themself agree with them.
  */
 pipelineRouter.post(
   '/pipeline/retranslate',
   asyncHandler(async (req, res) => {
-    const { cues, sourceLanguage = '', targetLanguage, customPrompt = '', voiceRate = null, speakerRates = null, fast = false, jobId } = req.body || {};
+    const { cues, sourceLanguage = '', targetLanguage, customPrompt = '', voiceRate = null, speakerRates = null, speakerGenders = null, fast = false, jobId } = req.body || {};
 
     if (!Array.isArray(cues) || cues.length === 0) {
       throw new ApiError('No cues were supplied to translate.', { status: 400, code: 'no_cues' });
@@ -170,7 +172,7 @@ pipelineRouter.post(
     // The same translation sent again under the same id, after a backend
     // restart, carries on from the batches it had finished.
     const fingerprint = job
-      ? translationFingerprint({ cues: sourceCues.map(({ id, text, startTime, endTime, speaker }) => ({ id, text, startTime, endTime, speaker })), sourceLanguage, targetLanguage, customPrompt, voiceRate, speakerRates, fast: fast === true })
+      ? translationFingerprint({ cues: sourceCues.map(({ id, text, startTime, endTime, speaker }) => ({ id, text, startTime, endTime, speaker })), sourceLanguage, targetLanguage, customPrompt, voiceRate, speakerRates, ...(speakerGenders && { speakerGenders }), fast: fast === true })
       : null;
     if (job) pruneCheckpoints();
     const resumeFrom = job ? loadCheckpoint(jobId, fingerprint) : null;
@@ -187,6 +189,8 @@ pipelineRouter.post(
         customPrompt,
         voiceRate,
         speakerRates,
+        // Who is a woman and who a man, as the user set it in the Cast (speakerGender.js).
+        speakerGenders,
         // Fast translate: translation only, no checks, batches in parallel.
         fast: fast === true,
         apiKey: req.get('x-gemini-key') || undefined,

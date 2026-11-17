@@ -18,6 +18,7 @@
  */
 import { logger } from '../logger.js';
 import { generateText } from '../providers/textModel.js';
+import { SPEAKER_GENDERS } from './speakerGender.js';
 import { reviewEffort } from '../providers/gemini/translation.js';
 import { parseJsonResponse } from '../providers/gemini/client.js';
 
@@ -77,13 +78,18 @@ export const acceptFix = (text, fixed) => {
 
 export const buildGrammarPrompt = ({ lines, language }) => {
   const lang = language || 'the dub language';
-  const rows = lines.map((l) => JSON.stringify({ id: l.id, line: l.text, ...(l.sourceText && { original: l.sourceText }) })).join('\n');
+  const rows = lines.map((l) => JSON.stringify({ id: l.id, ...(l.speaker && { speaker: l.speaker }), line: l.text, ...(l.sourceText && { original: l.sourceText }) })).join('\n');
+  const genders = lines.some((l) => l.speaker);
   return `You are a careful ${lang} proofreader checking a dubbing script. Each row is one dub line in ${lang}, with the original line it translates for reference.
 
 Find real mistakes in the ${lang} dub lines only:
 - Spelling: a wrongly written word, including wrong conjuncts.
 - Matra: a wrong or missing vowel sign, bindu, chandrabindu, nukta or halant.
-- Agreement: gender, number or person agreement between subject, verb, adjective and postposition.
+- Agreement: gender, number or person agreement between subject, verb, adjective and postposition.${
+    genders
+      ? `\n- Speaker's gender: a row with "speaker": "woman" is said by a woman, "man" by a man. Where the speaker talks about themself (I, me, my), the words that agree with them take the speaker's gender; a masculine form in a woman's "I" (or the other way round) is an Agreement mistake. Words about anyone else follow who they are about.`
+      : ''
+  }
 - Punctuation: a question that ends with a danda or full stop although the original line asks it, a missing or doubled mark.
 - Repeated word: a word written twice by mistake.
 - Grammar: a wrong postposition, case or verb form.
@@ -153,6 +159,7 @@ export const checkGrammar = async ({ lines, language }, { apiKey, generate = gen
       id: String(l.id),
       text: l.text.slice(0, MAX_LINE_CHARS),
       sourceText: typeof l.sourceText === 'string' ? l.sourceText.slice(0, MAX_LINE_CHARS) : '',
+      ...(SPEAKER_GENDERS.includes(l.speaker) && { speaker: l.speaker }),
     }));
   const batches = [];
   for (let i = 0; i < clean.length; i += GRAMMAR_BATCH) batches.push(clean.slice(i, i + GRAMMAR_BATCH));

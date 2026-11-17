@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Multi-speaker Cast Mocks</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#06080d; color:#e2e8f0; font-family: Inter, system-ui, "Noto Sans Bengali", "Nirmala UI", "Noto Sans Devanagari", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .note { font-size:13px; color:#94a3b8; line-height:1.7; }
+  .note b { color:#e2e8f0; font-weight:600; }
+  .panel { background:#101217; border:1px solid #26282e; border-radius:16px; }
+  .badge { font-size:10.5px; font-weight:600; letter-spacing:.06em; color:#a5b4fc; background:rgba(99,102,241,.15); border:1px solid rgba(99,102,241,.4); border-radius:999px; padding:2px 9px; }
+  .cap { font-size:10.5px; text-transform:uppercase; letter-spacing:.08em; font-weight:600; color:#64748b; }
+  .row { border-radius:12px; cursor:default; }
+  .row:hover { background:rgba(30,41,59,.6); }
+  .row.on { background:rgba(99,102,241,.1); box-shadow: inset 0 0 0 1px rgba(99,102,241,.6); }
+  .dot { width:10px; height:10px; border-radius:999px; flex:none; }
+  .seg { display:inline-flex; background:#020617; border:1px solid #22262f; border-radius:8px; padding:2px; gap:2px; }
+  .seg button { height:20px; padding:0 7px; font-size:11px; border-radius:6px; color:#64748b; cursor:default; }
+  .seg button:hover { color:#e2e8f0; }
+  .seg button.on { background:#1e293b; color:#f1f5f9; }
+  .seg.guess button.on { box-shadow: inset 0 0 0 1px dashed #64748b; outline:1px dashed #64748b; outline-offset:-1px; background:transparent; color:#cbd5e1; }
+  .ib { width:24px; height:24px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; color:#64748b; cursor:default; flex:none; }
+  .ib:hover { background:#1f232c; color:#fff; }
+  .ib.lit { color:#fbbf24; }
+  .ib svg { width:13px; height:13px; }
+  .btn { height:30px; padding:0 12px; border-radius:9px; font-size:12.5px; display:inline-flex; align-items:center; gap:6px; cursor:default; border:1px solid #2a2f3a; color:#e2e8f0; background:#151922; }
+  .btn:hover { background:#1c2230; }
+  .btn.pri { background:#6366f1; border-color:#6366f1; color:#fff; }
+  .warn { font-size:11.5px; color:#fcd34d; background:rgba(245,158,11,.08); border:1px solid rgba(245,158,11,.3); border-radius:10px; padding:7px 10px; }
+  .chg { width:6px; height:6px; border-radius:99px; background:#f59e0b; display:inline-block; }
+  input[type=range] { accent-color:#6366f1; width:100%; height:4px; }
+  .sl { font-size:11.5px; color:#94a3b8; }
+  .menu { background:#0b0f19; border:1px solid #2a2f3a; border-radius:12px; box-shadow:0 20px 40px rgba(0,0,0,.5); }
+  .menu div { padding:7px 10px; font-size:12.5px; border-radius:8px; cursor:default; }
+  .menu div:hover { background:#1e293b; }
+  .hi { background:rgba(16,185,129,.15); color:#6ee7b7; border-radius:4px; padding:0 3px; }
+  .bad { background:rgba(244,63,94,.15); color:#fda4af; border-radius:4px; padding:0 3px; text-decoration:line-through; }
+</style>
+</head>
+<body class="px-4 py-8 md:px-8">
+<div class="max-w-[1180px] mx-auto">
+  <h1 class="text-xl font-semibold text-white">Multi-speaker · Cast-কে আরও এক্সপার্ট করা</h1>
+  <p class="note mt-1 max-w-3xl">
+    চারটে আইডিয়া একসাথে: <b>১. ছেলে/মেয়ে</b> (অনুবাদ ও Grammar check-এ যায়) · <b>২. প্রতি স্পিকারের নিজের সেটিং</b> ·
+    <b>৩. Cast সেভ করে পরের প্রজেক্টে</b> · <b>৪. একজনকে ভাগ করে নতুন স্পিকার</b>।
+    দুটো মক একই জিনিস দুভাবে দেখায়। বোতাম আর বাছাইগুলো ক্লিক করে দেখা যায়।
+  </p>
+
+  <!-- ============ MOCK A ============ -->
+  <section class="mt-8">
+    <div class="flex items-center gap-2"><span class="badge">MOCK A</span><h2 class="text-[15px] font-semibold text-white">সব কিছু সারিতেই · এক নজরে পুরো Cast</h2></div>
+    <p class="note mt-1 max-w-3xl">প্রতিটা সারিতে নাম, <b>M / F</b>, ▶ মূল গলা শোনা, ⚙ নিজের সেটিং। উপরে <b>Cast ▾</b> মেনু দিয়ে সেভ করা Cast আনা যায়। Main voice-এ থেকে যাওয়া স্পিকারদের জন্য নিচে একটা লাইন।</p>
+    <div class="mt-4 grid lg:grid-cols-[1fr_400px] gap-5 items-start">
+      <div class="panel p-5">
+        <div class="note">ডানদিকের Cast কার্ডটাই বদলাচ্ছে, বাঁদিকের গলার তালিকা আগের মতোই থাকবে।</div>
+        <div class="mt-4 panel p-4" style="background:#0b0e14">
+          <div class="cap mb-2">অনুবাদে কী বদলায় (Hindi)</div>
+          <div class="text-[13px] leading-7">
+            <div><span class="dot inline-block mr-2" style="background:#2dd4bf"></span><b>Anita</b> · F &nbsp;<span class="text-slate-400">"I went there last year."</span></div>
+            <div class="pl-5">আজ: मैं पिछले साल वहाँ <span class="bad">गया</span> था &nbsp;→&nbsp; F জানলে: मैं पिछले साल वहाँ <span class="hi">गई</span> थी</div>
+          </div>
+          <div class="note mt-2">Grammar check-ও জানবে কে ছেলে আর কে মেয়ে, তাই ভুল ধরলেও উল্টো দিকে "ঠিক" করবে না। বাংলায় দরকার নেই, তাই বাংলায় ডাব করলে M/F লুকোনো থাকবে।</div>
+        </div>
+      </div>
+
+      <aside class="panel overflow-visible relative" id="castA">
+        <div class="px-3 pt-3 pb-1 flex items-center justify-between">
+          <span class="cap">Cast</span>
+          <div class="relative">
+            <button class="btn" style="height:26px;font-size:11.5px" onclick="document.getElementById('menuA').classList.toggle('hidden')">Weekly Panel <span class="text-slate-500">▾</span></button>
+            <div id="menuA" class="menu hidden absolute right-0 top-8 w-60 p-1 z-10">
+              <div class="text-slate-500" style="font-size:10.5px;padding:4px 10px">SAVED CASTS</div>
+              <div>✓ Weekly Panel <span class="text-slate-500">· 5 voices</span></div>
+              <div>Sadhguru Q&amp;A <span class="text-slate-500">· 3 voices</span></div>
+              <div style="border-top:1px solid #22262f;margin-top:4px">Save this cast…</div>
+              <div class="text-slate-400">Matches by speaker name. Nothing changes until you pick one.</div>
+            </div>
+          </div>
+        </div>
+        <div class="px-2 pb-2 flex flex-col gap-0.5">
+          <div class="row px-2 py-2"><div class="text-[10.5px] text-slate-500">Main voice · anyone without their own</div><div class="text-[13px] font-medium">Aarav <span class="text-slate-500 text-[11px]">· Hindi · calm</span></div></div>
+          <template id="rowA"></template>
+        </div>
+        <div id="rowsA" class="px-2 pb-2 flex flex-col gap-0.5"></div>
+        <div class="px-3 pb-3"><div class="warn" id="warnA">Speaker 5 has no voice of their own and will sound like the Main voice (Aarav). <u>Pick a voice</u></div></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============ MOCK B ============ -->
+  <section class="mt-12">
+    <div class="flex items-center gap-2"><span class="badge">MOCK B</span><h2 class="text-[15px] font-semibold text-white">সারি ছোট · বাছা স্পিকারের কার্ড খোলে</h2></div>
+    <p class="note mt-1 max-w-3xl">Cast-এর সারি আজকের মতোই ছোট থাকে, শুধু ছোট একটা <b>M/F</b> লেখা যোগ হয়। কোনো স্পিকারে ক্লিক করলে তার নিচে একটা কার্ড খোলে: মূল গলা শোনা, ছেলে/মেয়ে, নিজের সেটিং আর <b>Split</b>। যার সেটিং বদলানো, তার পাশে অ্যাম্বার বিন্দু (Dub settings card-এর মতো)।</p>
+    <div class="mt-4 grid lg:grid-cols-[1fr_400px] gap-5 items-start">
+      <div class="panel p-5">
+        <div class="cap mb-2">Split · একজনকে দুজন করা (Review, কয়েকটা লাইন বাছার পর)</div>
+        <div class="panel p-3 flex items-center gap-2 flex-wrap text-[12.5px]" style="background:#0b0e14">
+          <span class="text-slate-500">6 lines picked · Set speaker to</span>
+          <span class="px-2 rounded-full text-slate-900 font-semibold" style="background:#a78bfa">Host</span>
+          <span class="px-2 rounded-full text-slate-900 font-semibold" style="background:#2dd4bf">Anita</span>
+          <span class="px-2 rounded-full text-slate-900 font-semibold" style="background:#fb923c">Vikram</span>
+          <button class="btn" style="height:24px;font-size:11.5px;border-style:dashed">+ New speaker</button>
+        </div>
+        <div class="note mt-2">লাইনের <b>Who says this line ▾</b>-এর নিচেও একই <b>+ New speaker</b>। নতুন জন Speaker 6 নামে আসে, রং পায়, Cast-এ Main voice নিয়ে বসে।</div>
+        <div class="cap mt-6 mb-2">কোথায় কী</div>
+        <ul class="note list-disc pl-5">
+          <li>ছেলে/মেয়ে শুরুতে ফাঁকা। গলার pitch থেকে একটা <b>আন্দাজ</b> ড্যাশ দাগে দেখানো যায়, ইউজার ক্লিক করলে তবেই পাকা হয়।</li>
+          <li>Speed / Stability / Expression ফাঁকা থাকলে Main voice-এর মানই নেয়। <b>Reset</b> চাপলে আবার Main voice।</li>
+          <li>Cast সেভ উপরে Mock A-র মতোই মেনুতে, দুটো মকেই এক।</li>
+        </ul>
+      </div>
+
+      <aside class="panel" id="castB">
+        <div class="px-3 pt-3 pb-1 flex items-center justify-between"><span class="cap">Cast</span><button class="btn" style="height:26px;font-size:11.5px">Weekly Panel <span class="text-slate-500">▾</span></button></div>
+        <div id="rowsB" class="px-2 pb-3 flex flex-col gap-0.5"></div>
+      </aside>
+    </div>
+  </section>
+</div>
+
+<script>
+const S = [
+  { n:'Host', c:'#a78bfa', p:34, v:'Kabir', g:'M' },
+  { n:'Dr. Rao', c:'#2dd4bf', p:22, v:'Meera', g:'F' },
+  { n:'Anita', c:'#fb923c', p:19, v:'Riya', g:'F', changed:true },
+  { n:'Vikram', c:'#f472b6', p:16, v:'Arjun', g:null, guess:'M' },
+  { n:'Speaker 5', c:'#38bdf8', p:9, v:null, g:null, guess:'F' },
+];
+const play = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4v16l13-8z"/></svg>';
+const gear = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>';
+let pickA = 2, openGear = -1, pickB = 2;
+
+const seg = (s, i, which) => {
+  const cur = s.g || s.guess; const cls = s.g ? 'seg' : (s.guess ? 'seg guess' : 'seg');
+  return `<span class="${cls}" title="${s.g ? 'Used by translation and Grammar check' : 'Guessed from the voice. Click to confirm.'}">${['M','F'].map(x => `<button class="${cur===x?'on':''}" onclick="event.stopPropagation();S[${i}].g='${x}';render()">${x}</button>`).join('')}</span>`;
+};
+const voice = s => s.v ? `<span class="text-[11.5px] text-slate-300">${s.v}</span>` : `<span class="text-[11.5px] text-slate-500">Main voice</span>`;
+
+function renderA(){
+  document.getElementById('rowsA').innerHTML = S.map((s,i)=>`
+    <div class="row px-2 py-1.5 ${pickA===i?'on':''}" onclick="pickA=${i};render()">
+      <div class="flex items-center gap-2">
+        <span class="dot" style="background:${s.c}"></span>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-baseline gap-1.5"><span class="text-[13px] font-semibold truncate">${s.n}</span><span class="mono text-[10.5px] text-slate-500">${s.p}%</span>${s.changed?'<span class="chg" title="Own settings"></span>':''}</div>
+          ${voice(s)}
+        </div>
+        <span class="ib" title="Hear ${s.n} in the original" onclick="event.stopPropagation()">${play}</span>
+        ${seg(s,i)}
+        <span class="ib ${s.changed||openGear===i?'lit':''}" title="${s.n}'s own voice settings" onclick="event.stopPropagation();openGear=openGear===${i}?-1:${i};render()">${gear}</span>
+      </div>
+      ${openGear===i?`<div class="mt-2 ml-5 mr-1 p-3 rounded-xl" style="background:#0b0e14;border:1px solid #22262f" onclick="event.stopPropagation()">
+        ${['Speed','Stability','Expression'].map((k,j)=>`<div class="flex items-center gap-3 mt-${j?2:0}"><span class="sl w-20">${k}</span><input type="range" value="${[40,65,50][j]}"><span class="mono text-[11px] text-slate-400 w-10 text-right">${['0.92','0.65','Natural'][j]}</span></div>`).join('')}
+        <div class="flex justify-between mt-3"><span class="sl">Only ${s.n}. Empty = Main voice.</span><button class="btn" style="height:24px;font-size:11px">Reset</button></div>
+      </div>`:''}
+    </div>`).join('');
+  const left = S.filter(s=>!s.v).map(s=>s.n);
+  document.getElementById('warnA').style.display = left.length?'block':'none';
+}
+
+function renderB(){
+  document.getElementById('rowsB').innerHTML = `
+    <div class="row px-2 py-2"><div class="text-[10.5px] text-slate-500">Main voice · anyone without their own</div><div class="text-[13px] font-medium">Aarav</div></div>` +
+  S.map((s,i)=>`
+    <div class="row px-2 py-2 ${pickB===i?'on':''}" onclick="pickB=${i};render()">
+      <div class="flex items-center gap-2.5">
+        <span class="dot" style="background:${s.c}"></span>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-baseline gap-1.5"><span class="text-[13px] font-semibold">${s.n}</span><span class="mono text-[10.5px] text-slate-500">${s.p}%</span>
+          <span class="text-[10.5px] ${s.g?'text-slate-300':'text-slate-600'}">${s.g? (s.g==='M'?'· M':'· F') : '· ?'}</span>${s.changed?'<span class="chg"></span>':''}</div>
+          ${voice(s)}
+        </div>
+      </div>
+      ${pickB===i?`<div class="mt-2 p-3 rounded-xl" style="background:#0b0e14;border:1px solid #22262f" onclick="event.stopPropagation()">
+        <div class="flex items-center gap-2"><button class="btn" style="height:26px;font-size:11.5px"><span style="width:11px;display:inline-flex">${play}</span> Hear in the original</button>
+        <span class="flex-1"></span><span class="sl">Speaks as</span>${seg(s,i)}</div>
+        ${!s.g&&s.guess?`<div class="sl mt-1 text-right">Guessed ${s.guess==='M'?'male':'female'} from the voice. Click to confirm.</div>`:''}
+        <div class="cap mt-3 mb-1">${s.n}'s own settings</div>
+        ${['Speed','Stability','Expression'].map((k,j)=>`<div class="flex items-center gap-3 mt-1.5"><span class="sl w-20">${k}</span><input type="range" value="${[40,65,50][j]}"><span class="mono text-[11px] text-slate-400 w-12 text-right">${['0.92','0.65','Natural'][j]}</span></div>`).join('')}
+        <div class="flex gap-2 mt-3"><button class="btn" style="height:26px;font-size:11.5px">Reset to Main voice</button><span class="flex-1"></span><button class="btn" style="height:26px;font-size:11.5px">Split into new speaker…</button></div>
+      </div>`:''}
+    </div>`).join('');
+}
+function render(){ renderA(); renderB(); }
+render();
+document.addEventListener('click', e => { if (!e.target.closest('#castA .relative')) document.getElementById('menuA').classList.add('hidden'); });
+</script>
+</body>
+</html>
