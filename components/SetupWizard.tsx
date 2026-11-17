@@ -563,7 +563,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
       key: 'elevenLabsSttModel',
       label: 'Transcription model',
       placeholder: 'scribe_v2',
-      hint: 'scribe_v2 (sharpest word timings) or scribe_v1. This is what produces the word timings.',
+      hint: 'Picked with the Scribe v2 / v3 cards on this step.',
       origin: server?.origins.elevenLabsSttModel,
     },
     {
@@ -983,12 +983,35 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
         keyBox('ElevenLabs', detection?.elevenlabs.status === 'ok', () => setReplacingElevenLabs(true))
       )}
       {quota && <UsageMeter label="Characters left" share={quota.share} value={quota.left} unit={quota.of} note={quota.note} />}
+      {/*
+        * Scribe v2 stays the default: in a test on real clips (2026-11-17) v3
+        * gave the same word timings but split one speaker in two, and its extra
+        * commas make fewer, longer lines. The model field lives here, not in
+        * the popover below, so it is still saved with this step.
+        */}
+      {choice<string>('Transcription model', serverValues.elevenLabsSttModel || 'scribe_v2', (id) => setServerValue('elevenLabsSttModel', id), [
+        {
+          id: 'scribe_v2',
+          title: 'Scribe v2',
+          blurb: 'The word timings Dhvani is tuned on. Tells speakers apart reliably.',
+          Icon: AudioLines,
+          tile: 'from-slate-100 to-slate-400 text-slate-900',
+          badge: 'Default',
+        },
+        {
+          id: 'scribe_v3',
+          title: 'Scribe v3',
+          blurb: 'Newer, slightly cleaner words. More commas, so fewer and longer lines. Once split one speaker in two.',
+          Icon: AudioWaveform,
+          tile: 'from-slate-300 to-slate-600 text-white',
+        },
+      ])}
       <ServerSettingsFields
         title="Endpoint and models"
-        fields={elevenLabsServerFields}
+        fields={elevenLabsServerFields.filter((field) => field.key !== 'elevenLabsSttModel')}
         values={serverValues}
         onChange={setServerValue}
-        onReset={() => resetServerGroup(elevenLabsServerFields.map((field) => field.key))}
+        onReset={() => resetServerGroup(elevenLabsServerFields.filter((field) => field.key !== 'elevenLabsSttModel').map((field) => field.key))}
       />
     </>
   );
