@@ -117,8 +117,8 @@ export function usePhoneticTyping(language: string) {
   const [popup, setPopup] = useState<PhoneticPopup | null>(null);
   const latestLookup = useRef('');
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  // The last word turned into the script, so a Backspace right after brings the Roman letters back.
-  const undo = useRef<{ ta: PhoneticField; start: number; roman: string; converted: string; sep: string } | null>(null);
+  // A word once in the script stays there, as with Google Input Tools: Backspace takes off one
+  // letter (first the space after it), never the whole word back to Roman letters.
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
@@ -165,7 +165,6 @@ export function usePhoneticTyping(language: string) {
     const start = pos - roman.length;
     const before = value.substring(0, start) + converted + sep;
     setValue(before + value.substring(pos));
-    undo.current = { ta, start, roman, converted, sep };
     dismiss();
     setTimeout(() => {
       ta.focus();
@@ -190,24 +189,6 @@ export function usePhoneticTyping(language: string) {
       return true;
     }
     if (!enabled) return false;
-
-    const last = undo.current;
-    if (e.key === 'Backspace' && last && last.ta === ta) {
-      const end = last.start + last.converted.length + last.sep.length;
-      if (ta.selectionStart === end && ta.selectionEnd === end && ta.value.substring(last.start, end) === last.converted + last.sep) {
-        e.preventDefault();
-        undo.current = null;
-        setValue(ta.value.substring(0, last.start) + last.roman + ta.value.substring(end));
-        setTimeout(() => {
-          const pos = last.start + last.roman.length;
-          ta.focus();
-          ta.setSelectionRange(pos, pos);
-          lookUp(ta, last.roman);
-        }, 0);
-        return true;
-      }
-    }
-    if (e.key !== 'Backspace') undo.current = null;
 
     const roman = romanAt(ta.value, ta.selectionStart);
     const current = popup && popup.word === roman ? popup : null;
@@ -278,7 +259,6 @@ export function usePhoneticTyping(language: string) {
     const current = popup && popup.word === roman ? popup : null;
     const converted = current ? current.suggestions[current.selected] : transliterateWordOffline(roman, language) || roman;
     const start = pos - roman.length;
-    undo.current = null;
     dismiss();
     return { value: ta.value.substring(0, start) + converted + ta.value.substring(pos), caret: start + converted.length };
   };

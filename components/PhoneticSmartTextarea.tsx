@@ -47,13 +47,6 @@ export interface PhoneticSmartTextareaProps {
   autoGrow?: boolean;
 }
 
-interface UndoEntry {
-  start: number;
-  roman: string;
-  converted: string;
-  separator: string;
-}
-
 export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
   value,
   onChange,
@@ -87,9 +80,6 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
 
   // Quick Symbols Drawer / Popover
   const [showSymbols, setShowSymbols] = useState<boolean>(false);
-
-  // Smart Backspace Undo tracker
-  const undoHistoryRef = useRef<UndoEntry | null>(null);
 
   // Debounce ref
   const debounceTimeoutRef = useRef<any>(null);
@@ -169,14 +159,6 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
       const replacedBefore = textBefore.substring(0, wordStart) + suggested + separator;
       const newFullText = replacedBefore + textAfter;
 
-      // Track undo state so immediate backspace can restore the typed Roman letters
-      undoHistoryRef.current = {
-        start: wordStart,
-        roman: romanWord,
-        converted: suggested,
-        separator,
-      };
-
       onChange(newFullText);
       latestLookupRef.current = ''; // an in-flight lookup must not reopen the popup
       setSuggestions([]);
@@ -203,44 +185,8 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
 
     if (!isPhoneticOn) return;
 
-    // 2. Smart Backspace: Undo transliteration if pressed immediately right after word commit
-    if (e.key === 'Backspace' && undoHistoryRef.current) {
-      const textarea = textareaRef.current;
-      if (textarea) {
-        const pos = textarea.selectionStart;
-        const expectedPos =
-          undoHistoryRef.current.start +
-          undoHistoryRef.current.converted.length +
-          undoHistoryRef.current.separator.length;
-
-        // If cursor is sitting right at the end of the committed word + separator
-        if (pos === expectedPos && textarea.selectionEnd === pos) {
-          e.preventDefault();
-          const { start, roman, converted, separator } = undoHistoryRef.current;
-          const textBefore = value.substring(0, start);
-          const textAfter = value.substring(start + converted.length + separator.length);
-          const restoredText = textBefore + roman + textAfter;
-
-          undoHistoryRef.current = null;
-          onChange(restoredText);
-
-          setTimeout(() => {
-            if (textareaRef.current) {
-              const newPos = start + roman.length;
-              textareaRef.current.focus();
-              textareaRef.current.setSelectionRange(newPos, newPos);
-              fetchSuggestionsForWord(roman);
-            }
-          }, 0);
-          return;
-        }
-      }
-    }
-
-    // Any other key clears previous undo snapshot
-    if (e.key !== 'Backspace') {
-      undoHistoryRef.current = null;
-    }
+    // A word once in the script stays there, as with Google Input Tools: Backspace takes off
+    // one letter (first the space after it), never the whole word back to Roman letters.
 
     // 3. When Suggestion Popup is Active (and still describes the word at the cursor)
     const wordAtCursor = (() => {

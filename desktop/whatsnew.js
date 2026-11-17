@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.93',
+    changes: [
+      'Typing with English letters now works like Google Input Tools: Space gives the word with one space after it, and Backspace takes off just that space, then one letter at a time. The English letters no longer come back.',
+    ],
+  },
+  {
     version: '1.4.92',
     changes: [
       'Editing subtitles in Export subtitles is more compact: one row per subtitle, with Merge next to Wrap, Split and Delete. You can type Hindi, Bangla and the other scripts with English letters (Ctrl + G turns it off), and Ctrl + Z / Ctrl + Y undo and redo. The ? at the top of the list shows every key.',
