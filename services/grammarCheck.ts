@@ -18,7 +18,7 @@ export type GrammarState = 'open' | 'accepted' | 'skipped';
  * Only lines that need a fix come back, each with the text it was checked on.
  */
 export const checkGrammar = async (
-  lines: { id: string; text: string; sourceText?: string }[],
+  lines: { id: string; text: string; sourceText?: string; speaker?: 'woman' | 'man' }[],
   language: string,
   { signal }: { signal?: AbortSignal } = {}
 ): Promise<{ fixes: GrammarFix[]; unread: number }> => {

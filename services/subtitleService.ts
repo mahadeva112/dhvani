@@ -233,6 +233,7 @@ export const retranslateCues = async (
     customPrompt = '',
     voiceRate,
     speakerRates,
+    speakerGenders,
     fast = false,
     keys,
     signal,
@@ -245,6 +246,8 @@ export const retranslateCues = async (
     voiceRate?: number;
     /** The same for the speakers who have a voice of their own, by speaker name. */
     speakerRates?: Record<string, number>;
+    /** Who is a woman and who a man, by speaker name, so their words about themself agree with them. */
+    speakerGenders?: Record<string, 'woman' | 'man'>;
     /** Translation only: no meaning, length or term checks, several batches at once. */
     fast?: boolean;
     onProgress?: (progress: RetranslateProgress) => void;
@@ -265,7 +268,7 @@ export const retranslateCues = async (
   // drops halfway through a long script no longer loses the work.
   const jobId = `tr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
-  const body = { cues: segmentsToCues(segments), sourceLanguage, targetLanguage, customPrompt, ...(voiceRate && { voiceRate }), ...(speakerRates && Object.keys(speakerRates).length > 0 && { speakerRates }), ...(fast && { fast }), jobId };
+  const body = { cues: segmentsToCues(segments), sourceLanguage, targetLanguage, customPrompt, ...(voiceRate && { voiceRate }), ...(speakerRates && Object.keys(speakerRates).length > 0 && { speakerRates }), ...(speakerGenders && { speakerGenders }), ...(fast && { fast }), jobId };
 
   // Cancel stops the backend too: it outlives the request on purpose, so it is told to send no more batches.
   const stopBackend = () => {

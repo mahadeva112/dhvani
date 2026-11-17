@@ -1,5 +1,5 @@
-import { AudioSegment, SpeakerVoice } from '../types';
-import { buildSpeechScript } from './speechScript';
+import type { AudioSegment, SpeakerGender, SpeakerOwnSettings, SpeakerProfile, SpeakerVoice } from '../types';
+import { buildSpeechScript } from './speechScript.ts';
 
 /**
  * Speakers in a transcript, as ElevenLabs Scribe labelled them when asked to
@@ -136,12 +136,9 @@ export const renameSpeaker = (segments: AudioSegment[], from: string, to: string
 /**
  * The cast after renaming `from` to `to`: the voice moves with the speaker,
  * unless `to` already has one (a merge keeps the voice of the speaker merged into).
+ * Speaker profiles (gender, own settings) are renamed the same way.
  */
-export const renameCast = (
-  cast: Record<string, SpeakerVoice> | undefined,
-  from: string,
-  to: string
-): Record<string, SpeakerVoice> => {
+export const renameCast = <T = SpeakerVoice>(cast: Record<string, T> | undefined, from: string, to: string): Record<string, T> => {
   const next = { ...(cast || {}) };
   const name = to.trim();
   if (!name || name === from) return next;
@@ -182,3 +179,63 @@ export const conversationTurns = (segments: AudioSegment[]): ConversationTurn[] 
 /** The voice a speaker is dubbed with: their own when cast, the main voice otherwise. */
 export const voiceForSpeaker = (cast: Record<string, SpeakerVoice> | undefined, speaker: string, mainVoiceId: string): string =>
   cast?.[speaker]?.voiceId || mainVoiceId;
+
+/**
+ * Dub languages where a speaker's words about themself show their gender
+ * ("मैं गया" / "मैं गई"), so the Cast asks who is a woman and who a man.
+ * Bengali, Tamil, Telugu, English and the rest say it the same either way.
+ */
+const GENDERED_LANGUAGES = new Set([
+  'hindi', 'urdu', 'marathi', 'gujarati', 'punjabi', 'nepali', 'maithili', 'dogri', 'konkani', 'kashmiri', 'sindhi', 'sanskrit',
+  'arabic', 'french', 'spanish', 'portuguese', 'italian', 'polish', 'russian', 'thai',
+]);
+
+/** Whether the dub language needs to know each speaker's gender. */
+export const speakerGenderMatters = (language: string | undefined): boolean =>
+  GENDERED_LANGUAGES.has(String(language || '').trim().toLowerCase().split(/[\s(]/)[0]);
+
+/** Each speaker's gender as the translation reads it, or undefined when none is set. */
+export const speakerGendersOf = (profiles: Record<string, SpeakerProfile> | undefined): Record<string, SpeakerGender> | undefined => {
+  const out = Object.fromEntries(
+    Object.entries(profiles || {}).flatMap(([speaker, profile]) => (profile?.gender === 'woman' || profile?.gender === 'man' ? [[speaker, profile.gender]] : []))
+  );
+  return Object.keys(out).length > 0 ? out : undefined;
+};
+
+/** A name for a new speaker: the first "Speaker N" no cue uses, after the speakers there are. */
+export const newSpeakerName = (segments: AudioSegment[]): string => {
+  const used = new Set(segments.map(speakerOf));
+  for (let n = Math.max(1, used.size + 1); ; n += 1) if (!used.has(`Speaker ${n}`)) return `Speaker ${n}`;
+};
+
+/** The own settings a speaker has, or null when every one is the main voice's. */
+export const ownSettingsOf = (profile: SpeakerProfile | undefined): SpeakerOwnSettings | null => {
+  if (!profile) return null;
+  const own: SpeakerOwnSettings = {};
+  for (const key of ['speed', 'stability', 'style'] as const) {
+    if (typeof profile[key] === 'number' && Number.isFinite(profile[key])) own[key] = profile[key];
+  }
+  return Object.keys(own).length > 0 ? own : null;
+};
+
+/**
+ * The cast to send for voicing: each speaker's own voice, and their own
+ * settings from `profiles`. A speaker with own settings but no voice of their
+ * own is voiced by `mainVoiceId` with those settings.
+ */
+export const castForVoicing = (
+  cast: Record<string, SpeakerVoice> | undefined,
+  profiles: Record<string, SpeakerProfile> | undefined,
+  mainVoiceId: string
+): Record<string, SpeakerVoice> | undefined => {
+  const out: Record<string, SpeakerVoice> = {};
+  for (const [speaker, voice] of Object.entries(cast || {})) if (voice?.voiceId) out[speaker] = { voiceId: voice.voiceId };
+  for (const [speaker, profile] of Object.entries(profiles || {})) {
+    const own = ownSettingsOf(profile);
+    if (!own) continue;
+    const voiceId = out[speaker]?.voiceId || mainVoiceId;
+    if (voiceId) out[speaker] = { voiceId, own };
+  }
+  return Object.keys(out).length > 0 ? out : cast;
+};
+

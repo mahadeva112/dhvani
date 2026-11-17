@@ -1,7 +1,7 @@
 import { apiGetAudio, apiJson } from './apiClient';
-import { DubMixReport, DubStem, MixPeakMode, SpeakerVoice } from '../types';
-import { ElevenLabsVoiceSettings } from './elevenLabsService';
-import { isCartesiaVoice, cartesiaDelivery, type CartesiaVoicePrefs } from './cartesiaService';
+import { DubMixReport, DubStem, MixPeakMode, SpeakerOwnSettings, SpeakerVoice } from '../types';
+import { DEFAULT_VOICE_SETTINGS, ElevenLabsVoiceSettings } from './elevenLabsService';
+import { isCartesiaVoice, cartesiaDelivery, DEFAULT_CARTESIA_PREFS, type CartesiaVoicePrefs } from './cartesiaService';
 import { ConversationTurn } from './speakers';
 
 /**
@@ -23,12 +23,25 @@ const voicePayload = (voiceId: string, { modelId, voiceSettings, cartesia }: Cas
     ? { voiceId, modelId: cartesia?.modelId || undefined, voiceSettings: cartesia ? cartesiaDelivery(cartesia) : undefined }
     : { voiceId, modelId, voiceSettings: voiceSettings || undefined };
 
+/**
+ * The main voicing with one speaker's own settings over it. With no saved
+ * settings of the main voice, ElevenLabs' defaults are what they go over.
+ */
+export const voicingWith = (voicing: CastVoicing, own: SpeakerOwnSettings | null | undefined): CastVoicing => {
+  if (!own) return voicing;
+  return {
+    ...voicing,
+    voiceSettings: { ...(voicing.voiceSettings || DEFAULT_VOICE_SETTINGS), ...own },
+    ...(own.speed !== undefined && { cartesia: { ...(voicing.cartesia || DEFAULT_CARTESIA_PREFS), speed: own.speed } }),
+  };
+};
+
 /** The cast as the server reads it. A speaker with no voice of their own is left out: the main voice speaks for them. */
 export const castPayload = (cast: Record<string, SpeakerVoice> | undefined, voicing: CastVoicing) =>
   Object.fromEntries(
     Object.entries(cast || {})
       .filter(([, voice]) => Boolean(voice?.voiceId))
-      .map(([speaker, voice]) => [speaker, voicePayload(voice.voiceId, voicing)])
+      .map(([speaker, voice]) => [speaker, voicePayload(voice.voiceId, voicingWith(voicing, voice.own))])
   );
 
 /** The main voice, as the server reads it. */

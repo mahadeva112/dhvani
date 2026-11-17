@@ -98,6 +98,26 @@ export interface AudioSegment {
 /** The voice one speaker is dubbed with, in a dub with several speakers. */
 export interface SpeakerVoice {
   voiceId: string;
+  /**
+   * The speaker's own settings, on a cast sent to be voiced only (castForVoicing
+   * in services/castService.ts); never kept in a project's cast.
+   */
+  own?: SpeakerOwnSettings;
+}
+
+/** Who a speaker is, for the translation: their words about themself agree with it. */
+export type SpeakerGender = 'woman' | 'man';
+
+/** Voice settings one speaker has of their own; one left out is the main voice's. */
+export interface SpeakerOwnSettings {
+  speed?: number;
+  stability?: number;
+  style?: number;
+}
+
+/** What the user set for one speaker in the Cast, besides their voice. */
+export interface SpeakerProfile extends SpeakerOwnSettings {
+  gender?: SpeakerGender;
 }
 
 /**
@@ -385,6 +405,8 @@ export interface BatchJob {
 
   /** The voice each speaker is dubbed with, by speaker name. A speaker not in it gets the main voice. */
   cast?: Record<string, SpeakerVoice>;
+  /** Each speaker's gender and own voice settings, by speaker name, as set in the Cast. */
+  speakerProfiles?: Record<string, SpeakerProfile>;
   /**
    * Subtitles edited by hand in Export subtitles, by track and timing
    * ("target:synced"): they replace the automatic cuts for that export.

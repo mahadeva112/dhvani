@@ -44,11 +44,11 @@ import {
   Video,
   Zap,
 } from 'lucide-react';
-import { AudioSegment, BatchJob, MixPeakMode, ProcessingStatus, TargetSource, TrackSwitchOptions } from '../types';
+import { AudioSegment, BatchJob, MixPeakMode, ProcessingStatus, SpeakerProfile, SpeakerVoice, TargetSource, TrackSwitchOptions } from '../types';
 import { hasTranscript } from '../services/steps';
 import { projectFileStem } from '../services/projects';
 import { useVoiceMatches } from '../services/useVoiceMatches';
-import { listSpeakers, likelySlips, overlapsBefore, speakerOf, isMultiSpeaker, SPEAKER_COLORS } from '../services/speakers';
+import { listSpeakers, likelySlips, overlapsBefore, speakerOf, isMultiSpeaker, newSpeakerName, ownSettingsOf, speakerGenderMatters, SPEAKER_COLORS } from '../services/speakers';
 import type { SpeakerSlip } from '../services/speakers';
 import { SpeakerBar, SpeakerStrip, CueSelectionBar, SpeakerPicker, SpeakerCueNotes, SpeakerChip, CastCard, MixPeakChoice, StemDownloads, mixWarnings } from './SpeakerPanel';
 import { retranslateCues, translationFraction, type RetranslateProgress } from '../services/subtitleService';
@@ -64,9 +64,13 @@ import {
   getVoiceSettings,
   performsAudioTags,
   isElevenLabsDefault,
+  modelTakesSpeed,
+  MIN_VOICE_SPEED,
+  MAX_VOICE_SPEED,
   type VoiceExpression,
 } from '../services/elevenLabsService';
-import { cartesiaTakesControls, type CartesiaVoicePrefs } from '../services/cartesiaService';
+import { cartesiaTakesControls, MIN_CARTESIA_SPEED, MAX_CARTESIA_SPEED, type CartesiaVoicePrefs } from '../services/cartesiaService';
+import { SpeakerCastCard, SavedCastMenu, genderShort, type OwnSettingControl } from './SpeakerCastCard';
 import { samplePassage } from '../services/samplePassages';
 import { VoiceTryLine } from './VoiceTryLine';
 import { ResetDefaultsButton } from './ResetDefaultsButton';
@@ -647,6 +651,10 @@ interface ExpressDubWizardProps {
   onSpeakerCountChange?: (count: number) => void;
   /** Gives a speaker their own voice; null hands them back to the main voice. */
   onCastChange?: (speaker: string, voiceId: string | null) => void;
+  /** One speaker's gender or own settings; null clears their own settings and keeps the gender. */
+  onSpeakerProfileChange?: (speaker: string, patch: Partial<SpeakerProfile> | null) => void;
+  /** A saved cast put on the speakers of the same name. */
+  onApplySavedCast?: (next: { cast: Record<string, SpeakerVoice>; speakerProfiles: Record<string, SpeakerProfile> }) => void;
   /** Renames a speaker on every cue; a name already in use merges the two. */
   onRenameSpeaker?: (from: string, to: string) => void;
   /** How a mix of several voices above full scale is written. */
@@ -785,6 +793,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   speakerCount = 0,
   onSpeakerCountChange,
   onCastChange,
+  onSpeakerProfileChange,
+  onApplySavedCast,
   onRenameSpeaker,
   mixPeak = 'float',
   onMixPeakChange,
@@ -955,6 +965,36 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     ...DEFAULT_VOICE_SETTINGS,
     ...(elVoiceSettings || voiceOwnSettings || {}),
   };
+  // The settings a speaker can have of their own in the Cast, each starting at the main voice's.
+  const ownSettingControls: OwnSettingControl[] =
+    voiceEngine === 'cartesia'
+      ? [
+          {
+            key: 'speed',
+            label: 'Speed',
+            main: cartesiaVoice?.speed ?? 1,
+            min: MIN_CARTESIA_SPEED,
+            max: MAX_CARTESIA_SPEED,
+            step: 0.01,
+            format: (v) => `${v.toFixed(2)}×`,
+            ...(!cartesiaTakesControls(cartesiaModelId) && { ignored: 'This Cartesia model ignores speed. Pick a Sonic 3 model to use it.' }),
+          },
+        ]
+      : [
+          {
+            key: 'speed',
+            label: 'Speed',
+            main: shownVoiceSettings.speed ?? 1,
+            min: MIN_VOICE_SPEED,
+            max: MAX_VOICE_SPEED,
+            step: 0.01,
+            format: (v) => `${v.toFixed(2)}×`,
+            ...(!modelTakesSpeed(elModelId || '') && { ignored: 'This model ignores speed (Eleven v3 and v4 set their pace themselves).' }),
+          },
+          { key: 'stability', label: 'Stability', main: shownVoiceSettings.stability, min: 0, max: 1, step: 0.01, format: (v) => v.toFixed(2) },
+          { key: 'style', label: 'Style', main: shownVoiceSettings.style ?? 0, min: 0, max: 1, step: 0.01, format: (v) => v.toFixed(2) },
+        ];
+  const genderMatters = speakerGenderMatters(targetLanguage);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -1199,6 +1239,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const speakerOverlaps = useMemo(() => (multiSpeaker ? overlapsBefore(segments) : new Map<string, { speaker: string; seconds: number }>()), [segments, multiSpeaker]);
   const overlapIds = useMemo(() => new Set(speakerOverlaps.keys()), [speakerOverlaps]);
   const speakerByName = useMemo(() => new Map(speakers.map((s) => [s.name, s])), [speakers]);
+  // What a speaker split off from another is called: the first free "Speaker N".
+  const nextSpeakerName = useMemo(() => newSpeakerName(segments), [segments]);
 
   // Source & voice: whose voice the library picks, the main voice (null) or one speaker's.
   const [setupPickFor, setSetupPickFor] = useState<string | null>(null);
@@ -2007,7 +2049,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     const list =
       scope === 'picked' ? segments.filter((seg) => selectedCues.has(String(seg.id))) : scope === 'shown' ? filteredSegments : segments;
     const lines = list
-      .map((seg) => ({ id: String(seg.id), text: getTargetText(seg), sourceText: getSourceText(seg) }))
+      .map((seg) => {
+        // Who says it, as set in the Cast: a woman's words about herself are checked in the feminine.
+        const gender = activeJob?.speakerProfiles?.[speakerOf(seg)]?.gender;
+        return { id: String(seg.id), text: getTargetText(seg), sourceText: getSourceText(seg), ...(gender && { speaker: gender }) };
+      })
       .filter((l) => l.text.trim());
     grammarAbort.current?.abort();
     const abort = new AbortController();
@@ -2723,9 +2769,19 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
                 {/* The cast: the main voice, then each speaker. Picking a row points the voice library at it. */}
                 <div className="px-2.5 sm:px-3 py-3 border-t border-edge flex flex-col gap-0.5">
-                  <span className="px-2 pb-1 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
-                    {multiSpeaker || multiSpeakerInput ? 'Cast' : 'Voice'}
-                  </span>
+                  <div className="px-2 pb-1 flex items-center justify-between gap-2 min-h-[24px]">
+                    <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
+                      {multiSpeaker || multiSpeakerInput ? 'Cast' : 'Voice'}
+                    </span>
+                    {multiSpeaker && activeJob && onApplySavedCast && (
+                      <SavedCastMenu
+                        speakers={setupSpeakers.map((s) => s.name)}
+                        cast={activeJob.cast}
+                        profiles={activeJob.speakerProfiles}
+                        onApply={onApplySavedCast}
+                      />
+                    )}
+                  </div>
                   <button
                     type="button"
                     onClick={() => setSetupPickFor(null)}
@@ -2744,13 +2800,16 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     ? setupSpeakers.map((s) => {
                         const own = activeJob.cast?.[s.name]?.voiceId;
                         const on = pickFor === s.name;
+                        const profile = activeJob.speakerProfiles?.[s.name];
+                        const ownSettings = Boolean(ownSettingsOf(profile));
                         return (
                           <div
                             key={s.name}
-                            className={`flex items-center rounded-xl transition-colors ${
+                            className={`flex flex-col rounded-xl transition-colors ${
                               on ? 'bg-indigo-500/10 ring-1 ring-indigo-500/60' : 'hover:bg-slate-800/60'
                             }`}
                           >
+                          <div className="flex items-center">
                             <button
                               type="button"
                               onClick={() => setSetupPickFor(s.name)}
@@ -2763,6 +2822,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                 <span className="flex items-baseline gap-1.5 min-w-0">
                                   <span className="truncate text-[13px] font-semibold text-slate-100">{s.name}</span>
                                   <span className="shrink-0 font-mono text-[10.5px] text-slate-500 tabular-nums">{Math.round(s.share * 100)}%</span>
+                                  {genderMatters && (
+                                    <span className={`shrink-0 text-[10.5px] ${profile?.gender ? 'text-slate-300' : 'text-slate-600'}`} title={profile?.gender ? `Speaks as a ${genderShort(profile.gender).toLowerCase()}` : 'Not set: man or woman'}>
+                                      · {genderShort(profile?.gender) || '?'}
+                                    </span>
+                                  )}
+                                  {ownSettings && <span className="shrink-0 self-center w-1.5 h-1.5 rounded-full bg-amber-500" title="Own voice settings" />}
                                 </span>
                                 {own ? (
                                   <SelectedVoiceSummary voiceId={own} availableVoices={availableVoices} compact />
@@ -2782,6 +2847,18 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                 <X className="w-3.5 h-3.5" />
                               </button>
                             )}
+                          </div>
+                          {on && onSpeakerProfileChange && (
+                            <SpeakerCastCard
+                              speaker={s.name}
+                              profile={profile}
+                              showGender={genderMatters}
+                              targetLanguage={targetLanguage}
+                              controls={ownSettingControls}
+                              onHear={() => hearSpeaker(s.name)}
+                              onChange={(patch) => onSpeakerProfileChange(s.name, patch)}
+                            />
+                          )}
                           </div>
                         );
                       })
@@ -3247,6 +3324,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               }}
               onSelectShown={() => setSelectedCues(new Set(filteredSegments.map((seg) => String(seg.id))))}
               onClear={() => setSelectedCues(new Set())}
+              newSpeaker={nextSpeakerName}
             />
           )}
 
@@ -3759,6 +3837,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                             value={speakerOf(seg)}
                             speakers={speakers}
                             onChange={(speaker) => onUpdateSegment(seg.id, { speaker })}
+                            newSpeaker={nextSpeakerName}
                           />
                         </span>
                       ) : (

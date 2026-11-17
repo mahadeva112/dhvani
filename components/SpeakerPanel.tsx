@@ -360,7 +360,9 @@ export const CueSelectionBar: React.FC<{
   onSelectShown: () => void;
   shownCount: number;
   onClear: () => void;
-}> = ({ count, speakers, onAssign, onSelectShown, shownCount, onClear }) => (
+  /** The name a new speaker gets ("Speaker 6"): the picked cues can go to someone not in the list yet. */
+  newSpeaker?: string;
+}> = ({ count, speakers, onAssign, onSelectShown, shownCount, onClear, newSpeaker }) => (
   <div
     role="toolbar"
     aria-label="Selected cues"
@@ -373,6 +375,16 @@ export const CueSelectionBar: React.FC<{
         <SpeakerChip speaker={s} name={s.name} />
       </button>
     ))}
+    {newSpeaker && (
+      <button
+        type="button"
+        onClick={() => onAssign(newSpeaker)}
+        className="h-6 px-2 rounded-full border border-dashed border-slate-600 text-slate-300 hover:text-white hover:border-slate-400 cursor-default"
+        title={`Two people were heard as one? Give ${count === 1 ? 'this cue' : `these ${count} cues`} to a new speaker, ${newSpeaker}.`}
+      >
+        + New speaker
+      </button>
+    )}
     <span className="ml-auto flex items-center gap-2">
       {count < shownCount && (
         <button type="button" onClick={onSelectShown} className="text-slate-300 hover:text-white cursor-default">
@@ -391,7 +403,9 @@ export const SpeakerPicker: React.FC<{
   value: string;
   speakers: SpeakerSummary[];
   onChange?: (speaker: string) => void;
-}> = ({ value, speakers, onChange }) => {
+  /** The name a new speaker gets, offered last in the menu. */
+  newSpeaker?: string;
+}> = ({ value, speakers, onChange, newSpeaker }) => {
   const speaker = speakers.find((s) => s.name === value);
   if (!onChange) return <SpeakerChip speaker={speaker} name={value} />;
   return (
@@ -408,6 +422,7 @@ export const SpeakerPicker: React.FC<{
             {s.name}
           </option>
         ))}
+        {newSpeaker && <option value={newSpeaker}>+ New speaker ({newSpeaker})</option>}
       </select>
     </label>
   );

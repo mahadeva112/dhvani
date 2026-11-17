@@ -62,7 +62,7 @@ import {
 } from './services/elevenLabsService';
 import { buildSpeechScript } from './services/speechScript';
 import { matchSourceDelivery } from './services/sourceCueService';
-import { isMultiSpeaker, renameCast, renameSpeaker } from './services/speakers';
+import { castForVoicing, isMultiSpeaker, renameCast, renameSpeaker, speakerGendersOf } from './services/speakers';
 import {
   getCartesiaVoices,
   isCartesiaVoice,
@@ -293,6 +293,7 @@ import { currentStep, hasTranscript, openSteps } from './services/steps';
 import { setDubLanguage } from './services/dubLanguage';
 import {
   BatchJob,
+  SpeakerProfile,
   ProcessingStatus,
   AudioSegment,
   AudioTrackMode,
@@ -1326,6 +1327,7 @@ export default function App() {
             customPrompt: promptToUse,
             ...(fitTranslationToVoice && voiceRate.rate && { voiceRate: voiceRate.rate.syllablesPerSecond }),
             ...(fitTranslationToVoice && { speakerRates: speakerSyllableRates(voiceRates.speakers) }),
+            speakerGenders: speakerGendersOf(activeJob.speakerProfiles),
             fast,
             signal,
             onProgress: translationProgressOf(activeJob.id),
@@ -1406,6 +1408,7 @@ export default function App() {
         customPrompt: activeJob.customPrompt || customPrompt,
         ...(fitTranslationToVoice && voiceRate.rate && { voiceRate: voiceRate.rate.syllablesPerSecond }),
         ...(fitTranslationToVoice && { speakerRates: speakerSyllableRates(voiceRates.speakers) }),
+        speakerGenders: speakerGendersOf(activeJob.speakerProfiles),
         signal,
         onProgress: translationProgressOf(activeJob.id),
       });
@@ -3120,7 +3123,7 @@ export default function App() {
             ...(expression === 'expressive' && { expressive: true }),
             ...(expression === 'neutral' && { steady: true }),
             ...(dub && { dub }),
-            ...(several && { multiSpeaker: true, cast: activeJob.cast, peak: voice.mixPeak }),
+            ...(several && { multiSpeaker: true, cast: castForVoicing(activeJob.cast, activeJob.speakerProfiles, voice.voiceId), peak: voice.mixPeak }),
             ...(Object.keys(locked).length > 0 && { locked }),
             // Sync changed lines only: the lines it holds stay put even where a changed line needs more room.
             ...(!fresh && activeJob.syncHeldLines?.length && { holdLocked: true }),
@@ -3467,7 +3470,7 @@ export default function App() {
           ownTags: typedTags,
           stability,
           multiSpeaker: several,
-          cast: job.cast,
+          cast: castForVoicing(job.cast, job.speakerProfiles, elVoiceId),
         },
         { apiKey: elApiKey, signal: controller.signal }
       );
@@ -4160,6 +4163,34 @@ export default function App() {
     [activeJob, updateJob]
   );
 
+  /**
+   * One speaker's gender or own settings from the Cast. A value of undefined
+   * hands that setting back to the main voice; null clears all their own
+   * settings and keeps the gender.
+   */
+  const handleSpeakerProfileChange = useCallback(
+    (speaker: string, patch: Partial<SpeakerProfile> | null) => {
+      if (!activeJob) return;
+      const was = activeJob.speakerProfiles?.[speaker] || {};
+      const merged: SpeakerProfile = patch === null ? { gender: was.gender } : { ...was, ...patch };
+      const clean = Object.fromEntries(Object.entries(merged).filter(([, v]) => v !== undefined)) as SpeakerProfile;
+      const speakerProfiles = { ...(activeJob.speakerProfiles || {}) };
+      if (Object.keys(clean).length > 0) speakerProfiles[speaker] = clean;
+      else delete speakerProfiles[speaker];
+      updateJob(activeJob.id, { speakerProfiles });
+    },
+    [activeJob, updateJob]
+  );
+
+  /** A saved cast picked in the Cast: its voices and profiles on the speakers of the same name. */
+  const handleApplySavedCast = useCallback(
+    (next: { cast: BatchJob['cast']; speakerProfiles: BatchJob['speakerProfiles'] }) => {
+      if (!activeJob) return;
+      updateJob(activeJob.id, { cast: next.cast, speakerProfiles: next.speakerProfiles });
+    },
+    [activeJob, updateJob]
+  );
+
   /** Renames a speaker on every cue they speak; renaming to a speaker who exists merges the two. */
   const handleRenameSpeaker = useCallback(
     (from: string, to: string) => {
@@ -4167,6 +4198,7 @@ export default function App() {
       updateJob(activeJob.id, {
         segments: renameSpeaker(activeJob.segments, from, to),
         cast: renameCast(activeJob.cast, from, to),
+        speakerProfiles: renameCast(activeJob.speakerProfiles, from, to),
       });
     },
     [activeJob, updateJob]
@@ -5312,6 +5344,8 @@ export default function App() {
           speakerCount={speakerCount}
           onSpeakerCountChange={handleSpeakerCountChange}
           onCastChange={handleCastChange}
+          onSpeakerProfileChange={handleSpeakerProfileChange}
+          onApplySavedCast={handleApplySavedCast}
           onRenameSpeaker={handleRenameSpeaker}
           mixPeak={mixPeak}
           onMixPeakChange={handleMixPeakChange}

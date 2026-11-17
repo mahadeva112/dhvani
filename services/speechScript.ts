@@ -1,4 +1,4 @@
-import { AudioSegment } from '../types';
+import type { AudioSegment } from '../types';
 
 /**
  * Turns subtitle cues back into the flowing text ElevenLabs reads best.
