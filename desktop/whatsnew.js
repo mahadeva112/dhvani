@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.94',
+    changes: [
+      'Dubs with several speakers: click a speaker in the Cast to hear them in the original, set Man or Woman so Hindi and other languages say their "I" the right way, and give them their own speed, stability and style. Save a cast by name and use it again on the next project with the same people.',
+      'In Review, "+ New speaker" hands the picked lines to a new speaker when two people were heard as one.',
+      'The line card under the Review player keeps one height, so the page no longer jumps between short and long lines.',
+    ],
+  },
+  {
     version: '1.4.93',
     changes: [
       'Typing with English letters now works like Google Input Tools: Space gives the word with one space after it, and Backspace takes off just that space, then one letter at a time. The English letters no longer come back.',
