@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.95',
+    changes: [
+      'API settings → Transcribe lets you pick Scribe v2 or the new Scribe v3. Scribe v2 stays the default: v3 gives slightly cleaner words but makes fewer, longer lines and can hear one speaker as two.',
+    ],
+  },
+  {
     version: '1.4.94',
     changes: [
       'Dubs with several speakers: click a speaker in the Cast to hear them in the original, set Man or Woman so Hindi and other languages say their "I" the right way, and give them their own speed, stability and style. Save a cast by name and use it again on the next project with the same people.',
