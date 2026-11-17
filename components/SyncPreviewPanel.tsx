@@ -2520,26 +2520,30 @@ export const LineFitRow: React.FC<{
       </>
     );
   const btn = 'h-7 px-2.5 inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 text-[12px] text-slate-200 hover:bg-slate-800 whitespace-nowrap cursor-default';
+  // One fixed height and fixed columns (Mock A): moving from a short line to a
+  // long one, or from one that fits to one with fixes, never moves the page.
+  // The words get two lines' room, the original one; the fix buttons sit in a
+  // column of their own, so the words keep the same width whatever shows.
   return (
-    <div className="min-w-0 flex-1 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+    <div className="min-w-0 flex-1 grid grid-cols-[auto_minmax(0,1fr)_10rem_14rem_19rem] items-center gap-x-4 h-[58px] overflow-hidden">
       <div className="flex items-center gap-2 text-[11.5px] text-slate-500 whitespace-nowrap" title={cues ? `Line ${unit.index + 1}: cues ${cues}` : undefined}>
         <span className="w-2.5 h-2.5 rounded-full" style={{ background: hue }} />
         <span className="font-mono font-semibold" style={{ color: hue }}>
           Line {unit.index + 1}
         </span>
       </div>
-      <span className="min-w-[14rem] flex-1">
-        <span className="block text-[14px] leading-snug text-slate-100 line-clamp-2" lang="und">
+      <span className="min-w-0 h-full flex flex-col justify-center">
+        <span className="block text-[14px] leading-5 max-h-10 text-slate-100 line-clamp-2" lang="und" title={unit.text}>
           {unit.text}
         </span>
         {source && (
-          <span className="block text-[11.5px] leading-snug text-slate-400 truncate" title={source}>
+          <span className="block text-[11.5px] leading-4 text-slate-400 truncate" title={source}>
             {source}
           </span>
         )}
       </span>
       <div
-        className="w-44 shrink-0"
+        className="min-w-0"
         title={`About ${unit.estimate.toFixed(1)} s, a guess from the text · room ${unit.slot.toFixed(1)} s · the original speaker talks ${unit.spoken.toFixed(1)} s (white tick)`}
       >
         <div className="relative h-2.5 rounded-full bg-slate-800 border border-slate-700">
@@ -2555,8 +2559,8 @@ export const LineFitRow: React.FC<{
           <span>room {unit.slot.toFixed(1)} s</span>
         </div>
       </div>
-      <div className="text-[12.5px]">
-        <div className="whitespace-nowrap">{message}</div>
+      <div className="min-w-0 text-[12.5px]">
+        <div className="truncate">{message}</div>
         {(stretched || showSpeed) && (
           <div className="mt-0.5 flex items-center gap-2 text-[11.5px]">
             <span className="font-mono tabular-nums" style={{ color: tone ?? '#e2e8f0' }}>
@@ -2566,7 +2570,7 @@ export const LineFitRow: React.FC<{
           </div>
         )}
         {showSpeed && (
-          <div className="relative mt-1 w-44" title="0.5× to 2×: natural up to 1.15×, a little quick to 1.3×, rushed past it; slower than 0.85× drags">
+          <div className="relative mt-1 w-full max-w-44" title="0.5× to 2×: natural up to 1.15×, a little quick to 1.3×, rushed past it; slower than 0.85× drags">
             <div className="flex h-1.5 rounded-full overflow-hidden">
               {METER_BANDS.map(([a, b, cls]) => (
                 <span key={a} className={cls} style={{ width: `${((b - a) / (MAX_LINE_RATE - MIN_LINE_RATE)) * 100}%` }} />
@@ -2576,15 +2580,15 @@ export const LineFitRow: React.FC<{
           </div>
         )}
       </div>
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div className="flex flex-nowrap items-center justify-end gap-1.5">
         {!started && wording && fix && (
           <button
             type="button"
             onClick={() => fix.onSuggest(wording)}
             className={btn}
-            title={wording === 'shorter' ? 'Wordings with fewer words, same meaning' : 'Fuller wordings, same meaning'}
+            title={wording === 'shorter' ? 'Shorter wording: fewer words, same meaning' : 'Longer wording: fuller, same meaning'}
           >
-            {wording === 'shorter' ? '↓ Shorter wording' : '↑ Longer wording'}
+            {wording === 'shorter' ? '↓ Shorter' : '↑ Longer'}
           </button>
         )}
         {speedFix && (
@@ -2598,8 +2602,8 @@ export const LineFitRow: React.FC<{
           </button>
         )}
         {stretched && (
-          <button type="button" onClick={() => onStretch(unit, 1)} className={btn}>
-            Back to 1×
+          <button type="button" onClick={() => onStretch(unit, 1)} className={btn} title="Back to 1×: read it at its own speed again">
+            {speedFix ? '1×' : 'Back to 1×'}
           </button>
         )}
         {onOpen && (

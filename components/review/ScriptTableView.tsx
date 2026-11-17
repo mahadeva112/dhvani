@@ -4,7 +4,7 @@ import { AudioSegment } from '../../types';
 import { scrollWithin } from '../scrollWithin';
 import { SCRIPT_PALETTES, getIndicLanguageConfig, transliterateTextSmart, transliterateWordOffline } from '../../services/indicTransliteration';
 import { polishIndicDialogueWithAI } from '../../services/geminiService';
-import { buildScriptParagraphs, scriptParagraphSeconds } from './passages';
+import { buildScriptParagraphs } from './passages';
 import { usePhoneticTyping, type PhoneticField } from './usePhoneticTyping';
 import { inlineField, placeCaret } from './inlineField';
 import {
@@ -132,7 +132,6 @@ export function ScriptTableView({
   const sourceOf = useRef(getSourceText);
   sourceOf.current = getSourceText;
   const passages = useMemo(() => buildScriptParagraphs(segments, (seg) => sourceOf.current(seg)), [segments]);
-  const paragraphLength = useMemo(() => scriptParagraphSeconds(segments), [segments]);
   const shown = passages.filter((p) => p.cues.some((seg) => visibleIds.has(String(seg.id))));
   const multiSpeaker = useMemo(() => new Set(segments.map((seg) => seg.speaker || '')).size > 1, [segments]);
 
@@ -521,9 +520,6 @@ export function ScriptTableView({
   return (
     <div ref={rootRef}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 border-b border-edge text-[11px] text-slate-400">
-        <span title="Paragraphs are sized from the script's length (a sixth of it, between one and three minutes) and end where the original pauses">
-          Paragraphs of about {formatLength(paragraphLength)} · {passages.length} {passages.length === 1 ? 'paragraph' : 'paragraphs'}
-        </span>
         {/* The Word file's paragraph size is picked as it is saved: it changes the file, not this view */}
         <WordSaveMenu
           sizes={WORD_PARAGRAPH_SIZES}
@@ -533,12 +529,11 @@ export function ScriptTableView({
           title={`Save as a Word file: the script in paragraphs, ${sourceLanguage || 'the original'} on the left, ${targetLanguage || 'the dub'} on the right`}
         />
         {wordError && <span className="text-rose-300">{wordError}</span>}
-        <span className="ml-auto text-slate-500">Type straight into the dub · click the original to play from there</span>
         <button
           type="button"
           onClick={phonetic.toggle}
           aria-pressed={phonetic.enabled}
-          className={`h-6 px-2 rounded-md border flex items-center gap-1 font-medium transition-colors cursor-default ${
+          className={`ml-auto h-6 px-2 rounded-md border flex items-center gap-1 font-medium transition-colors cursor-default ${
             phonetic.enabled ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-300' : 'border-edge text-slate-400 hover:text-slate-200'
           }`}
           title={`Type Roman letters and get ${langConfig.nativeName} as you go (Ctrl+G)`}
