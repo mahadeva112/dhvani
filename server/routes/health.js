@@ -5,6 +5,7 @@ import { ffmpegAvailable } from '../lib/media.js';
 import { listProviders, activeProviders } from '../providers/index.js';
 import { LANGUAGES } from '../lib/languages.js';
 import { keySource, translationSetup, gatewayEnabled } from '../env.js';
+import { logger } from '../logger.js';
 
 export const healthRouter = Router();
 
@@ -55,3 +56,21 @@ healthRouter.get(
     });
   })
 );
+
+/** One line the app's page asks to have in backend.log: plain text, made safe, kept short. */
+export const clientLogLine = (body) => {
+  const text = typeof body?.message === 'string' ? body.message : '';
+  const clean = text.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500);
+  return clean ? `App: ${clean}` : null;
+};
+
+/**
+ * POST /api/client-log — a request from the page that failed (a dropped
+ * connection, say) leaves no trace in backend.log otherwise, so the problem
+ * report could never show why a sync or dub stopped.
+ */
+healthRouter.post('/client-log', (req, res) => {
+  const line = clientLogLine(req.body);
+  if (line) logger.warn(line);
+  res.status(204).end();
+});

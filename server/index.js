@@ -156,10 +156,11 @@ if (config.rateLimitPerMinute > 0) {
       // reaches a provider, so only the paid POST counts.
       skip: (req) =>
         req.path === '/health' ||
+        req.path === '/client-log' ||
         req.path === '/transliterate' ||
         req.path.startsWith('/settings') ||
         req.path === '/sync/edit/render' ||
-        (req.method === 'GET' && /\/jobs\/[^/]+$/.test(req.path)) ||
+        (req.method === 'GET' && /\/jobs\/[^/]+(\/result)?$/.test(req.path)) ||
         (req.method === 'GET' && /^\/sync\/audio\/[^/]+$/.test(req.path)),
       message: {
         error: {
@@ -175,7 +176,7 @@ if (config.rateLimitPerMinute > 0) {
 }
 
 app.use((req, _res, next) => {
-  if (req.path !== '/api/health') logger.info(`${req.method} ${req.path}`);
+  if (req.path !== '/api/health' && req.path !== '/api/client-log') logger.info(`${req.method} ${req.path}`);
   next();
 });
 

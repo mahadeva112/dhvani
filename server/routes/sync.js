@@ -28,7 +28,7 @@ import { shortenLine, lengthenLine, suggestLine, suggestLines, quickLine, checkW
 import { stripPauses } from '../lib/linePauses.js';
 import { previewSync } from '../lib/syncPreview.js';
 import { fitJoinSettings } from '../lib/syncFit.js';
-import { startDubJob, updateDubJob, finishDubJob, getDubProgress, cancelDubJob } from '../lib/dubJobs.js';
+import { startDubJob, updateDubJob, finishDubJob, getDubProgress, cancelDubJob, detachDubJob, dubJobOutcome } from '../lib/dubJobs.js';
 import { logger } from '../logger.js';
 import { config } from '../env.js';
 import { addDeliveryCuesToPassages } from '../lib/deliveryCues.js';
@@ -541,7 +541,13 @@ syncRouter.post(
     const job = startDubJob(jobId, { phase: 'units', step: 1, unitCount: 0, unitsVoiced: 0, unitsToVoice: 0, suggestionsTotal: 0, suggestionsDone: 0 });
     const controller = job?.controller || new AbortController();
     res.on('close', () => {
-      if (!res.writableFinished) controller.abort();
+      if (res.writableFinished) return;
+      // A dropped connection with the app still open (sleep, a network change) doesn't throw away a sync minutes in.
+      const kept = detachDubJob(jobId, {
+        onOrphan: () => logger.warn(`Sync ${jobId}: the app stopped asking about it, so it was stopped.`),
+      });
+      if (kept) logger.warn(`Sync ${jobId}: the app's connection closed before the sync finished; it keeps running while the app still asks about it.`);
+      else controller.abort();
     });
 
     const apiKey = req.get('x-elevenlabs-key') || undefined;
@@ -631,7 +637,6 @@ syncRouter.post(
           onProgress: (progress) => job && updateDubJob(jobId, progress),
         }
       );
-      if (job) finishDubJob(jobId, 'done');
       if (result.report.audioDebug) logAudioDebug(result.report.audioDebug);
       // The bank goes out in the dub's own sample format, and what is kept here
       // is read back from that same file, so a render from this copy and from
@@ -640,7 +645,7 @@ syncRouter.post(
       const bankFile = await encodeWav(sampleRate)(result.bank.samples, { float });
       const bankId = randomUUID();
       keepBank(bankId, parseWav(bankFile.buffer));
-      res.json({
+      const answer = {
         audioId: keepResult(result.buffer, result.contentType),
         contentType: result.contentType,
         stems: (result.stems || []).map((stem) => ({ speaker: stem.speaker, audioId: keepResult(stem.buffer, stem.contentType), contentType: stem.contentType })),
@@ -666,13 +671,35 @@ syncRouter.post(
           lines: result.bank.lines,
           speakerGains: result.bank.speakerGains,
         },
-      });
+      };
+      // Kept with the job too, for an app whose connection dropped meanwhile (GET /api/sync/jobs/:jobId/result).
+      if (job) finishDubJob(jobId, 'done', { status: 200, body: answer });
+      if (res.writableEnded || res.destroyed) {
+        logger.info(`Sync ${jobId} finished after the app's connection closed; its result waits for the app to fetch it.`);
+        return;
+      }
+      res.json(answer);
     } catch (err) {
-      if (job) finishDubJob(jobId, controller.signal.aborted ? 'cancelled' : 'failed');
+      if (job) finishDubJob(jobId, controller.signal.aborted ? 'cancelled' : 'failed', syncErrorOutcome(err, controller.signal.aborted));
+      if (res.destroyed) {
+        logger.warn(`Sync ${jobId} ended after the app's connection closed: ${err?.message || err}`);
+        return;
+      }
       throw err;
     }
   })
 );
+
+/** The error answer a sync would have sent, kept for an app whose connection dropped. */
+const syncErrorOutcome = (err, cancelled) => {
+  const error =
+    err instanceof ApiError
+      ? err
+      : cancelled
+        ? new ApiError('The sync was stopped.', { status: 499, code: 'cancelled' })
+        : new ApiError(err?.message || 'An unexpected server error occurred.', { status: 500, code: 'internal_error' });
+  return { status: error.status, body: error.toJSON() };
+};
 
 /** The voice's own timing of takes it voiced, by their audio, for a take voiced again from the clip cache. */
 const voicedTimings = new Map();
@@ -1727,6 +1754,19 @@ syncRouter.get('/sync/jobs/:jobId', (req, res) => {
   const progress = getDubProgress(req.params.jobId);
   if (!progress) throw new ApiError('No sync with that id is running.', { status: 404, code: 'sync_not_found' });
   res.json(progress);
+});
+
+/**
+ * GET /api/sync/jobs/:jobId/result — what POST /api/sync answered (or would
+ * have), for an app whose connection to it dropped halfway. 202 while the
+ * sync still runs; the sync's own answer, success or error, once it is over.
+ */
+syncRouter.get('/sync/jobs/:jobId/result', (req, res) => {
+  const outcome = dubJobOutcome(req.params.jobId);
+  if (!outcome) throw new ApiError('No sync with that id is running.', { status: 404, code: 'sync_not_found' });
+  if (outcome.running) return res.status(202).json({ running: true });
+  logger.info(`Sync ${req.params.jobId}: the app fetched its result after its connection had closed.`);
+  res.status(outcome.status).json(outcome.body);
 });
 
 /** POST /api/sync/jobs/:jobId/cancel — stops a sync. */

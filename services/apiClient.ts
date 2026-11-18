@@ -126,21 +126,46 @@ const backendRestartedSince = async (sentAt: number, signal?: AbortSignal): Prom
 };
 
 /**
+ * Writes one line into backend.log (and so into a problem report): a request
+ * the page sent that failed leaves no trace there otherwise. Never throws.
+ */
+export const logToBackend = (message: string): void => {
+  try {
+    void fetch(`${API_BASE}/client-log`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: message.slice(0, 500) }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch {
+    // Nothing to log to.
+  }
+};
+
+// The computer losing its network (Wi-Fi, VPN) can cut a long request to the engine too.
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('offline', () => logToBackend('The computer went offline.'));
+  window.addEventListener('online', () => logToBackend('The computer is online again.'));
+}
+
+/**
  * Runs a request, and when the backend stops halfway (a crash, or the
  * watchdog ending a hung one) waits for it to come back and sends the request
  * again, so a dub or a sync carries on instead of failing.
  */
 const withNetworkGuard = async <T>(
   action: () => Promise<T>,
-  { signal, retry = true }: { signal?: AbortSignal; retry?: boolean } = {}
+  { signal, retry = true, label = 'A request' }: { signal?: AbortSignal; retry?: boolean; label?: string } = {}
 ): Promise<T> => {
   for (let resends = 0; ; resends += 1) {
     const sentAt = Date.now();
     let failure: DhvaniApiError;
+    let cause = 'network error';
     try {
       return await action();
     } catch (err: any) {
       if (err instanceof DhvaniApiError && err.code !== 'backend_unreachable') throw err;
+      cause = err?.message || cause;
       failure =
         err instanceof DhvaniApiError
           ? err
@@ -151,7 +176,14 @@ const withNetworkGuard = async <T>(
             );
     }
     if (!retry || signal?.aborted || resends >= MAX_RESENDS) throw failure;
-    if (!(await backendRestartedSince(sentAt, signal)) || signal?.aborted) throw failure;
+    const seconds = Math.round((Date.now() - sentAt) / 1000);
+    if (!(await backendRestartedSince(sentAt, signal)) || signal?.aborted) {
+      if (!signal?.aborted) {
+        logToBackend(`${label} lost its connection after ${seconds} s (${cause}) while the engine was still running.`);
+      }
+      throw failure;
+    }
+    logToBackend(`${label} lost its connection after ${seconds} s (${cause}); the engine had restarted, so it was sent again.`);
     console.info('The DHVANI backend restarted; sending the request again.');
   }
 };
@@ -181,7 +213,7 @@ export const apiJson = async <T = any>(
 
     if (!response.ok) throw await toApiError(response);
     return response.json() as Promise<T>;
-  }, { signal, retry });
+  }, { signal, retry, label: `${method} ${API_BASE}${path}` });
 
 /** GET helper. */
 export const apiGet = <T = any>(path: string, options: RequestOptions = {}): Promise<T> =>
@@ -203,7 +235,7 @@ export const apiUpload = async <T = any>(
 
     if (!response.ok) throw await toApiError(response);
     return response.json() as Promise<T>;
-  }, { signal, retry });
+  }, { signal, retry, label: `POST ${API_BASE}${path}` });
 
 /** POST returning binary audio as a Blob. */
 export const apiAudio = async (
@@ -222,7 +254,7 @@ export const apiAudio = async (
     if (!response.ok) throw await toApiError(response);
     onHeaders?.(response.headers);
     return response.blob();
-  }, { signal, retry });
+  }, { signal, retry, label: `POST ${API_BASE}${path}` });
 
 /** POST of a file returning binary audio as a Blob. */
 export const apiPostBlobAudio = async (path: string, blob: Blob, { keys, signal, retry }: RequestOptions = {}): Promise<Blob> =>
@@ -236,7 +268,7 @@ export const apiPostBlobAudio = async (path: string, blob: Blob, { keys, signal,
 
     if (!response.ok) throw await toApiError(response);
     return response.blob();
-  }, { signal, retry });
+  }, { signal, retry, label: `POST ${API_BASE}${path}` });
 
 /** GET returning binary audio as a Blob. */
 export const apiGetAudio = async (path: string, { keys, signal, retry }: RequestOptions = {}): Promise<Blob> =>
@@ -245,7 +277,7 @@ export const apiGetAudio = async (path: string, { keys, signal, retry }: Request
 
     if (!response.ok) throw await toApiError(response);
     return response.blob();
-  }, { signal, retry });
+  }, { signal, retry, label: `GET ${API_BASE}${path}` });
 
 /** PUT of one file as the raw body, returning parsed JSON. */
 export const apiPutBlob = async <T = any>(path: string, blob: Blob, { keys, signal, retry }: RequestOptions = {}): Promise<T> =>
@@ -259,7 +291,7 @@ export const apiPutBlob = async <T = any>(path: string, blob: Blob, { keys, sign
 
     if (!response.ok) throw await toApiError(response);
     return response.json() as Promise<T>;
-  }, { signal, retry });
+  }, { signal, retry, label: `PUT ${API_BASE}${path}` });
 
 /** Multipart POST returning binary audio as a Blob. */
 export const apiAudioUpload = async (
@@ -277,7 +309,7 @@ export const apiAudioUpload = async (
 
     if (!response.ok) throw await toApiError(response);
     return response.blob();
-  }, { signal, retry });
+  }, { signal, retry, label: `POST ${API_BASE}${path}` });
 
 export interface StreamEvent {
   type: 'progress' | 'result' | 'error';

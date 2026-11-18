@@ -1,5 +1,6 @@
 import { apiGet, apiGetAudio, apiJson, apiPutBlob, DhvaniApiError } from './apiClient';
 import { sendBankAgain } from './bankUpload';
+import { withJobRecovery } from './syncResult.ts';
 import { AudioSegment, DubLines, DubMixReport, DubStem, MixPeakMode, SpeakerVoice } from '../types';
 import { ElevenLabsVoiceSettings, StabilityAdjustment } from './elevenLabsService';
 import { isCartesiaVoice, cartesiaDelivery, type CartesiaVoicePrefs } from './cartesiaService';
@@ -558,7 +559,8 @@ export const syncDub = async (
   // Picked takes the server can't have (no saved bank to send it) are voiced again instead.
   let keepPicked = Boolean(picked);
   const send = (withDub: boolean) =>
-    apiJson<Synced>('/sync', {
+    // The sync is one long request: when its connection drops with the engine still up, the run carries on there.
+    withJobRecovery(jobId, signal, () => apiJson<Synced>('/sync', {
       body: {
         ...rest,
         ...(keepPicked && picked && { picked }),
@@ -575,7 +577,7 @@ export const syncDub = async (
       },
       keys: { elevenLabsKey: apiKey },
       signal,
-    });
+    }));
   /** Sends a sync again after the server asked for the bank the picked takes are in. */
   const sendWithBank = async (withDub: boolean): Promise<Synced> => {
     try {

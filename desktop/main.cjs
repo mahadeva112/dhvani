@@ -999,6 +999,19 @@ const showWhatsNew = () => {
   whatsNewWindow.loadFile(path.join(__dirname, 'whatsnew.html'), { query: { version: app.getVersion() } });
 };
 
+/**
+ * Sleep, wake and a locked screen go into backend.log: a sleeping laptop cuts
+ * a long Sync's connection, and the problem report should say so.
+ */
+const logPowerEvents = () => {
+  const { powerMonitor } = require('electron');
+  const note = (what) => () => appendLog(`[power] ${new Date().toISOString()} ${what}\n`);
+  powerMonitor.on('suspend', note('the computer is going to sleep'));
+  powerMonitor.on('resume', note('the computer woke up'));
+  powerMonitor.on('lock-screen', note('the screen was locked'));
+  powerMonitor.on('unlock-screen', note('the screen was unlocked'));
+};
+
 /** How much of the end of backend.log goes into a problem report. */
 const REPORT_LOG_BYTES = 1024 * 1024;
 
@@ -1199,6 +1212,7 @@ if (!app.requestSingleInstanceLock()) {
         appendLog('[rosetta] This is the Intel build running translated on an Apple Silicon Mac; it is much slower than the native build.\n');
       }
       buildMenu();
+      logPowerEvents();
       createWindow(); // Shows the loading page while the engine starts.
       setupAutoUpdates();
       enginePort = await pickEnginePort();
