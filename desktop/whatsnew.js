@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.97',
+    changes: [
+      'Dubs with several speakers: "Man or woman?" in the Cast listens to each speaker in the original and suggests whether they are a man or a woman. Nothing is set until you click Use, or "Use what was heard" for everyone at once.',
+      "A speaker's card also suggests up to three voices of that gender for them, leaving out voices other speakers already use.",
+    ],
+  },
+  {
     version: '1.4.96',
     changes: [
       'Sync no longer fails with "Could not reach the local DHVANI backend" when the connection to the DHVANI engine drops halfway, for example when the laptop sleeps or the VPN or network changes. The Sync keeps going and its result is picked up when it finishes.',
