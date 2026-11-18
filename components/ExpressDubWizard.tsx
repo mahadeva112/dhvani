@@ -43,6 +43,7 @@ import {
   FileText,
   Video,
   Zap,
+  Ear,
 } from 'lucide-react';
 import { AudioSegment, BatchJob, MixPeakMode, ProcessingStatus, SpeakerProfile, SpeakerVoice, TargetSource, TrackSwitchOptions } from '../types';
 import { hasTranscript } from '../services/steps';
@@ -70,7 +71,8 @@ import {
   type VoiceExpression,
 } from '../services/elevenLabsService';
 import { cartesiaTakesControls, MIN_CARTESIA_SPEED, MAX_CARTESIA_SPEED, type CartesiaVoicePrefs } from '../services/cartesiaService';
-import { SpeakerCastCard, SavedCastMenu, genderShort, type OwnSettingControl } from './SpeakerCastCard';
+import { SpeakerCastCard, SavedCastMenu, genderShort, type OwnSettingControl, type HeardState } from './SpeakerCastCard';
+import { hearSpeakerVoice, suggestSpeakerVoices } from '../services/speakerVoice';
 import { samplePassage } from '../services/samplePassages';
 import { VoiceTryLine } from './VoiceTryLine';
 import { ResetDefaultsButton } from './ResetDefaultsButton';
@@ -1235,6 +1237,43 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       if (cue) onPlaySegmentSolo(cue);
     },
     [segments, onPlaySegmentSolo]
+  );
+  // "Man or woman?": what the model heard in each speaker's voice, a suggestion only.
+  const [heardVoices, setHeardVoices] = useState<Record<string, HeardState>>({});
+  const listenAbort = useRef<AbortController | null>(null);
+  useEffect(() => {
+    setHeardVoices({});
+    listenAbort.current?.abort();
+  }, [activeJob?.id]);
+  useEffect(() => () => listenAbort.current?.abort(), []);
+  const listenToSpeakers = useCallback(
+    async (names: string[]) => {
+      const buffer = activeJob?.audioBuffer;
+      if (!buffer || names.length === 0) return;
+      listenAbort.current?.abort();
+      const controller = new AbortController();
+      listenAbort.current = controller;
+      setHeardVoices((prev) => ({ ...prev, ...Object.fromEntries(names.map((n) => [n, { state: 'listening' } as HeardState])) }));
+      const queue = [...names];
+      const worker = async () => {
+        for (let name = queue.shift(); name !== undefined; name = queue.shift()) {
+          const speaker = name;
+          let result: HeardState;
+          try {
+            const heard = await hearSpeakerVoice(buffer, latestSegments.current, speaker, controller.signal);
+            result = heard ? { state: 'heard', ...heard } : { state: 'short' };
+          } catch (err) {
+            if (controller.signal.aborted) return;
+            result = { state: 'failed', message: err instanceof Error ? err.message : String(err) };
+          }
+          if (controller.signal.aborted) return;
+          setHeardVoices((prev) => ({ ...prev, [speaker]: result }));
+        }
+      };
+      // A few speakers at a time: quick, without a burst of calls on a big cast.
+      await Promise.all(Array.from({ length: Math.min(3, names.length) }, worker));
+    },
+    [activeJob?.audioBuffer]
   );
   const speakerOverlaps = useMemo(() => (multiSpeaker ? overlapsBefore(segments) : new Map<string, { speaker: string; seconds: number }>()), [segments, multiSpeaker]);
   const overlapIds = useMemo(() => new Set(speakerOverlaps.keys()), [speakerOverlaps]);
@@ -2497,6 +2536,28 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     .map((voiceId) => setupSpeakers.filter((s) => voiceOfSpeaker(s.name) === voiceId))
     .filter((group) => group.length > 1)
     .map((group) => ({ voiceId: voiceOfSpeaker(group[0].name), least: group[group.length - 1], others: group.slice(0, -1).map((s) => s.name) }));
+  // Man or woman, heard: who is still to be heard, and suggestions waiting to be accepted.
+  const heardOf = (name: string) => heardVoices[name];
+  const heardGender = (name: string) => {
+    const h = heardOf(name);
+    return h?.state === 'heard' ? h.voice : null;
+  };
+  const listening = setupSpeakers.filter((s) => heardOf(s.name)?.state === 'listening').length;
+  const unheard = setupSpeakers.filter((s) => !activeJob?.speakerProfiles?.[s.name]?.gender && !heardOf(s.name)).map((s) => s.name);
+  const heardToUse = setupSpeakers.filter((s) => !activeJob?.speakerProfiles?.[s.name]?.gender && heardGender(s.name));
+  const useAllHeard = () => {
+    if (!activeJob || !onApplySavedCast) return;
+    const speakerProfiles = { ...(activeJob.speakerProfiles || {}) };
+    for (const s of heardToUse) speakerProfiles[s.name] = { ...speakerProfiles[s.name], gender: heardGender(s.name)! };
+    onApplySavedCast({ cast: activeJob.cast || {}, speakerProfiles });
+  };
+  // Voices for a speaker of the gender set or heard: not the main voice, not another speaker's.
+  const voiceIdeasFor = (name: string) => {
+    const gender = activeJob?.speakerProfiles?.[name]?.gender || heardGender(name);
+    if (!gender) return { gender: null, voices: [] as Voice[] };
+    const taken = [elVoiceId, ...Object.entries(activeJob?.cast || {}).filter(([who]) => who !== name).map(([, c]) => c.voiceId)];
+    return { gender, voices: suggestSpeakerVoices(availableVoices, gender, { language: targetLanguage, engine: voiceEngine, taken }) };
+  };
   // The speed of the picked row's voice: a speaker's own, or the main voice's.
   const pickedRate = pickFor && activeJob?.cast?.[pickFor]?.voiceId ? speakerVoiceRates?.[pickFor] : voiceRate;
   // The picked row's voice reading a line of the dub: that speaker's first translated line (anyone's for the main voice), else a sample.
@@ -2782,6 +2843,34 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       />
                     )}
                   </div>
+                  {multiSpeaker && activeJob && onApplySavedCast && (listening > 0 || (heardToUse.length > 0 && genderMatters) || (unheard.length > 0 && activeJob.audioBuffer)) && (
+                    <div className="px-2 pb-1.5 flex items-center gap-1.5 flex-wrap">
+                      {listening > 0 ? (
+                        <span className="text-[10.5px] text-slate-400 flex items-center gap-1" role="status">
+                          <Ear className="w-3 h-3 animate-pulse" /> Listening to {listening} speaker{listening === 1 ? '' : 's'}…
+                        </span>
+                      ) : heardToUse.length > 0 && genderMatters ? (
+                        <button
+                          type="button"
+                          onClick={useAllHeard}
+                          title={heardToUse.map((s) => `${s.name}: ${genderShort(heardGender(s.name)!)}`).join(', ')}
+                          className="shrink-0 h-6 px-2 rounded-md bg-indigo-500 text-white text-[11px] font-medium hover:bg-indigo-400 flex items-center gap-1 cursor-default"
+                        >
+                          <Check className="w-3 h-3" /> Use what was heard ({heardToUse.length})
+                        </button>
+                      ) : null}
+                      {unheard.length > 0 && listening === 0 && activeJob.audioBuffer && (
+                        <button
+                          type="button"
+                          onClick={() => listenToSpeakers(unheard)}
+                          title="Listen to each speaker in the original and suggest man or woman, and voices to match. Nothing changes until you accept."
+                          className="shrink-0 h-6 px-2 rounded-md border border-edge text-[11px] text-slate-300 hover:bg-slate-800 flex items-center gap-1 cursor-default"
+                        >
+                          <Ear className="w-3 h-3" /> Man or woman?
+                        </button>
+                      )}
+                    </div>
+                  )}
                   <button
                     type="button"
                     onClick={() => setSetupPickFor(null)}
@@ -2822,11 +2911,19 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                 <span className="flex items-baseline gap-1.5 min-w-0">
                                   <span className="truncate text-[13px] font-semibold text-slate-100">{s.name}</span>
                                   <span className="shrink-0 font-mono text-[10.5px] text-slate-500 tabular-nums">{Math.round(s.share * 100)}%</span>
-                                  {genderMatters && (
-                                    <span className={`shrink-0 text-[10.5px] ${profile?.gender ? 'text-slate-300' : 'text-slate-600'}`} title={profile?.gender ? `Speaks as a ${genderShort(profile.gender).toLowerCase()}` : 'Not set: man or woman'}>
-                                      · {genderShort(profile?.gender) || '?'}
+                                  {profile?.gender ? (
+                                    <span className="shrink-0 text-[10.5px] text-slate-300" title={`Speaks as a ${genderShort(profile.gender).toLowerCase()}`}>
+                                      · {genderShort(profile.gender)}
                                     </span>
-                                  )}
+                                  ) : heardGender(s.name) ? (
+                                    <span className="shrink-0 text-[10.5px] text-indigo-300/80 italic" title="Heard in the original, not set yet. Open the speaker to accept it.">
+                                      · {genderShort(heardGender(s.name)!)}?
+                                    </span>
+                                  ) : genderMatters ? (
+                                    <span className="shrink-0 text-[10.5px] text-slate-600" title="Not set: man or woman">
+                                      · ?
+                                    </span>
+                                  ) : null}
                                   {ownSettings && <span className="shrink-0 self-center w-1.5 h-1.5 rounded-full bg-amber-500" title="Own voice settings" />}
                                 </span>
                                 {own ? (
@@ -2857,6 +2954,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                               controls={ownSettingControls}
                               onHear={() => hearSpeaker(s.name)}
                               onChange={(patch) => onSpeakerProfileChange(s.name, patch)}
+                              heard={heardOf(s.name)}
+                              onListen={activeJob.audioBuffer ? () => listenToSpeakers([s.name]) : undefined}
+                              voiceIdeas={onCastChange ? voiceIdeasFor(s.name) : undefined}
+                              currentVoiceId={own}
+                              onPickVoice={onCastChange ? (id) => onCastChange(s.name, id) : undefined}
                             />
                           )}
                           </div>

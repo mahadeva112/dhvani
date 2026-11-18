@@ -46,3 +46,32 @@ export const speakerGenderReview = (cues) =>
   cues.some((cue) => cue?.speakerIs)
     ? `\n- the speaker talks about themself in the wrong gender: a cue with "speaker": "woman" uses masculine forms for the speaker's own "I" (or "man" uses feminine), in a language whose verbs or adjectives show it;`
     : '';
+
+/** Below this the model's answer is shown as "not sure", never as a pick. */
+export const HEARD_SURE_ENOUGH = 0.6;
+
+/**
+ * The prompt for hearing one speaker's clip: a man's voice or a woman's. A
+ * child, a voice that could be either, or noise is "unsure"; the answer is
+ * only ever a suggestion the user accepts in the Cast.
+ */
+export const HEAR_SPEAKER_PROMPT = `Listen to this clip. It is one person speaking (a few of their lines joined).
+
+Does this voice sound like an adult man's or an adult woman's?
+- Answer "unsure" for a child, a voice that could be either, music or noise over the voice, or more than one person.
+- Judge only the voice, never the words.
+
+Respond with ONLY this JSON:
+{"voice":"man" | "woman" | "unsure","sure":<0 to 1, how sure you are>}`;
+
+/**
+ * The model's answer as `{ voice: 'man' | 'woman' | null, sure }`. Anything
+ * it could not decide, or decided below HEARD_SURE_ENOUGH, is `voice: null`.
+ */
+export const readHeardVoice = (answer) => {
+  const said = String(answer?.voice ?? answer?.gender ?? '').trim().toLowerCase();
+  const voice = ['man', 'male'].includes(said) ? 'man' : ['woman', 'female'].includes(said) ? 'woman' : null;
+  const raw = Number(answer?.sure ?? answer?.confidence);
+  const sure = Number.isFinite(raw) ? Math.min(1, Math.max(0, raw > 1 && raw <= 100 ? raw / 100 : raw)) : voice ? HEARD_SURE_ENOUGH : 0;
+  return { voice: voice && sure >= HEARD_SURE_ENOUGH ? voice : null, sure: Math.round(sure * 100) / 100 };
+};

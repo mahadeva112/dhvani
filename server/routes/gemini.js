@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import { ApiError } from '../errors.js';
 import { upload, cleanupUploads } from '../middleware/upload.js';
 import {
   detectExpression,
+  hearSpeakerVoice,
   splitSegment,
   generateSsml,
   validateSsml,
@@ -34,6 +36,17 @@ geminiRouter.post(
       // Expression detection is a nicety; a failure should not block the dub.
       res.json({ expression: 'Natural', warning: err?.message });
     }
+  })
+);
+
+/** POST /api/gemini/speaker-voice — hears one speaker's clip: a man's voice or a woman's. */
+geminiRouter.post(
+  '/gemini/speaker-voice',
+  cleanupUploads,
+  upload.single('file'),
+  asyncHandler(async (req, res) => {
+    if (!req.file) throw new ApiError('No clip was sent to listen to.', { status: 400, code: 'bad_request' });
+    res.json(await hearSpeakerVoice(req.file, { apiKey: apiKey(req) }));
   })
 );
 

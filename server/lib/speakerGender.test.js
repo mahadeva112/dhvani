@@ -57,3 +57,13 @@ test('the meaning reviewer and the grammar check read the speaker too', () => {
   assert.match(grammar, /"speaker":"woman"/);
   assert.doesNotMatch(buildGrammarPrompt({ lines: [{ id: '1', text: 'मैं गया' }], language: 'Hindi' }), /Speaker's gender/);
 });
+
+test('a heard voice is a suggestion only when the model is sure enough', async () => {
+  const { readHeardVoice } = await import('./speakerGender.js');
+  assert.deepEqual(readHeardVoice({ voice: 'woman', sure: 0.92 }), { voice: 'woman', sure: 0.92 });
+  assert.deepEqual(readHeardVoice({ voice: 'Male', sure: 85 }), { voice: 'man', sure: 0.85 });
+  assert.deepEqual(readHeardVoice({ voice: 'man', sure: 0.4 }), { voice: null, sure: 0.4 });
+  assert.deepEqual(readHeardVoice({ voice: 'unsure', sure: 0.9 }), { voice: null, sure: 0.9 });
+  assert.deepEqual(readHeardVoice({ voice: 'woman' }), { voice: 'woman', sure: 0.6 });
+  assert.deepEqual(readHeardVoice(null), { voice: null, sure: 0 });
+});

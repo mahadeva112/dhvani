@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Play, RotateCcw, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, Ear, Play, RotateCcw, Trash2 } from 'lucide-react';
 import type { SpeakerGender, SpeakerOwnSettings, SpeakerProfile, SpeakerVoice } from '../types';
+import type { Voice } from '../services/elevenLabsService';
 import { applySavedCast, castEntries, deleteSavedCast, loadSavedCasts, saveCast, type SavedCast } from '../services/savedCasts';
 
 /**
@@ -27,6 +28,13 @@ const GENDERS: { id: SpeakerGender; label: string }[] = [
   { id: 'woman', label: 'Woman' },
 ];
 
+/** What listening to a speaker found: their voice, too little to hear, or an error. */
+export type HeardState =
+  | { state: 'listening' }
+  | { state: 'heard'; voice: SpeakerGender | null; sure: number }
+  | { state: 'short' }
+  | { state: 'failed'; message: string };
+
 export const genderShort = (gender?: SpeakerGender) => (gender === 'woman' ? 'Woman' : gender === 'man' ? 'Man' : '');
 
 export const SpeakerCastCard: React.FC<{
@@ -38,8 +46,19 @@ export const SpeakerCastCard: React.FC<{
   controls: OwnSettingControl[];
   onHear?: () => void;
   onChange: (patch: Partial<SpeakerProfile> | null) => void;
-}> = ({ speaker, profile, showGender, targetLanguage, controls, onHear, onChange }) => {
+  /** What "Man or woman?" heard in this speaker's voice; only ever a suggestion. */
+  heard?: HeardState;
+  onListen?: () => void;
+  /** Voices for the gender set or heard, and which gender that is. */
+  voiceIdeas?: { gender: SpeakerGender | null; voices: Voice[] };
+  currentVoiceId?: string;
+  onPickVoice?: (voiceId: string) => void;
+}> = ({ speaker, profile, showGender, targetLanguage, controls, onHear, onChange, heard, onListen, voiceIdeas, currentVoiceId, onPickVoice }) => {
   const hasOwn = controls.some((c) => profile?.[c.key] !== undefined);
+  const heardVoice = heard?.state === 'heard' ? heard.voice : null;
+  const heardSure = heard?.state === 'heard' ? heard.sure : 0;
+  const unclear = heard && heard.state !== 'listening' && !heardVoice ? heard : null;
+  const a = (g: SpeakerGender) => (g === 'woman' ? 'a woman' : 'a man');
   return (
     <div className="mx-1 mb-1.5 mt-0.5 rounded-xl border border-edge bg-slate-950/70 px-3 py-2.5 flex flex-col gap-2.5" onClick={(e) => e.stopPropagation()}>
       <div className="flex items-center gap-2 flex-wrap">
@@ -80,10 +99,99 @@ export const SpeakerCastCard: React.FC<{
           </span>
         )}
       </div>
-      {showGender && !profile?.gender && (
+      {showGender && !profile?.gender && !heardVoice && (
         <p className="text-[11px] text-slate-500 leading-snug -mt-1">
           In {targetLanguage} a speaker's "I" shows if they are a man or a woman. Set it before you translate.
         </p>
+      )}
+
+      {/* "Man or woman?": what was heard in the original, kept apart from what is set. */}
+      {heard?.state === 'listening' ? (
+        <p className="text-[11px] text-slate-400 flex items-center gap-1.5 -mt-1" role="status">
+          <Ear className="w-3 h-3 animate-pulse" /> Listening to {speaker} in the original…
+        </p>
+      ) : heardVoice && !profile?.gender ? (
+        <div className="flex items-center gap-2 -mt-1">
+          <Ear className="w-3 h-3 text-indigo-300 shrink-0" />
+          <span className="text-[11.5px] text-slate-300">
+            Sounds like {a(heardVoice)} <span className="text-slate-500">· {Math.round(heardSure * 100)}% sure</span>
+          </span>
+          {showGender && (
+            <button
+              type="button"
+              onClick={() => onChange({ gender: heardVoice })}
+              title={`Set ${speaker} to speak as ${a(heardVoice)}`}
+              className="ml-auto h-6 px-2 rounded-md bg-indigo-500 text-white text-[11px] font-medium hover:bg-indigo-400 flex items-center gap-1 cursor-default"
+            >
+              <Check className="w-3 h-3" /> Use
+            </button>
+          )}
+        </div>
+      ) : heardVoice && profile?.gender && heardVoice !== profile.gender ? (
+        <p className="text-[11px] text-amber-300/90 leading-snug -mt-1">
+          The voice sounds like {a(heardVoice)}, but {speaker} is set as {a(profile.gender)}. Hear the original to check.
+        </p>
+      ) : unclear ? (
+        <p className="text-[11px] text-slate-500 leading-snug -mt-1 flex items-center gap-2">
+          <span className="flex-1 min-w-0">
+            {unclear.state === 'short'
+              ? `${speaker} has no line long enough to judge the voice.`
+              : unclear.state === 'failed'
+                ? `Couldn't listen: ${unclear.message}`
+                : "Couldn't tell from the voice."}
+            {showGender && !profile?.gender && unclear.state !== 'failed' ? ' Pick Man or Woman yourself.' : ''}
+          </span>
+          {unclear.state === 'failed' && onListen && (
+            <button type="button" onClick={onListen} className="shrink-0 h-6 px-2 rounded-md border border-edge text-[11px] text-slate-300 hover:bg-slate-800 cursor-default">
+              Try again
+            </button>
+          )}
+        </p>
+      ) : !heard && !profile?.gender && onListen ? (
+        <button
+          type="button"
+          onClick={onListen}
+          title="Listen to this speaker in the original and suggest man or woman. Nothing changes until you accept."
+          className="-mt-1 self-start h-6 px-2 rounded-md border border-edge text-[11px] text-slate-300 hover:bg-slate-800 flex items-center gap-1 cursor-default"
+        >
+          <Ear className="w-3 h-3" /> Man or woman?
+        </button>
+      ) : null}
+
+      {voiceIdeas?.gender && onPickVoice && (
+        <div className="flex flex-col gap-1">
+          <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
+            Voices for {a(voiceIdeas.gender)}
+            {!profile?.gender ? ' (heard)' : ''}
+          </span>
+          {voiceIdeas.voices.length === 0 ? (
+            <span className="text-[11px] text-slate-500">
+              No other {voiceIdeas.gender === 'woman' ? "woman's" : "man's"} voice in your list. Pick one on the left.
+            </span>
+          ) : (
+            <span className="flex flex-wrap gap-1">
+              {voiceIdeas.voices.map((v) => {
+                const on = v.voice_id === currentVoiceId;
+                const about = [v.labels?.accent, v.labels?.age, v.labels?.description].filter(Boolean).join(' · ');
+                return (
+                  <button
+                    key={v.voice_id}
+                    type="button"
+                    onClick={() => onPickVoice(v.voice_id)}
+                    aria-pressed={on}
+                    title={on ? `${speaker}'s voice now` : `Give ${speaker} ${v.name}${about ? ` (${about})` : ''}`}
+                    className={`h-7 max-w-[180px] px-2.5 rounded-lg border text-[11.5px] truncate cursor-default transition-colors ${
+                      on ? 'border-indigo-500/70 bg-indigo-500/15 text-slate-100' : 'border-edge text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    {on && <Check className="inline w-3 h-3 mr-1 -mt-0.5" />}
+                    {v.name}
+                  </button>
+                );
+              })}
+            </span>
+          )}
+        </div>
       )}
 
       {controls.length > 0 && (

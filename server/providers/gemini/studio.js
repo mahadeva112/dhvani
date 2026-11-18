@@ -5,6 +5,7 @@ import { geminiClient, parseJsonResponse } from './client.js';
 import { generateText } from '../textModel.js';
 import { toBcp47 } from '../../lib/languages.js';
 import { pcmToWav } from '../../lib/wav.js';
+import { HEAR_SPEAKER_PROMPT, readHeardVoice } from '../../lib/speakerGender.js';
 
 /**
  * Gemini features that existed in the original app and are kept for parity.
@@ -59,6 +60,23 @@ Return ONLY the tag, for example "[calm]".`;
   });
 
   return String(response.text || '').trim() || 'Natural';
+};
+
+/**
+ * Hears one speaker's clip and says whether the voice sounds like a man's or
+ * a woman's: `{ voice: 'man' | 'woman' | null, sure }`. Only a suggestion for
+ * the Cast; nothing is set until the user accepts it.
+ */
+export const hearSpeakerVoice = async (file, { apiKey, models } = {}) => {
+  const { response } = await generateText({
+    contents: { role: 'user', parts: [await inlineMedia(file), { text: HEAR_SPEAKER_PROMPT }] },
+    generationConfig: { responseMimeType: 'application/json', temperature: 0 },
+    // Hearing a voice needs no long thinking; low keeps a five-speaker Cast quick.
+    effort: 'low',
+    models,
+    apiKey,
+  });
+  return readHeardVoice(parseJsonResponse(response.text, 'Gemini listening'));
 };
 
 /**
