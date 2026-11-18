@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.96',
+    changes: [
+      'Sync no longer fails with "Could not reach the local DHVANI backend" when the connection to the DHVANI engine drops halfway, for example when the laptop sleeps or the VPN or network changes. The Sync keeps going and its result is picked up when it finishes.',
+      'If something still goes wrong, the problem report (Help → Save problem report) now says when a request lost its connection, and when the computer slept, woke, or went offline.',
+    ],
+  },
+  {
     version: '1.4.95',
     changes: [
       'API settings → Transcribe lets you pick Scribe v2 or the new Scribe v3. Scribe v2 stays the default: v3 gives slightly cleaner words but makes fewer, longer lines and can hear one speaker as two.',
