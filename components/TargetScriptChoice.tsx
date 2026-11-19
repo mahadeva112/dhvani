@@ -5,6 +5,7 @@ import { timingProblems } from '../services/transcriptSegments';
 import { TranscriptExportMenu, TranscriptExportNotice, type TranscriptExportResult, type TranscriptFormat } from './TranscriptExportMenu';
 import { TranscriptSegmentEditor, formatSplitTime } from './TranscriptSegmentEditor';
 import { scrollWithin } from './scrollWithin';
+import { useWindowRows } from './useWindowRows';
 import { translationFraction, type RetranslateProgress } from '../services/subtitleService';
 import type { VoiceRate } from '../services/voiceRate';
 import { reportError } from '../services/errorPopup';
@@ -122,15 +123,34 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
   const listRef = useRef<HTMLOListElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  const spoken = segments.filter((s) => (s.textSource || s.originalText || '').trim());
+  const hasTranscript = spoken.length > 0;
+
+  // A 2-hour transcript has thousands of segments: only those in view are drawn.
+  const listShown = !(editing && onApplySegments) && !isTranscribing && hasTranscript;
+  const rows = useWindowRows({
+    scroller: listRef,
+    count: listShown ? segments.length : 0,
+    // A line of text and its padding; a long one wraps to more.
+    estimate: (i) => 21 + Math.ceil(Math.max(1, (segments[i]?.textSource || segments[i]?.originalText || '').length) / 90) * 18,
+    keyOf: (i) => String(segments[i].id),
+    data: segments,
+  });
+  /** Brings a segment into view: one drawn the least distance, one not drawn to the middle. */
+  const showSegment = (index: number, block: 'nearest' | 'center' = 'nearest') => {
+    const seg = segments[index];
+    if (!seg) return;
+    const row = listRef.current?.querySelector<HTMLElement>(`[data-cue-id="${CSS.escape(String(seg.id))}"]`);
+    if (row) scrollWithin(row, block);
+    else rows.scrollToRow(index, 'center');
+  };
+
   // Keep the cue being played in view.
   useEffect(() => {
     if (activeSegmentId === null || !listRef.current) return;
-    const row = listRef.current.querySelector<HTMLElement>(`[data-cue-id="${CSS.escape(String(activeSegmentId))}"]`);
-    scrollWithin(row);
+    showSegment(segments.findIndex((seg) => String(seg.id) === String(activeSegmentId)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSegmentId]);
-
-  const spoken = segments.filter((s) => (s.textSource || s.originalText || '').trim());
-  const hasTranscript = spoken.length > 0;
   const length = segments.length ? segments[segments.length - 1].endTime : 0;
   const sameLanguage = Boolean(spokenLanguage) && spokenLanguage.toLowerCase() === targetLanguage.toLowerCase();
   const translateBlocked = !sameLanguage && !translationReady;
@@ -292,14 +312,16 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
             <p className="text-xs text-slate-500">Go back to Source and voice and transcribe the audio.</p>
           </div>
         ) : (
-          <ol ref={listRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain custom-scrollbar divide-y divide-slate-800/70">
-            {segments.map((seg, i) => {
+          <ol ref={listRef} className="relative flex-1 min-h-0 overflow-y-auto overscroll-contain custom-scrollbar">
+            <li ref={rows.spacerRef} aria-hidden="true" style={{ height: rows.padTop }} />
+            {segments.slice(rows.start, rows.end).map((seg, k) => {
+              const i = rows.start + k;
               const text = seg.textSource || seg.originalText || '';
               const on = activeSegmentId === seg.id;
               const problem = flagged.get(String(seg.id));
               const estimated = seg.timingSource === 'derived';
               return (
-                <li key={seg.id} data-cue-id={String(seg.id)} style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 44px' }}>
+                <li key={seg.id} ref={rows.rowRef(i)} data-cue-id={String(seg.id)} className={i > 0 ? 'border-t border-slate-800/70' : ''}>
                   <button
                     type="button"
                     onClick={() => Number.isFinite(seg.startTime) && onSeek?.(seg.startTime)}
@@ -324,6 +346,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
                 </li>
               );
             })}
+            <li aria-hidden="true" style={{ height: rows.padBottom }} />
           </ol>
         )}
         {!editing && (
@@ -333,7 +356,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
             onShowSegment={(index) => {
               const seg = segments[index];
               if (!seg) return;
-              scrollWithin(listRef.current?.querySelector(`[data-cue-id="${CSS.escape(String(seg.id))}"]`), 'center');
+              showSegment(index, 'center');
               if (Number.isFinite(seg.startTime)) onSeek?.(seg.startTime);
             }}
             onSaveJson={

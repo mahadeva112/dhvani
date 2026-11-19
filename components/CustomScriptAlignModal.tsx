@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useWindowRows } from './useWindowRows';
 import { X, Check, AlertCircle, RefreshCw, ClipboardPaste, ArrowUp, ArrowDown, Info, FileText, FolderOpen } from 'lucide-react';
 import { AudioSegment } from '../types';
 import { alignCustomScriptWithGemini, ScriptCoverage, ScriptFit, ScriptFlag, UnresolvedRange } from '../services/geminiService';
@@ -509,13 +510,25 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  const visible = draft.map((row, index) => ({ row, index })).filter(({ row }) => !onlyToCheck || needsCheck(row));
+  // A 2-hour project has thousands of cues: only those in view are drawn, so typing in one doesn't redraw them all.
+  // The window's body scrolls them (the list grows with its cues).
+  const rowsRef = useRef<HTMLDivElement>(null);
+  const rows = useWindowRows({
+    scroller: rowsRef,
+    count: isOpen ? visible.length : 0,
+    estimate: () => 76,
+    keyOf: (p) => String(visible[p].row.id),
+    data: visible.length,
+    gap: 6,
+  });
+
   if (!isOpen) return null;
 
   const filled = draft.filter((d) => d.targetText.trim()).length;
   const fast = draft.filter((d) => d.targetText.trim() && d.targetText.length / d.duration > FAST_CPS).length;
   const toCheck = hasAligned ? draft.filter(needsCheck).length : 0;
   const whole = hasAligned && fittedScript !== null && holdsWholeScript(draft.map((d) => d.targetText), fittedScript);
-  const visible = draft.map((row, index) => ({ row, index })).filter(({ row }) => !onlyToCheck || needsCheck(row));
   const step = !cleaned.text ? 1 : hasAligned ? 3 : 2;
   const percent = progress && progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
 
@@ -578,7 +591,8 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
           })}
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto grid md:grid-cols-[20.5rem_minmax(0,1fr)]">
+        {/* Scrolls the whole window body, the cues with it */}
+        <div ref={rowsRef} className="flex-1 min-h-0 overflow-y-auto grid md:grid-cols-[20.5rem_minmax(0,1fr)]">
           {/* Paste and choose */}
           <div className="px-5 py-4 border-b md:border-b-0 md:border-r border-edge flex flex-col gap-3.5 min-w-0">
             <div className="flex flex-col gap-2">
@@ -825,7 +839,8 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
               {onlyToCheck && visible.length === 0 && (
                 <p className="text-[12.5px] text-slate-400 p-3">All checked. Nothing else needs a look.</p>
               )}
-              {visible.map(({ row: item, index }) => {
+              <div ref={rows.spacerRef} aria-hidden="true" className="shrink-0" style={{ height: rows.padTop }} />
+              {visible.slice(rows.start, rows.end).map(({ row: item, index }, k) => {
                 const cps = item.duration > 0 ? item.targetText.length / item.duration : 0;
                 const tooFast = Boolean(item.targetText.trim()) && cps > FAST_CPS;
                 const flag = hasAligned
@@ -850,7 +865,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                 return (
                   <div
                     key={item.id}
-                    style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 76px' }}
+                    ref={rows.rowRef(rows.start + k)}
                     className={`group grid grid-cols-[2rem_minmax(0,1fr)] sm:grid-cols-[2rem_minmax(0,1fr)_minmax(0,1.25fr)_auto] gap-x-2.5 gap-y-1.5 items-start p-2.5 rounded-[10px] border bg-slate-900 ${
                       flag?.tone === 'rose' || tooFast ? 'border-rose-500/40' : flag ? 'border-amber-500/40' : 'border-edge'
                     }`}
@@ -921,6 +936,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                   </div>
                 );
               })}
+              <div aria-hidden="true" className="shrink-0" style={{ height: rows.padBottom }} />
             </div>
           </div>
         </div>

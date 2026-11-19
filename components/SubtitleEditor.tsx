@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDownToLine, CircleHelp, Scissors, Trash2, WrapText } from 'lucide-react';
 import { PhoneticSpellings } from './review/PhoneticTextarea';
 import { usePhoneticSwitch, usePhoneticTyping } from './review/usePhoneticTyping';
@@ -18,6 +18,7 @@ import {
   wrapSubtitle,
 } from '../services/subtitleEdits';
 import { vlen } from '../services/subtitleCues';
+import { useWindowRows } from './useWindowRows';
 
 /*
  * Export subtitles, edited by hand: one table row per subtitle, as tall as
@@ -116,6 +117,8 @@ interface CardProps {
   onDelete: () => void;
   onUndo: () => void;
   onRedo: () => void;
+  /** Lets the list measure the row (only the rows in view are drawn). */
+  rowRef?: (el: HTMLDivElement | null) => void;
 }
 
 function SubtitleCard({
@@ -138,6 +141,7 @@ function SubtitleCard({
   onDelete,
   onUndo,
   onRedo,
+  rowRef,
 }: CardProps) {
   const [draft, setDraftState] = useState<string | null>(null);
   // Read on blur: a box removed by its own split must not save its old text over the split.
@@ -187,6 +191,7 @@ function SubtitleCard({
   // One row a subtitle, like a subtitle editor's table: # · In · Out · text · characters · cps · tools.
   return (
     <div
+      ref={rowRef}
       data-start={cue.start}
       data-end={cue.end}
       onClick={() => onPick(true)}
@@ -348,6 +353,9 @@ function SubtitleCard({
 
 type Filter = 'all' | 'issue' | 'edited';
 
+/** A row's key: a subtitle split, merged or retimed is a new row. */
+const rowKey = (cue: EditedSubtitle | undefined, i: number) => `${i}:${cue?.start}:${cue?.end}`;
+
 export interface SubtitleEditorProps {
   cues: EditedSubtitle[];
   maxChars: number;
@@ -386,9 +394,41 @@ export function SubtitleEditor({ cues, maxChars, maxLines, maxCps, language = ''
     issue: stats.filter((s) => s.issue).length,
     edited: cues.filter(isEditedSubtitle).length,
   };
-  const shown = cues
-    .map((cue, i) => i)
-    .filter((i) => (filter === 'issue' ? stats[i].issue : filter === 'edited' ? isEditedSubtitle(cues[i]) : true));
+  const shown = useMemo(
+    () => cues.map((cue, i) => i).filter((i) => (filter === 'issue' ? stats[i].issue : filter === 'edited' ? isEditedSubtitle(cues[i]) : true)),
+    [cues, stats, filter]
+  );
+
+  // A 2-hour project has thousands of subtitles: only those in view are drawn.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const setListEl = useCallback(
+    (el: HTMLDivElement | null) => {
+      scrollRef.current = el;
+      if (typeof listRef === 'function') listRef(el);
+      else if (listRef) (listRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    },
+    [listRef]
+  );
+  const rows = useWindowRows({
+    scroller: scrollRef,
+    count: shown.length,
+    // A row is as tall as its text box: its lines, plus padding and the line under it.
+    estimate: (p) => Math.max(1, cues[shown[p]]?.text.split('\n').length ?? 1) * LINE_PX + 15,
+    keyOf: (p) => rowKey(cues[shown[p]], shown[p]),
+    data: shown,
+  });
+  // The subtitle being heard or picked, when it is not drawn, is scrolled to; one drawn is kept in view by the window.
+  useEffect(() => {
+    const p = shown.indexOf(activeRow);
+    if (p >= 0 && !rows.isDrawn(p)) rows.scrollToRow(p, 'center');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRow]);
+  useEffect(() => {
+    if (focusAt === null) return;
+    const p = shown.indexOf(focusAt);
+    if (p >= 0 && !rows.isDrawn(p)) rows.scrollToRow(p);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusAt]);
 
   const [showHelp, setShowHelp] = useState(false);
   const helpRef = useRef<HTMLSpanElement>(null);
@@ -511,7 +551,7 @@ export function SubtitleEditor({ cues, maxChars, maxLines, maxCps, language = ''
         {notice}
       </p>
 
-      <div ref={listRef} className="relative flex-1 min-h-[12rem] max-h-[22rem] md:max-h-none overflow-y-auto custom-scrollbar rounded-xl border border-edge bg-slate-950/50 flex flex-col">
+      <div ref={setListEl} className="relative flex-1 min-h-[12rem] max-h-[22rem] md:max-h-none overflow-y-auto custom-scrollbar rounded-xl border border-edge bg-slate-950/50 flex flex-col">
         {cues.length === 0 ? (
           <p className="p-6 text-center text-xs text-slate-500">Every subtitle was removed. Back to automatic cuts them again.</p>
         ) : shown.length === 0 ? (
@@ -575,9 +615,11 @@ export function SubtitleEditor({ cues, maxChars, maxLines, maxCps, language = ''
               )}
             </span>
           </div>
-          {shown.map((i) => (
-            <React.Fragment key={`${i}:${cues[i].start}:${cues[i].end}`}>
+          <div ref={rows.spacerRef} aria-hidden="true" className="shrink-0" style={{ height: rows.padTop }} />
+          {shown.slice(rows.start, rows.end).map((i, k) => (
+            <React.Fragment key={rowKey(cues[i], i)}>
             <SubtitleCard
+              rowRef={rows.rowRef(rows.start + k)}
               cue={cues[i]}
               index={i}
               last={i === cues.length - 1}
@@ -609,6 +651,7 @@ export function SubtitleEditor({ cues, maxChars, maxLines, maxCps, language = ''
             />
             </React.Fragment>
           ))}
+          <div aria-hidden="true" className="shrink-0" style={{ height: rows.padBottom }} />
           </>
         )}
       </div>

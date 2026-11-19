@@ -14,6 +14,7 @@ import {
   transcriptText,
 } from '../services/transcriptSegments';
 import { scrollWithin } from './scrollWithin';
+import { useWindowRows } from './useWindowRows';
 
 /** Seconds played either side of a cut by Hear. */
 const HEAR_SECONDS = 1.5;
@@ -84,11 +85,24 @@ export const TranscriptSegmentEditor: React.FC<TranscriptSegmentEditorProps> = (
   const counter = useRef(0);
   /** The segment a split or S just worked on, scrolled into view so the change is seen. */
   const [shownId, setShownId] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  // A 2-hour transcript has thousands of segments: only those in view are drawn.
+  const listRef = useRef<HTMLOListElement>(null);
+  const rows = useWindowRows({
+    scroller: listRef,
+    count: draft.length,
+    // A line of words, its padding and the line under it; a long one wraps to more.
+    estimate: (i) => 25 + Math.ceil(Math.max(1, sourceOf(draft[i]).length) / 90) * 25,
+    keyOf: (i) => String(draft[i].id),
+    data: draft,
+  });
   useEffect(() => {
     if (shownId === null) return;
-    scrollWithin(rootRef.current?.querySelector(`[data-seg-id="${CSS.escape(shownId)}"]`));
+    const el = rootRef.current?.querySelector(`[data-seg-id="${CSS.escape(shownId)}"]`);
+    if (el) return scrollWithin(el);
+    rows.scrollToRow(draft.findIndex((seg) => String(seg.id) === shownId), 'center');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shownId, draft, pending]);
-  const rootRef = useRef<HTMLDivElement>(null);
 
   const original = useMemo(() => transcriptText(segments), [segments]);
   const resetBase = transcriptCuts && transcriptCuts.length ? transcriptCuts : segments;
@@ -276,17 +290,19 @@ export const TranscriptSegmentEditor: React.FC<TranscriptSegmentEditorProps> = (
         </div>
       </div>
 
-      <ol aria-label="Segments" className="flex-1 min-h-0 overflow-y-auto overscroll-contain custom-scrollbar">
-        {draft.map((seg, i) => {
+      <ol ref={listRef} aria-label="Segments" className="relative flex-1 min-h-0 overflow-y-auto overscroll-contain custom-scrollbar">
+        <li ref={rows.spacerRef} aria-hidden="true" style={{ height: rows.padTop }} />
+        {draft.slice(rows.start, rows.end).map((seg, k) => {
+          const i = rows.start + k;
           const words = textWords(sourceOf(seg));
           const changed = changedIds.has(String(seg.id));
           const estimated = seg.timingSource === 'derived';
           const n = String(i + 1).padStart(2, '0');
           const isPending = pending && String(pending.id) === String(seg.id);
           return (
-            <React.Fragment key={seg.id}>
+            // One item a segment, its Merge with the one before on its top edge and its split time under it, so the list can measure it.
+            <li key={seg.id} ref={rows.rowRef(i)} data-seg-id={String(seg.id)} className="relative">
               {i > 0 && (
-                <li className="relative h-0" aria-hidden={false}>
                   <button
                     type="button"
                     onClick={() => merge(i - 1)}
@@ -297,14 +313,8 @@ export const TranscriptSegmentEditor: React.FC<TranscriptSegmentEditorProps> = (
                     <Merge className="w-3 h-3" aria-hidden="true" />
                     Merge
                   </button>
-                </li>
               )}
-              <li
-                data-seg-id={String(seg.id)}
-                className={`border-b border-edge/70 ${changed ? 'bg-indigo-500/[0.07]' : ''}`}
-                style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 52px' }}
-              >
-                <div className="grid grid-cols-[2rem_7.5rem_minmax(0,1fr)] gap-2.5 items-baseline px-4 py-3">
+                <div className={`grid grid-cols-[2rem_7.5rem_minmax(0,1fr)] gap-2.5 items-baseline px-4 py-3 border-b border-edge/70 ${changed ? 'bg-indigo-500/[0.07]' : ''}`}>
                   <span className="font-mono text-[11px] text-slate-500 tabular-nums">{n}</span>
                   <span className={`font-mono text-[11px] tabular-nums ${estimated ? 'text-amber-300' : 'text-slate-400'}`}>
                     {formatTime(seg.startTime)}–{formatTime(seg.endTime)}
@@ -336,9 +346,8 @@ export const TranscriptSegmentEditor: React.FC<TranscriptSegmentEditorProps> = (
                     )}
                   </span>
                 </div>
-              </li>
               {isPending && (
-                <li className="px-4 py-3 border-b border-amber-500/30 bg-amber-500/[0.07]">
+                <div className="px-4 py-3 border-b border-amber-500/30 bg-amber-500/[0.07]">
                   <div className="sm:ml-[10.75rem] flex flex-col gap-2">
                     <div className="flex items-center gap-2 text-[12.5px] font-semibold text-amber-200">
                       <ClockAlert className="w-4 h-4" aria-hidden="true" />
@@ -398,11 +407,12 @@ export const TranscriptSegmentEditor: React.FC<TranscriptSegmentEditorProps> = (
                       </p>
                     )}
                   </div>
-                </li>
+                </div>
               )}
-            </React.Fragment>
+            </li>
           );
         })}
+        <li aria-hidden="true" style={{ height: rows.padBottom }} />
       </ol>
 
       {notice && (

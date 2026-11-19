@@ -24,6 +24,7 @@ import { DEFAULT_MAX_CPS, editedSrt, editedVtt, fingerprint, subtitleEditKey, su
 import { SubtitleEditor, loadMaxCps, saveMaxCps } from './SubtitleEditor';
 import { DUB_TIMING_LIMIT_MS, useDubWordTimings } from '../services/dubSubtitleTiming';
 import { PageScrollLock } from './usePageScrollLock';
+import { useWindowRows, type WindowRows } from './useWindowRows';
 
 /** Short names for the presets, which carry long ones for elsewhere. */
 const PRESET_LABELS: Record<string, string> = {
@@ -155,6 +156,8 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   const playUrl = (syncMode === 'synced' ? audio?.synced : syncMode === 'dubbed' ? audio?.dubbed : originalUrl) || null;
   const listRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
+  /** The automatic subtitles' list while it is shown (not editing), for playback to scroll to a row not drawn. */
+  const previewList = useRef<{ cues: { start: number; end: number }[]; rows: WindowRows } | null>(null);
   const [playing, setPlaying] = useState(false);
   const [playTime, setPlayTime] = useState(0);
   const [playDuration, setPlayDuration] = useState(0);
@@ -173,6 +176,12 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
       const row = [...(listRef.current?.querySelectorAll<HTMLElement>('[data-start]') ?? [])].find(
         (el) => time >= Number(el.dataset.start) && time < Number(el.dataset.end)
       );
+      // Only the rows in view are drawn: one being said further on is scrolled to, and found next frame.
+      const preview = previewList.current;
+      if (!row && preview) {
+        const at = preview.cues.findIndex((c) => time >= c.start && time < c.end);
+        if (at >= 0 && !preview.rows.isDrawn(at)) preview.rows.scrollToRow(at, 'center');
+      }
       // Scrolls whichever holds the list (the list itself, or the dialog on a
       // wide screen) and leaves the frame where it is, over the list.
       const list = listRef.current;
@@ -326,6 +335,19 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   const editKey = subtitleEditKey(scriptTrack, syncMode);
   const edit = subtitleEdits?.[editKey] ?? null;
   const autoCues = useMemo(() => parseSrt(previewSrt), [previewSrt]);
+  // A 2-hour project has thousands of subtitles: only those in view are drawn.
+  const previewRows = useWindowRows({
+    scroller: listRef,
+    count: isOpen && !edit ? autoCues.length : 0,
+    estimate: (i) => Math.max(1, autoCues[i]?.lines.length ?? 1) * 19.25 + 17,
+    data: autoCues,
+  });
+  previewList.current = isOpen && !edit ? { cues: autoCues, rows: previewRows } : null;
+  // A row picked away from the view (Next, a seek) is scrolled to.
+  useEffect(() => {
+    if (!edit && !previewRows.isDrawn(previewIndex)) previewRows.scrollToRow(previewIndex, 'center');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewIndex]);
   const editedSince = Boolean(edit && edit.basis !== fingerprint(previewSrt));
   const outSrt = edit ? editedSrt(edit.cues) : previewSrt;
   const outVtt = edit ? editedVtt(edit.cues) : previewVtt;
@@ -874,9 +896,14 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
               {cues.length === 0 ? (
                 <p className="p-6 text-center text-xs text-slate-500">No cues to show yet.</p>
               ) : (
-                cues.map((c, i) => (
+                <>
+                <div ref={previewRows.spacerRef} aria-hidden="true" style={{ height: previewRows.padTop }} />
+                {cues.slice(previewRows.start, previewRows.end).map((c, k) => {
+                  const i = previewRows.start + k;
+                  return (
                   <button
                     key={c.index}
+                    ref={previewRows.rowRef(i)}
                     type="button"
                     data-start={c.start}
                     data-end={c.end}
@@ -884,7 +911,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
                       setPreviewIndex(i);
                       if (playUrl) seekTo(c.start);
                     }}
-                    className={`w-full text-left grid grid-cols-[2.25rem_minmax(0,1fr)] sm:grid-cols-[2.25rem_11.5rem_minmax(0,1fr)] gap-x-2.5 gap-y-0.5 px-3 py-2 border-t border-edge first:border-t-0 items-baseline cursor-default ${
+                    className={`w-full text-left grid grid-cols-[2.25rem_minmax(0,1fr)] sm:grid-cols-[2.25rem_11.5rem_minmax(0,1fr)] gap-x-2.5 gap-y-0.5 px-3 py-2 border-edge items-baseline cursor-default ${i === 0 ? '' : 'border-t'} ${
                       i === activeRow ? 'bg-indigo-500/15' : 'hover:bg-slate-800/40'
                     }`}
                   >
@@ -900,7 +927,10 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
                       ))}
                     </span>
                   </button>
-                ))
+                  );
+                })}
+                <div aria-hidden="true" style={{ height: previewRows.padBottom }} />
+                </>
               )}
             </div>
             )}
