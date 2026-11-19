@@ -197,6 +197,29 @@ export type Peaks = {
   rate: number;
   seconds: number;
   levels: { size: number; max: Int16Array; min: Int16Array }[];
+  /** Where in the audio these peaks start, in seconds: 0 but for detail peaks of a stretch (detailPeaks). */
+  start?: number;
+  /** For peaks without their samples, of audio read in slices: the samples of [from, to) seconds, as detail peaks. */
+  detail?: (from: number, to: number) => Promise<Peaks | null>;
+};
+
+/** Drawing [from, to) seconds `px` device pixels wide is finer than these peaks' finest blocks, and their samples can be read. */
+export const wantsDetail = (peaks: Peaks | null, from: number, to: number, px: number): boolean =>
+  Boolean(peaks?.detail) && !peaks?.data && px > 0 && ((to - from) * (peaks?.rate ?? 0)) / px < LEVEL_SIZES[0];
+
+/** Detail peaks that hold all of [from, to) seconds. */
+export const coversRange = (detail: Peaks | null, from: number, to: number): detail is Peaks =>
+  Boolean(detail) && (detail!.start ?? 0) <= from + 1e-9 && (detail!.start ?? 0) + detail!.seconds >= to - 1e-9;
+
+/**
+ * Samples of audio left in its file, read a stretch at a time (frames, end
+ * exclusive), one array per channel. Each read is a slice of the file.
+ */
+export type SampleSource = {
+  sampleRate: number;
+  length: number;
+  numberOfChannels: number;
+  read(from: number, to: number): Promise<Float32Array[]>;
 };
 
 /**
@@ -214,6 +237,8 @@ export type StreamedAudio = {
   length: number;
   numberOfChannels: number;
   peaks: Peaks;
+  /** Its samples, a stretch at a time; unset for a file that can't be read in slices (an MP3), whose samples must be decoded whole. */
+  samples?: SampleSource;
 };
 
 /** Audio as the waves draw it: decoded whole, or known by its peaks. */
@@ -243,6 +268,27 @@ export const computePeaks = (audio: WaveAudio): Peaks => {
   const peaks = readPeaks(audio);
   peaksByBuffer.set(audio, peaks);
   return peaks;
+};
+
+/** Detail peaks never cover more than this many samples: zoomed out further, the finest blocks are fine enough. */
+const DETAIL_MAX_FRAMES = 1 << 21;
+
+/**
+ * Peaks of [from, to) seconds of streamed audio with its samples, read from
+ * its file, for drawing zoomed in past its finest blocks (a sample a pixel
+ * and more). Null when the stretch is too long to be worth reading, or the
+ * audio can't be read in slices.
+ */
+export const detailPeaks = async (audio: StreamedAudio, from: number, to: number): Promise<Peaks | null> => {
+  if (!audio.samples) return null;
+  const rate = audio.sampleRate;
+  const i0 = Math.max(0, Math.floor(from * rate));
+  const i1 = Math.min(audio.length, Math.ceil(to * rate));
+  if (i1 <= i0 || i1 - i0 > DETAIL_MAX_FRAMES) return null;
+  const [first] = await audio.samples.read(i0, i1);
+  const builder = peaksBuilder(rate, first.length);
+  builder.add(first);
+  return { ...builder.done(first), start: i0 / rate };
 };
 
 /**
@@ -410,15 +456,17 @@ export const drawPeaks = (ctx: CanvasRenderingContext2D, peaks: Peaks | null, o:
 
   const samplesPerPx = (span * peaks.rate) / W;
   const samples = peaks.data;
+  // Detail peaks start part way into the audio; times stay the audio's own.
+  const s0 = peaks.start ?? 0;
   if (samplesPerPx < 1 && samples) {
     // Each sample a point on one line, in the style where it falls.
     ctx.lineWidth = Math.max(1, dpr);
     ctx.lineJoin = 'round';
-    const i0 = Math.max(0, Math.floor(o.from * peaks.rate) - 1);
-    const i1 = Math.min(samples.length - 1, Math.ceil(o.to * peaks.rate) + 1);
+    const i0 = Math.max(0, Math.floor((o.from - s0) * peaks.rate) - 1);
+    const i1 = Math.min(samples.length - 1, Math.ceil((o.to - s0) * peaks.rate) + 1);
     let prev: { x: number; y: number; silent: boolean } | null = null;
     for (let i = i0; i <= i1; i++) {
-      const t = i / peaks.rate;
+      const t = s0 + i / peaks.rate;
       const s = styleAt(t);
       const x = X + ((t - o.from) / span) * W;
       const v = samples[i] * gainAt(t);
@@ -448,8 +496,8 @@ export const drawPeaks = (ctx: CanvasRenderingContext2D, peaks: Peaks | null, o:
     const s = styleAt(tm);
     if (!s) continue;
     // One sample past the column's end, so neighbouring columns join where the wave runs steep.
-    const i0 = Math.floor(t0 * peaks.rate);
-    const r = peakRange(peaks, i0, Math.max(i0 + 1, Math.floor(t1 * peaks.rate)) + 1);
+    const i0 = Math.floor((t0 - s0) * peaks.rate);
+    const r = peakRange(peaks, i0, Math.max(i0 + 1, Math.floor((t1 - s0) * peaks.rate)) + 1);
     const g = gainAt(tm);
     if (!r || (quiet(r.hi * g) && quiet(r.lo * g))) continue;
     // Rounded to the nearest pixel, not outward, so faint noise isn't drawn a pixel thicker each side.

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pcmWavLayout } from './audioService.ts';
+import { pcmWavLayout, readStreamedAudio, wavSamples } from './audioService.ts';
+import { detailPeaks, peakRange } from './waveform.ts';
 
 const wav = ({ format = 1, bits = 16, channels = 1, rate = 48000, frames = 10, list = false, dataSize }: { format?: number; bits?: number; channels?: number; rate?: number; frames?: number; list?: boolean; dataSize?: number }) => {
   const align = channels * (bits / 8);
@@ -30,4 +31,47 @@ test('anything but 16-bit or 32-bit float PCM goes to the browser decoder', () =
   assert.equal(pcmWavLayout(wav({ bits: 24 }), 74), null);
   assert.equal(pcmWavLayout(wav({ format: 0xfffe }), 64), null);
   assert.equal(pcmWavLayout(new TextEncoder().encode('ID3 not a wav at all').buffer as ArrayBuffer, 20), null);
+});
+
+/** A 16-bit WAV with `samples` (interleaved), as a Blob. */
+const wavBlob = (samples: Int16Array, channels: number, rate = 48000) => {
+  const head = wav({ channels, rate, frames: samples.length / channels });
+  const bytes = new Uint8Array(head);
+  bytes.set(new Uint8Array(samples.buffer), 44);
+  return new Blob([bytes]);
+};
+
+test('a stretch read from the file is the samples the whole file decodes to, channel by channel', async () => {
+  const frames = 5000;
+  const pcm = new Int16Array(frames * 2).map((_, i) => ((i * 7919) % 65536) - 32768);
+  const blob = wavBlob(pcm, 2);
+  const layout = pcmWavLayout(await blob.slice(0, 1024).arrayBuffer(), blob.size)!;
+  const source = wavSamples(blob, layout);
+  assert.equal(source.length, frames);
+  const [left, right] = await source.read(1234, 1300);
+  assert.equal(left.length, 66);
+  for (let i = 0; i < 66; i++) {
+    const l = pcm[(1234 + i) * 2];
+    const r = pcm[(1234 + i) * 2 + 1];
+    assert.equal(left[i], Math.fround(l * (l < 0 ? Math.fround(1 / 32768) : Math.fround(1 / 32767))));
+    assert.equal(right[i], Math.fround(r * (r < 0 ? Math.fround(1 / 32768) : Math.fround(1 / 32767))));
+  }
+  // Past the end it stops at the end.
+  const [tail] = await source.read(4990, 6000);
+  assert.equal(tail.length, 10);
+});
+
+test('streamed audio reads its peaks and, zoomed in, its samples from the file', async () => {
+  const frames = 48000;
+  const pcm = new Int16Array(frames).map((_, i) => Math.round(Math.sin(i / 9) * 10000));
+  pcm[30000] = 32000;
+  const audio = await readStreamedAudio(wavBlob(pcm, 1));
+  assert.equal(audio.duration, 1);
+  assert.equal(audio.peaks.data, null);
+  assert.ok(Math.abs((peakRange(audio.peaks, 0, frames)?.hi ?? 0) - 32000 / 32767) < 1e-3);
+  const detail = await detailPeaks(audio, 0.6, 0.7);
+  assert.ok(detail?.data);
+  assert.equal(detail.start, 28800 / 48000);
+  assert.equal(detail.data.length, 4800);
+  assert.ok(Math.abs(detail.data[30000 - 28800] - 32000 / 32767) < 1e-6);
 });

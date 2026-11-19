@@ -47,9 +47,9 @@ import { PLAYHEAD_RED, Playhead, TimelineRuler, useTimelineZoom, useWindowPlayhe
 import { MarkerFlags, MarkerLines, MarkerList, newMarker, sortMarkers } from './TimelineMarkers';
 import type { TimelineNote } from '../types';
 import { WindowWaveform, usePeaks, type PeakData } from './WindowWaveform';
-import { computePeaks, drawCentreLine, drawPeaks } from '../services/waveform';
+import { computePeaks, coversRange, decodedBuffer, drawCentreLine, drawPeaks, isStreamedAudio, wantsDetail, type WaveAudio } from '../services/waveform';
 import { hueOf, shadeOf, tintOf, withAlpha } from './lineColors';
-import { decodeAudioBlobUrl } from '../services/audioService';
+import { readWaveAudio } from '../services/audioService';
 import { alignTakeWords } from '../services/syncTakesService';
 import { wordsInTakeRange, type TakeWord } from '../services/takeRange';
 import { tightenPart, tightenLevelDb, quietSpans, closeUpParts, markExtraCuts, DEFAULT_TIGHTEN, DEFAULT_SPLIT, type MorePauses, type TightenSettings } from '../services/tightenEdit';
@@ -440,6 +440,8 @@ const PartWave: React.FC<{
   const length = (to - from) / rate;
   const a = shown ? Math.max(0, shown.from) : 0;
   const b = shown ? Math.min(length, shown.to) : length;
+  /** Zoomed in past the finest blocks of a bank held as peaks: the samples it shows, read from the file. */
+  const [detail, setDetail] = useState<PeakData | null>(null);
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
@@ -466,7 +468,18 @@ const PartWave: React.FC<{
     if (!data || data.seconds <= 0) return;
     const gain = 10 ** (gainDb / 20);
     const start = bankOffset + from;
-    drawPeaks(ctx, data, {
+    const t0 = start + a * rate;
+    const t1 = start + b * rate;
+    let peaks = data;
+    if (wantsDetail(data, t0, t1, w * dpr)) {
+      if (coversRange(detail, t0, t1)) peaks = detail;
+      else {
+        // Drawn from the blocks meanwhile; a screen either side, so a short scroll needs no new read.
+        const span = t1 - t0;
+        void data.detail?.(t0 - span, t1 + span).then((d) => d && setDetail(d)).catch(() => {});
+      }
+    }
+    drawPeaks(ctx, peaks, {
       x: 0,
       y: top,
       w,
@@ -500,7 +513,7 @@ const PartWave: React.FC<{
       ctx.lineTo(x(length), bottom);
       ctx.stroke();
     }
-  }, [data, bankOffset, from, to, rate, gainDb, fadeIn, fadeOut, hue, size, a, b, length]);
+  }, [data, detail, bankOffset, from, to, rate, gainDb, fadeIn, fadeOut, hue, size, a, b, length]);
   return (
     <canvas
       ref={ref}
@@ -1306,7 +1319,7 @@ export const SyncEditTimeline: React.FC<{
   /** The dub plays live from its lines: edits are heard at once while the file renders behind. */
   live?: boolean;
   /** The lines, decoded, for live playback; null when they go (a new sync, or the editor closing). */
-  onBankAudio?: (buffer: AudioBuffer | null) => void;
+  onBankAudio?: (buffer: WaveAudio | null) => void;
   /**
    * The edits as a drag has them, while it lasts, so the live dub plays them
    * as the line moves; null when a drag ends without changing anything.
@@ -1407,8 +1420,13 @@ export const SyncEditTimeline: React.FC<{
     onChange(entry.edits, `Back to: ${entry.label}`);
   };
 
-  // The bank's own waveform, decoded once per bank.
-  const [bankBuffer, setBankBuffer] = useState<AudioBuffer | null>(null);
+  /*
+   * The bank, opened once per bank: a WAV (as Sync writes it) as its peaks,
+   * its samples read from the file when they are needed (playing, drawing
+   * zoomed in, finding pauses), so hours of dub never sit in memory whole;
+   * anything else decoded whole.
+   */
+  const [bankBuffer, setBankBuffer] = useState<WaveAudio | null>(null);
   const onBankAudioRef = useRef(onBankAudio);
   onBankAudioRef.current = onBankAudio;
   useEffect(() => {
@@ -1419,11 +1437,9 @@ export const SyncEditTimeline: React.FC<{
     setBankBuffer(null);
     if (!bankBlob) return;
     let live = true;
-    const url = URL.createObjectURL(bankBlob);
-    decodeAudioBlobUrl(url)
-      .then((buffer) => live && setBankBuffer(buffer))
-      .catch((err) => console.warn('Could not draw the edited lines:', err))
-      .finally(() => URL.revokeObjectURL(url));
+    readWaveAudio(bankBlob)
+      .then((audio) => live && setBankBuffer(audio))
+      .catch((err) => console.warn('Could not draw the edited lines:', err));
     return () => {
       live = false;
     };
@@ -2454,13 +2470,42 @@ export const SyncEditTimeline: React.FC<{
   /** Where a part's words are kept in tightenWords: its line's, unless it is a copy with samples of its own. */
   const wordsKey = (chunk: Chunk) => (chunk.part.audio ? `${chunk.key}@${chunk.part.audio.bankStart}` : chunk.key);
 
-  /** The line's samples as decoded, and their rate. */
+  /**
+   * Lines' samples read from a bank held as peaks, for the pauses panel (D
+   * and Q): read when it needs them, let go when it closes, so finding pauses
+   * in a long dub never holds all of it.
+   */
+  const [lineAudio, setLineAudio] = useState<Record<string, { samples: Float32Array; sr: number }>>({});
+  const lineAudioKey = (chunk: Chunk) => {
+    const line = lineOf(chunk);
+    return `${line.bankStart}:${line.length}`;
+  };
+  useEffect(() => setLineAudio({}), [bankBuffer]);
+
+  /** The line's samples, and their rate: from the decoded bank, or as read for the panel (null until they are). */
   const lineSamples = (chunk: Chunk) => {
-    if (!bankBuffer) return null;
-    const sr = bankBuffer.sampleRate;
+    const decoded = decodedBuffer(bankBuffer);
+    if (!decoded) return lineAudio[lineAudioKey(chunk)] ?? null;
+    const sr = decoded.sampleRate;
     const line = lineOf(chunk);
     const from = Math.round((line.bankStart / rate) * sr);
-    return { samples: bankBuffer.getChannelData(0).subarray(from, from + Math.round((line.length / rate) * sr)), sr };
+    return { samples: decoded.getChannelData(0).subarray(from, from + Math.round((line.length / rate) * sr)), sr };
+  };
+
+  /** Reads the lines of `targets` not read yet from a bank held as peaks; resolves with what it read. */
+  const readLines = async (targets: Chunk[]) => {
+    const audio = bankBuffer;
+    if (!isStreamedAudio(audio) || !audio.samples) return {};
+    const sr = audio.samples.sampleRate;
+    const missing = new Map(targets.filter((c) => !c.original && !lineAudio[lineAudioKey(c)]).map((c) => [lineAudioKey(c), lineOf(c)]));
+    const got: Record<string, { samples: Float32Array; sr: number }> = {};
+    for (const [key, line] of missing) {
+      const from = Math.round((line.bankStart / rate) * sr);
+      const [samples] = await audio.samples.read(from, from + Math.round((line.length / rate) * sr));
+      got[key] = { samples, sr };
+    }
+    if (Object.keys(got).length > 0) setLineAudio((all) => ({ ...all, ...got }));
+    return got;
   };
 
   /** A part that is, or was tightened from, one of `ids`. */
@@ -2482,7 +2527,7 @@ export const SyncEditTimeline: React.FC<{
       if (tighten.checkWords && words === 'failed') { failed++; continue; }
       if (tighten.checkWords && !Array.isArray(words)) { waiting++; continue; }
       const audio = lineSamples(chunk);
-      if (!audio) continue;
+      if (!audio) { waiting++; continue; }
       const protect = Array.isArray(words) ? words : [];
       const result = tightenPart(audio.samples, audio.sr, chunk.part, tighten.settings, protect, { inPlace: tighten.closeUp === 'off' });
       if (result.cuts.length === 0) continue;
@@ -2512,7 +2557,19 @@ export const SyncEditTimeline: React.FC<{
     for (const [key, parts] of closed.parts) next = withParts(next, key, parts);
     return { next, cutsByPart, cuts, removed: Math.max(removed, closed.shift), moved: closed.moved, waiting, failed };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tighten, bankBuffer, committed, tightenWords, chunks, lines]);
+  }, [tighten, bankBuffer, lineAudio, committed, tightenWords, chunks, lines]);
+
+  // The lines the panel works on, read from the file while it is open; closed, they are let go.
+  const tightenOpen = Boolean(tighten);
+  const tightenTargetKeys = tightenTargets.map(lineAudioKey).join(',');
+  useEffect(() => {
+    if (!tightenOpen) {
+      setLineAudio((all) => (Object.keys(all).length > 0 ? {} : all));
+      return;
+    }
+    void readLines(tightenTargets).catch((err) => console.warn('Lines could not be read for their pauses:', err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tightenOpen, tightenTargetKeys, bankBuffer]);
 
   // What is heard follows the settings while Listen is on.
   useEffect(() => {
@@ -2536,20 +2593,27 @@ export const SyncEditTimeline: React.FC<{
   };
 
   /** The panel as D opens it ('keep': split only) or as Q does ('remove': tighten and close up). */
-  const openPauses = (silence: TightenSettings['silence']) => {
+  const openPauses = async (silence: TightenSettings['silence']) => {
     if (!bankBuffer) return say('The lines are still loading.');
     const picked = group.filter((c) => !c.original);
     const targets = picked.length > 0 ? picked : chunks.filter((c) => !c.original);
     if (targets.length === 0) return say(`Pick a dub line to ${silence === 'keep' ? 'split' : 'tighten'}: clips of the original are left as they are.`);
     const settings = { ...(silence === 'keep' ? DEFAULT_SPLIT : DEFAULT_TIGHTEN), ...readMorePauses() };
-    const first = lineSamples(targets[0]);
+    let first = lineSamples(targets[0]);
+    if (!first) {
+      try {
+        first = (await readLines([targets[0]]))[lineAudioKey(targets[0])] ?? null;
+      } catch {
+        first = null;
+      }
+    }
     const manualDb = first ? Math.round(tightenLevelDb(first.samples, first.sr, settings)) : -50;
     const closeUp = silence === 'keep' ? 'off' : picked.length > 0 ? 'picked' : 'all';
     setTighten({ settings, manualDb, closeUp, checkWords: true, picked: picked.map((c) => c.part.id), listening: false });
     askWords(targets);
   };
-  const openSplit = () => openPauses('keep');
-  const openTighten = () => openPauses('remove');
+  const openSplit = () => void openPauses('keep');
+  const openTighten = () => void openPauses('remove');
 
   /** More pauses and its breath switch, kept for the next time the panel opens. */
   const setMorePauses = (patch: Pick<TightenSettings, 'more'> | Pick<TightenSettings, 'breaths'>) => {

@@ -537,7 +537,7 @@ interface ExpressDubWizardProps {
   /** Edit timing's dub is playing live from its lines, so edits are heard at once. */
   syncEditLive?: boolean;
   /** Edit timing's lines, decoded, while it is open; null once it closes. */
-  onEditTimingAudio?: (buffer: AudioBuffer | null) => void;
+  onEditTimingAudio?: (buffer: import('../services/waveform').WaveAudio | null) => void;
   /** Edit timing's edits while a drag lasts, for the live dub; null when it ends with nothing changed. */
   onSyncEditDraft?: (edits: SyncEdits | null) => void;
   /** With several speakers, Edit timing's lanes: mute and solo for listening, and each speaker's level for the file. */

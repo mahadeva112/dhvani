@@ -10,7 +10,8 @@ import '../index.css';
 import { DubEstimateLane, SourceLineLane } from '../components/SyncPreviewPanel';
 import { WindowWaveform, usePeaks } from '../components/WindowWaveform';
 import type { SyncPreviewUnit } from '../services/syncService';
-import { decodeAudioBlobUrl, readStreamedAudio } from '../services/audioService';
+import { decodeAudioBlobUrl, readStreamedAudio, readWaveAudio } from '../services/audioService';
+import type { WaveAudio } from '../services/waveform';
 import type { AudioSegment } from '../types';
 
 const HOURS = 2.5;
@@ -131,7 +132,7 @@ const nextFrame = () =>
 function Bench() {
   const project = useMemo(makeProject, []);
   const [view, setView] = useState({ start: 0, seconds: 120, look: 'bars' as 'bars' | 'blocks' | 'wave', width: 1600 });
-  const [audio, setAudio] = useState<AudioBuffer | null>(null);
+  const [audio, setAudio] = useState<WaveAudio | null>(null);
   const peaks = usePeaks(audio);
   const [rows, setRows] = useState<Row[]>([]);
   const [running, setRunning] = useState(false);
@@ -217,6 +218,13 @@ function Bench() {
     setAudio(makeAudio(SECONDS, 48000));
     (window as any).audioMs = Math.round(performance.now() - t0);
   };
+  /** The same length as a WAV held as peaks, its samples read from the file when zoomed in (as Edit timing holds the bank). */
+  const loadStreamed = async () => {
+    const t0 = performance.now();
+    setAudio(await readWaveAudio(makeWav(SECONDS, 48000)));
+    (window as any).audioMs = Math.round(performance.now() - t0);
+  };
+  (window as any).loadStreamed = loadStreamed;
 
   const spans = useMemo(
     () => project.units.map((u, n) => ({ from: u.srcStart, to: u.srcEnd, color: ['#818cf8', '#2dd4bf', '#f59e0b', '#f472b6'][n % 4] })),
@@ -234,6 +242,9 @@ function Bench() {
         </button>
         <button className="px-3 py-1 rounded border border-edge" onClick={loadAudio} disabled={Boolean(audio)}>
           Add {HOURS} h of 48 kHz audio
+        </button>
+        <button className="px-3 py-1 rounded border border-edge" onClick={() => void loadStreamed()} disabled={Boolean(audio)}>
+          … as a WAV held as peaks
         </button>
         <span className="text-slate-400">
           window {Math.round(view.seconds)} s at {Math.round(view.start)} s · {view.look}

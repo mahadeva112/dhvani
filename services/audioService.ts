@@ -2,7 +2,7 @@
 
 import type { AudioMetadata, AudioSegment, PauseGate } from '../types';
 import { GATE_FRAME_SECONDS, gateSounds, peakLevels } from '../server/lib/silenceGate.js';
-import { computePeaks, isStreamedAudio, peaksBuilder, type StreamedAudio, type WaveAudio } from './waveform.ts';
+import { computePeaks, detailPeaks, isStreamedAudio, peaksBuilder, type SampleSource, type StreamedAudio, type WaveAudio } from './waveform.ts';
 
 export type { PauseGate };
 
@@ -359,7 +359,73 @@ export const readStreamedAudio = async (blob: Blob): Promise<StreamedAudio> => {
     }
     builder.add(first.subarray(0, count));
   }
-  return { kind: 'streamed', blob, duration: frames / sampleRate, sampleRate, length: frames, numberOfChannels: channels, peaks: builder.done() };
+  const audio: StreamedAudio = {
+    kind: 'streamed',
+    blob,
+    duration: frames / sampleRate,
+    sampleRate,
+    length: frames,
+    numberOfChannels: channels,
+    peaks: builder.done(),
+    samples: wavSamples(blob, layout),
+  };
+  // Zoomed in past the finest blocks, a wave asks for the samples it shows.
+  audio.peaks.detail = (from, to) => detailPeaks(audio, from, to);
+  return audio;
+};
+
+/**
+ * A plain PCM WAV's samples, a stretch at a time, each read a slice of the
+ * file: as readPcmWav would put them in a buffer, so what plays from here
+ * is what played from the decoded file.
+ */
+export const wavSamples = (blob: Blob, layout: PcmWavLayout): SampleSource => {
+  const { offset, frames, channels, sampleRate, float } = layout;
+  const frameBytes = channels * (float ? 4 : 2);
+  return {
+    sampleRate,
+    length: frames,
+    numberOfChannels: channels,
+    async read(from: number, to: number) {
+      const a = Math.max(0, Math.min(frames, Math.floor(from)));
+      const b = Math.max(a, Math.min(frames, Math.ceil(to)));
+      const count = b - a;
+      const out = Array.from({ length: channels }, () => new Float32Array(count));
+      if (count === 0) return out;
+      const start = offset + a * frameBytes;
+      const bytes = await blob.slice(start, start + count * frameBytes).arrayBuffer();
+      if (bytes.byteLength < count * frameBytes) throw new Error('The audio file ended before its samples did.');
+      if (float) {
+        const samples = new Float32Array(bytes, 0, count * channels);
+        for (let i = 0; i < count; i++) for (let ch = 0; ch < channels; ch++) out[ch][i] = samples[i * channels + ch];
+      } else {
+        const samples = new Int16Array(bytes, 0, count * channels);
+        for (let i = 0; i < count; i++) {
+          for (let ch = 0; ch < channels; ch++) {
+            const v = samples[i * channels + ch];
+            out[ch][i] = v * (v < 0 ? FROM_NEGATIVE : FROM_POSITIVE);
+          }
+        }
+      }
+      return out;
+    },
+  };
+};
+
+/**
+ * Audio to play and draw: a plain PCM WAV (the bank, as Sync writes it) is
+ * held as its peaks and read in slices (readStreamedAudio); anything else (an
+ * MP3 bank, kept in the format the plan allowed) is decoded whole, as before.
+ */
+export const readWaveAudio = async (blob: Blob): Promise<WaveAudio> => {
+  const layout = pcmWavLayout(await blob.slice(0, WAV_HEAD_BYTES).arrayBuffer(), blob.size);
+  if (layout) return readStreamedAudio(blob);
+  const url = URL.createObjectURL(blob);
+  try {
+    return await decodeAudioBlobUrl(url);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 };
 
 /** readStreamedAudio for a blob URL. */

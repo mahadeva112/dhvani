@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { computePeaks, drawCentreLine, drawPeaks, type Peaks, type WaveAudio } from '../services/waveform';
+import { computePeaks, coversRange, drawCentreLine, drawPeaks, wantsDetail, type Peaks, type WaveAudio } from '../services/waveform';
 import { shadeOf, tintOf } from './lineColors';
 
 export type PeakData = Peaks;
@@ -34,6 +34,8 @@ export const WindowWaveform: React.FC<{
 }> = ({ data, from, span, spans, className, look = 'bars' }) => {
   const ref = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState(0);
+  /** Zoomed in past the finest blocks of audio held as peaks: the samples on screen, read from its file. */
+  const [detail, setDetail] = useState<PeakData | null>(null);
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
@@ -55,14 +57,19 @@ export const WindowWaveform: React.FC<{
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     if (!data || data.seconds <= 0 || span <= 0) return;
+    let peaks = data;
+    if (wantsDetail(data, from, from + span, w * dpr)) {
+      if (coversRange(detail, from, from + span)) peaks = detail;
+      else void data.detail?.(from - span, from + 2 * span).then((d) => d && setDetail(d)).catch(() => {});
+    }
     const gapColor = getComputedStyle(canvas).color;
     if (look === 'clips') {
-      drawClips(ctx, data, from, span, spans, gapColor, w, h, dpr);
+      drawClips(ctx, peaks, from, span, spans, gapColor, w, h, dpr);
       return;
     }
     // Silence leaves the lane blank but for a faint centre guide, as in DaVinci.
     drawCentreLine(ctx, { x: 0, y: 2, w, h: h - 4, color: gapColor });
-    drawPeaks(ctx, data, {
+    drawPeaks(ctx, peaks, {
       x: 0,
       y: 2,
       w,
@@ -74,7 +81,7 @@ export const WindowWaveform: React.FC<{
         return line ? { color: line.color, alpha: line.faded ? 0.35 : 1 } : { color: gapColor };
       },
     });
-  }, [data, from, span, spans, size, look]);
+  }, [data, detail, from, span, spans, size, look]);
   return <canvas ref={ref} aria-hidden="true" className={`absolute inset-0 w-full h-full pointer-events-none ${className}`} />;
 };
 

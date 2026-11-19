@@ -30,7 +30,7 @@ import {
   readStreamedAudioUrl,
   resegmentAudioBuffer,
 } from './services/audioService';
-import { decodedBuffer } from './services/waveform';
+import { decodedBuffer, type WaveAudio } from './services/waveform';
 import { transcribeOnly } from './services/geminiService';
 import { retranslateCues, RetranslateProgress, translationFraction } from './services/subtitleService';
 import {
@@ -1621,7 +1621,8 @@ export default function App() {
    * for the file. The original stays the clock. At a speed other than 1x the
    * synced dub's file plays as before, since the live dub would change pitch.
    */
-  const [editTimingAudio, setEditTimingAudio] = useState<AudioBuffer | null>(null);
+  // The bank, as Edit timing opened it: its peaks with its file (a long dub) or decoded whole.
+  const [editTimingAudio, setEditTimingAudio] = useState<WaveAudio | null>(null);
   const liveDub = playsSynced && Boolean(editTimingAudio && activeJob?.syncBank) && playbackRate === 1;
   const liveDubRef = useRef(liveDub);
   liveDubRef.current = liveDub;

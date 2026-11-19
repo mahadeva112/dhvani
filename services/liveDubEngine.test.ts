@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { liveClips, stretchSamples } from './liveDubEngine.ts';
+import { LiveDubEngine, liveClips, stretchSamples, type LiveClip } from './liveDubEngine.ts';
+import type { StreamedAudio } from './waveform.ts';
 import type { SyncBank } from './syncEditService';
 
 const bank: SyncBank = {
@@ -75,4 +76,82 @@ test('a stretch keeps the pitch and changes the length', () => {
     for (const v of mid) peak = Math.max(peak, Math.abs(v));
     assert.ok(peak > 0.8 && peak < 1.2, `rate ${rate}: peak ${peak}`);
   }
+});
+
+/** Enough of an AudioContext for the engine: buffers, sources and gains, on a clock the test moves. */
+const fakeContext = () => {
+  const started: { length: number; when: number }[] = [];
+  const param = () => ({ value: 1, setValueAtTime() {}, linearRampToValueAtTime() {}, setValueCurveAtTime() {} });
+  const ctx = {
+    currentTime: 0,
+    createBuffer: (channels: number, length: number, sampleRate: number) => {
+      const data = Array.from({ length: channels }, () => new Float32Array(length));
+      return { length, sampleRate, numberOfChannels: channels, duration: length / sampleRate, copyToChannel: (d: Float32Array, ch: number) => data[ch].set(d), getChannelData: (ch: number) => data[ch] };
+    },
+    createBufferSource: () => {
+      const source = { buffer: null as any, connect() {}, start: (when: number) => started.push({ length: source.buffer.length, when }), stop() {} };
+      return source;
+    },
+    createGain: () => ({ gain: param(), connect() {} }),
+  };
+  return { ctx, started };
+};
+
+const clipAt = (start: number, seconds: number, bankFrom: number): LiveClip => ({
+  id: `c${start}`,
+  stretchKey: `${bankFrom}:${bankFrom + seconds}:1`,
+  bankFrom,
+  bankTo: bankFrom + seconds,
+  start,
+  rate: 1,
+  gain: 1,
+  fadeIn: 0,
+  fadeOut: 0,
+  cutIn: false,
+  cutOut: false,
+});
+
+test('a bank held as peaks plays its parts read from the file around the playhead, and lets the old ones go', async () => {
+  const rate = 1000;
+  const reads: [number, number][] = [];
+  const bankAudio: StreamedAudio = {
+    kind: 'streamed',
+    blob: new Blob([]),
+    duration: 1000,
+    sampleRate: rate,
+    length: 1000 * rate,
+    numberOfChannels: 1,
+    peaks: { data: null, rate, seconds: 1000, levels: [] },
+    samples: {
+      sampleRate: rate,
+      length: 1000 * rate,
+      numberOfChannels: 1,
+      read: async (from, to) => {
+        reads.push([from, to]);
+        return [new Float32Array(to - from).fill(0.5)];
+      },
+    },
+  };
+  const { ctx, started } = fakeContext();
+  const engine = new LiveDubEngine(ctx as unknown as AudioContext, {} as AudioNode, bankAudio);
+  engine.setClips([clipAt(1, 2, 0), clipAt(5, 2, 2), clipAt(40, 2, 4), clipAt(100, 2, 6)]);
+  engine.follow(0);
+  await new Promise((done) => setTimeout(done, 0));
+  // The parts within reach are read, each only its own stretch; the far ones are not.
+  assert.deepEqual(reads, [
+    [0, 2000],
+    [2000, 4000],
+  ]);
+  // Read, they play where they belong.
+  assert.deepEqual(
+    started.map((s) => s.length),
+    [2000, 2000]
+  );
+  // Far on, the old parts are let go and the near one is read.
+  ctx.currentTime = 99;
+  engine.follow(99);
+  await new Promise((done) => setTimeout(done, 0));
+  assert.deepEqual(reads.at(-1), [6000, 8000]);
+  assert.deepEqual([...(engine as any).read.keys()], ['6:8:1']);
+  engine.dispose();
 });

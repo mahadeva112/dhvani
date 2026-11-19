@@ -1,5 +1,6 @@
 import type { SyncBank, SyncEditPart, SyncEdits } from './syncEditService';
 import { partLine, syncedParts } from './syncEditModel.ts';
+import { isStreamedAudio, type SampleSource, type WaveAudio } from './waveform.ts';
 
 /**
  * Live playback for Edit timing, the way a DAW plays its clips: the synced
@@ -48,6 +49,14 @@ export interface LiveTrackPart {
 const EDGE_FADE = 0.003;
 /** How far ahead parts are scheduled; the rest are added as playback gets near them. */
 const LOOKAHEAD = 8;
+/**
+ * A bank held as peaks (a long dub) has its parts read from its file: those
+ * starting up to this far ahead are read before they are due, and parts
+ * this far behind are let go, so only the stretch around the playhead is in
+ * memory.
+ */
+const READ_AHEAD = 20;
+const KEEP_BEHIND = 10;
 /** How far the dub may drift from the original's clock before it is put back on it. */
 const MAX_DRIFT = 0.05;
 /** Lead before the first part plays, so its start is never in the past. */
@@ -209,14 +218,20 @@ export class LiveDubEngine {
 
   private ctx: AudioContext;
   private output: AudioNode;
-  private bank: AudioBuffer;
+  /** The bank decoded whole, or null when its parts are read from its file (`bankFile`). */
+  private bank: AudioBuffer | null;
+  private bankFile: SampleSource | null;
+  /** Parts of a bank read from its file, as they play (stretched where they are), by stretchKey. */
+  private read = new Map<string, AudioBuffer>();
+  private reading = new Set<string>();
   /** The original, for the clips of it on the dub; they stay silent without it. */
   private original: AudioBuffer | null = null;
 
-  constructor(ctx: AudioContext, output: AudioNode, bank: AudioBuffer) {
+  constructor(ctx: AudioContext, output: AudioNode, bank: WaveAudio) {
     this.ctx = ctx;
     this.output = output;
-    this.bank = bank;
+    this.bank = isStreamedAudio(bank) ? null : bank;
+    this.bankFile = isStreamedAudio(bank) ? bank.samples ?? null : null;
   }
 
   /** The files on tracks, by id, for their clips; a clip whose file isn't here stays silent. */
@@ -252,6 +267,7 @@ export class LiveDubEngine {
     this.clips = clips;
     const stretches = new Set(clips.map((clip) => clip.stretchKey));
     for (const key of this.stretched.keys()) if (!stretches.has(key)) this.stretched.delete(key);
+    for (const key of this.read.keys()) if (!stretches.has(key)) this.read.delete(key);
     const ids = new Set(clips.map((clip) => clip.id));
     const at = this.ctx.currentTime;
     this.playing.forEach((node, id) => {
@@ -293,6 +309,9 @@ export class LiveDubEngine {
   dispose() {
     this.stop();
     this.stretched.clear();
+    this.read.clear();
+    this.reading.clear();
+    this.bankFile = null;
   }
 
   private start(t: number) {
@@ -318,9 +337,51 @@ export class LiveDubEngine {
       const clip = this.clips.find((c) => c.id === id);
       if (!clip || clip.start + clipLength(clip) < now - 0.1) this.playing.delete(id);
     });
+    if (this.bankFile) this.readAround(now);
+  }
+
+  /** Reads the bank's parts coming up from its file, and lets go of the ones long played. */
+  private readAround(now: number) {
+    const near = new Set<string>();
+    for (const clip of this.clips) {
+      if (clip.start > now + READ_AHEAD) break;
+      if (clip.original || clip.file || clip.start + clipLength(clip) < now - KEEP_BEHIND) continue;
+      near.add(clip.stretchKey);
+      this.readPart(clip);
+    }
+    // A part playing keeps its own buffer; this only lets the copy here go.
+    for (const key of this.read.keys()) if (!near.has(key)) this.read.delete(key);
+  }
+
+  private readPart(clip: LiveClip) {
+    const file = this.bankFile;
+    const key = clip.stretchKey;
+    if (!file || this.read.has(key) || this.reading.has(key)) return;
+    this.reading.add(key);
+    const sr = file.sampleRate;
+    file
+      .read(Math.round(clip.bankFrom * sr), Math.round(clip.bankTo * sr))
+      .then((channels) => {
+        if (!this.reading.has(key) || this.bankFile !== file || channels[0].length === 0) return;
+        const out = Math.abs(clip.rate - 1) < 1e-6 ? channels : stretchSamples(channels, sr, clip.rate);
+        const buffer = this.ctx.createBuffer(out.length, out[0].length, sr);
+        out.forEach((data, ch) => buffer.copyToChannel(data, ch));
+        this.read.set(key, buffer);
+        // Due already (playback started inside it, or it was read late): it joins from where playback is.
+        this.schedule();
+      })
+      .catch((err) => console.warn('A line could not be read from the dub file:', err))
+      .finally(() => this.reading.delete(key));
   }
 
   private bufferFor(clip: LiveClip): { buffer: AudioBuffer; offset: number } | null {
+    if (!clip.file && !clip.original && this.bankFile) {
+      // Read from the file, stretched already: silent until it is read, then it joins.
+      const buffer = this.read.get(clip.stretchKey);
+      if (buffer) return { buffer, offset: 0 };
+      this.readPart(clip);
+      return null;
+    }
     const audio = clip.file ? this.files[clip.file] ?? null : clip.original ? this.original : this.bank;
     if (!audio) return null;
     if (Math.abs(clip.rate - 1) < 1e-6) return { buffer: audio, offset: clip.bankFrom };
