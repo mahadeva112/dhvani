@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.99',
+    changes: [
+      'Review: every line now shows its sync fit in one row under it: how long it runs against its slot, how much to cut or add, and Shorter / Longer / Same length, Edit and Keep. The i button opens the full advice and the syllables.',
+      'Shorter and Longer wordings now show almost at once: DHVANI asks for them while you point at a line that runs long or ends early.',
+      'Long projects: Review no longer freezes drawing the line text, and a synced dub takes much less memory.',
+    ],
+  },
+  {
     version: '1.4.98',
     changes: [
       "When this computer's drive is almost full, DHVANI now says so (\"drive C: is almost full\") instead of \"Failed to fetch\" after a Sync or \"Failed to write blobs\" when opening a project. Free a few GB, then open DHVANI again.",
