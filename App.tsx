@@ -42,7 +42,7 @@ import {
 } from './services/apiClient';
 import { SetupWizard } from './components/SetupWizard';
 import { ErrorPopup } from './components/ErrorPopup';
-import { reportError } from './services/errorPopup';
+import { isStorageFullError, reportError } from './services/errorPopup';
 import {
   synthesizeSpeech,
   getDubProgress,
@@ -342,7 +342,8 @@ const SYNC_EDIT_RENDER_DELAY_MS = 600;
 /** Why a project could not be saved to this computer, in words a user can act on. */
 const saveFailureMessage = (err: unknown): string => {
   const name = (err as { name?: string } | null)?.name;
-  if (name === 'QuotaExceededError') return 'This computer has no room left for it. Free some disk space, then save again.';
+  // "Failed to write blobs (IOError)" comes as an UnknownError: a full drive, not a store that won't open.
+  if (isStorageFullError(err)) return 'This computer has no room left for it. Free some disk space, then save again.';
   if (name === 'InvalidStateError' || name === 'UnknownError') return 'The project store could not be opened. Save again, or restart Dhvani.';
   const message = (err as { message?: string } | null)?.message;
   return message ? `${message}.`.replace(/\.\.$/, '.') : 'The project store refused it.';

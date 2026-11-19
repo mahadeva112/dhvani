@@ -130,6 +130,14 @@ const stepsFor = (code: string, provider: string, details: unknown): string[] =>
       return ['The file is too big to send. Use a shorter clip or a smaller file, then try again.'];
     case 'ffmpeg_missing':
       return ['Reinstall Dhvani from the in-app download, then try again.'];
+    case 'disk_full': {
+      const drive = (details as { drive?: string } | null)?.drive;
+      const where = drive && drive !== '/' ? `drive ${drive}` : 'the drive Windows or macOS is on (usually C:)';
+      return [
+        `Free a few GB on ${where}: empty the Recycle Bin or Trash, or move big videos and downloads elsewhere.`,
+        'Then close Dhvani, open it again, and try again. Your other projects are unchanged.',
+      ];
+    }
     case 'cancelled':
       return [];
     default:
@@ -146,19 +154,34 @@ export const onErrorReport = (listener: Listener): (() => void) => {
   return () => listeners.delete(listener);
 };
 
+/**
+ * The page's own storage refusing a write: Chromium says "Failed to write
+ * blobs (IOError)" or QuotaExceededError when the drive is full. Antivirus
+ * locking the folder can cause it too, so the wording says "usually".
+ */
+export const isStorageFullError = (err: unknown): boolean => {
+  const { name, message } = (err as { name?: string; message?: string } | null) || {};
+  return name === 'QuotaExceededError' || /Failed to write blobs|QuotaExceeded|ENOSPC|not enough space on the disk/i.test(String(message || err || ''));
+};
+
+const STORAGE_FULL = "DHVANI could not save to this computer's drive. This usually means the drive is full.";
+
 /** Builds the popup's wording for an error, without showing it. */
 export const explainError = (err: unknown, options: ReportOptions = {}): ErrorReport => {
   const api = asApiError(err);
   const rawMessage =
     typeof err === 'string' ? err : (err as { message?: string } | null)?.message || 'Something went wrong.';
-  const code = api?.code || 'unknown_error';
+  const storageFull = !api && isStorageFullError(err);
+  const code = api?.code || (storageFull ? 'disk_full' : 'unknown_error');
   const provider = providerName(api?.provider);
-  const { head, said } = splitMessage(rawMessage);
+  const split = splitMessage(rawMessage);
+  // The browser's own words ("Failed to write blobs (IOError)") stay, under what the server said.
+  const { head, said } = storageFull ? { head: STORAGE_FULL, said: stripMarkup(rawMessage) } : split;
 
   const details = [
     options.title || 'Error',
     stripMarkup(rawMessage),
-    api ? `code: ${code}${api.status ? `, status: ${api.status}` : ''}${api.provider ? `, provider: ${api.provider}` : ''}` : null,
+    api ? `code: ${code}${api.status ? `, status: ${api.status}` : ''}${api.provider ? `, provider: ${api.provider}` : ''}` : storageFull ? 'code: disk_full' : null,
     `time: ${new Date().toISOString()}`,
   ]
     .filter(Boolean)

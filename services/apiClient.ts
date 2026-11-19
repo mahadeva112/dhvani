@@ -125,6 +125,40 @@ const backendRestartedSince = async (sentAt: number, signal?: AbortSignal): Prom
   return false;
 };
 
+/** The engine's report on the drive the app keeps its data on (GET /api/health → disk). */
+export interface DiskSpace {
+  freeBytes: number;
+  totalBytes: number;
+  drive: string;
+  low: boolean;
+}
+
+const GB = 1024 ** 3;
+
+/** "This computer's drive (C:) is almost full …", for a request that failed because big audio could not be saved. */
+export const diskFullError = (disk: DiskSpace): DhvaniApiError =>
+  new DhvaniApiError(
+    `This computer's drive${disk.drive && disk.drive !== '/' ? ` (${disk.drive})` : ''} is almost full ` +
+      `(${(disk.freeBytes / GB).toFixed(1)} GB free), so DHVANI could not save the audio.`,
+    { code: 'disk_full', details: disk }
+  );
+
+/**
+ * The drive's free space when it is almost full, else null. A big WAV the
+ * page downloads fails at once with "Failed to fetch" when Chromium cannot
+ * write it to disk, while the engine is fine; this tells the two apart.
+ */
+export const lowDiskSpace = async (signal?: AbortSignal): Promise<DiskSpace | null> => {
+  try {
+    const response = await fetch(`${API_BASE}/health`, { signal });
+    if (!response.ok) return null;
+    const disk = (await response.json())?.disk as DiskSpace | null | undefined;
+    return disk && disk.low && Number.isFinite(disk.freeBytes) ? disk : null;
+  } catch {
+    return null;
+  }
+};
+
 /**
  * Writes one line into backend.log (and so into a problem report): a request
  * the page sent that failed leaves no trace there otherwise. Never throws.
@@ -155,7 +189,22 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
  */
 const withNetworkGuard = async <T>(
   action: () => Promise<T>,
-  { signal, retry = true, label = 'A request' }: { signal?: AbortSignal; retry?: boolean; label?: string } = {}
+  {
+    signal,
+    retry = true,
+    label = 'A request',
+    download = false,
+  }: {
+    signal?: AbortSignal;
+    retry?: boolean;
+    label?: string;
+    /**
+     * The answer is audio the page keeps as a Blob. Only such a request is
+     * reported as a full drive: JSON requests keep backend_unreachable, which
+     * Sync and translation recovery wait on.
+     */
+    download?: boolean;
+  } = {}
 ): Promise<T> => {
   for (let resends = 0; ; resends += 1) {
     const sentAt = Date.now();
@@ -178,10 +227,13 @@ const withNetworkGuard = async <T>(
     if (!retry || signal?.aborted || resends >= MAX_RESENDS) throw failure;
     const seconds = Math.round((Date.now() - sentAt) / 1000);
     if (!(await backendRestartedSince(sentAt, signal)) || signal?.aborted) {
-      if (!signal?.aborted) {
-        logToBackend(`${label} lost its connection after ${seconds} s (${cause}) while the engine was still running.`);
-      }
-      throw failure;
+      if (signal?.aborted) throw failure;
+      const disk = download ? await lowDiskSpace(signal) : null;
+      logToBackend(
+        `${label} lost its connection after ${seconds} s (${cause}) while the engine was still running` +
+          (disk ? `; the drive ${disk.drive} is almost full (${(disk.freeBytes / GB).toFixed(1)} GB free).` : '.')
+      );
+      throw disk ? diskFullError(disk) : failure;
     }
     logToBackend(`${label} lost its connection after ${seconds} s (${cause}); the engine had restarted, so it was sent again.`);
     console.info('The DHVANI backend restarted; sending the request again.');
@@ -254,7 +306,7 @@ export const apiAudio = async (
     if (!response.ok) throw await toApiError(response);
     onHeaders?.(response.headers);
     return response.blob();
-  }, { signal, retry, label: `POST ${API_BASE}${path}` });
+  }, { signal, retry, download: true, label: `POST ${API_BASE}${path}` });
 
 /** POST of a file returning binary audio as a Blob. */
 export const apiPostBlobAudio = async (path: string, blob: Blob, { keys, signal, retry }: RequestOptions = {}): Promise<Blob> =>
@@ -268,7 +320,7 @@ export const apiPostBlobAudio = async (path: string, blob: Blob, { keys, signal,
 
     if (!response.ok) throw await toApiError(response);
     return response.blob();
-  }, { signal, retry, label: `POST ${API_BASE}${path}` });
+  }, { signal, retry, download: true, label: `POST ${API_BASE}${path}` });
 
 /** GET returning binary audio as a Blob. */
 export const apiGetAudio = async (path: string, { keys, signal, retry }: RequestOptions = {}): Promise<Blob> =>
@@ -277,7 +329,7 @@ export const apiGetAudio = async (path: string, { keys, signal, retry }: Request
 
     if (!response.ok) throw await toApiError(response);
     return response.blob();
-  }, { signal, retry, label: `GET ${API_BASE}${path}` });
+  }, { signal, retry, download: true, label: `GET ${API_BASE}${path}` });
 
 /** PUT of one file as the raw body, returning parsed JSON. */
 export const apiPutBlob = async <T = any>(path: string, blob: Blob, { keys, signal, retry }: RequestOptions = {}): Promise<T> =>

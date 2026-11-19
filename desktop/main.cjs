@@ -1044,6 +1044,51 @@ const redact = (text) => {
 };
 
 const mb = (bytes) => `${Math.round(bytes / (1024 * 1024))} MB`;
+const gb = (bytes) => `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+
+/** Matches LOW_DISK_BYTES in server/lib/diskSpace.js. */
+const LOW_DISK_BYTES = 2 * 1024 ** 3;
+
+/** "C: 1.2 GB free of 238.0 GB — ALMOST FULL" for the drive holding `dir`; '' when it cannot be read. */
+const describeDisk = async (dir) => {
+  try {
+    const stats = await fs.promises.statfs(dir);
+    const free = Number(stats.bavail) * Number(stats.bsize);
+    const total = Number(stats.blocks) * Number(stats.bsize);
+    const root = path.parse(path.resolve(dir)).root;
+    const drive = /^[A-Za-z]:/.test(root) ? root.slice(0, 2).toUpperCase() : root;
+    const warning = free < LOW_DISK_BYTES ? ' — ALMOST FULL: big audio cannot be saved' : '';
+    return `${drive} ${gb(free)} free of ${gb(total)}${warning}`;
+  } catch (err) {
+    return `could not be read (${err?.code || err?.message || err})`;
+  }
+};
+
+/** The size of the app's own data folder (projects, audio, logs); stops counting after 3 s. */
+const folderSize = async (dir) => {
+  const stopAt = Date.now() + 3000;
+  let total = 0;
+  let complete = true;
+  const walk = async (folder) => {
+    let entries;
+    try {
+      entries = await fs.promises.readdir(folder, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (Date.now() > stopAt) {
+        complete = false;
+        return;
+      }
+      const full = path.join(folder, entry.name);
+      if (entry.isDirectory()) await walk(full);
+      else if (entry.isFile()) total += (await fs.promises.stat(full).catch(() => ({ size: 0 }))).size;
+    }
+  };
+  await walk(dir);
+  return `${gb(total)}${complete ? '' : ' or more (still counting after 3 s)'}`;
+};
 
 /** Plain lines about the computer, enough to tell which Macs or PCs a freeze happens on. */
 const describeComputer = async () => {
@@ -1067,6 +1112,9 @@ const describeComputer = async () => {
   add('Chip', os.cpus()[0]?.model?.trim());
   add('Cores', os.cpus().length);
   add('Memory', `${mb(os.totalmem())} total, ${mb(os.freemem())} free now`);
+  // A full drive breaks big audio in the page ("Failed to fetch", "Failed to write blobs") while all else looks fine.
+  add('Free disk space', await describeDisk(app.getPath('userData')));
+  add('DHVANI data', await folderSize(app.getPath('userData')));
   if (isMac) {
     // "free" is low on a healthy Mac too; pressure and swap say whether it is short of memory.
     add('Memory pressure', (await run('memory_pressure', ['-Q'])).replace(/^.*?:\s*/, 'free ').trim());

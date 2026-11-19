@@ -51,3 +51,26 @@ test('a cancelled request, or one already shown, opens no second popup', () => {
 test('plain text passes through stripMarkup unchanged', () => {
   assert.equal(stripMarkup('Gemini returned 3 < 4 items.'), 'Gemini returned 3 < 4 items.');
 });
+
+test('the page failing to save to a full drive says so, and keeps what the browser said', () => {
+  const report = explainError(new DOMException('Failed to write blobs (IOError)', 'UnknownError'), { title: 'Opening the project failed' });
+  assert.match(report.summary, /usually means the drive is full/);
+  assert.equal(report.serverSaid, 'Failed to write blobs (IOError)');
+  assert.match(report.steps[0], /Free a few GB/);
+  assert.match(report.details, /code: disk_full/);
+});
+
+test('a disk_full error from the app names the drive in its steps', () => {
+  const err = Object.assign(new Error("This computer's drive (C:) is almost full (0.4 GB free), so DHVANI could not save the audio."), {
+    name: 'DhvaniApiError',
+    code: 'disk_full',
+    details: { drive: 'C:' },
+  });
+  const report = explainError(err);
+  assert.match(report.summary, /\(C:\) is almost full/);
+  assert.match(report.steps[0], /on drive C:/);
+});
+
+test('other errors are not taken for a full drive', () => {
+  assert.equal(explainError(new Error('Failed to fetch')).steps[0], 'Try again.');
+});

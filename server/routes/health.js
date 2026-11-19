@@ -6,6 +6,8 @@ import { listProviders, activeProviders } from '../providers/index.js';
 import { LANGUAGES } from '../lib/languages.js';
 import { keySource, translationSetup, gatewayEnabled } from '../env.js';
 import { logger } from '../logger.js';
+import { CONFIG_DIR } from '../env.js';
+import { diskSpace } from '../lib/diskSpace.js';
 
 export const healthRouter = Router();
 
@@ -53,6 +55,8 @@ healthRouter.get(
         translation: describe('translation'),
       },
       languages: LANGUAGES.map(({ name, iso }) => ({ name, iso })),
+      // Room left on the drive the app keeps its data on: a full drive makes big audio fail to save.
+      disk: await diskSpace(CONFIG_DIR),
     });
   })
 );

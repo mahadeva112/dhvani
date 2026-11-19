@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { apiGet, apiJson, DhvaniApiError } from './apiClient.ts';
+import { apiGet, apiGetAudio, apiJson, DhvaniApiError } from './apiClient.ts';
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
@@ -76,4 +76,28 @@ test('provider errors are not retried', async () => {
   );
   await assert.rejects(apiJson('/sync', { body: {} }), (err: unknown) => err instanceof DhvaniApiError && err.code === 'quota_exceeded');
   assert.equal(hits.request, 1);
+});
+
+test('a download that fails at once on a nearly full drive says the drive is full', async () => {
+  const disk = { freeBytes: 0.4 * 1024 ** 3, totalBytes: 256 * 1024 ** 3, drive: 'C:', low: true };
+  const hits = fakeBackend(refused, () => json({ ok: true, startedAt: Date.now() - 60_000, disk }));
+  await assert.rejects(apiGetAudio('/sync/audio/x'), (err: unknown) => {
+    assert.ok(err instanceof DhvaniApiError);
+    assert.equal(err.code, 'disk_full');
+    assert.match(err.message, /drive \(C:\) is almost full \(0\.4 GB free\)/);
+    return true;
+  });
+  assert.match(hits.logged[0], /GET \/api\/sync\/audio\/x lost its connection .*while the engine was still running; the drive C: is almost full \(0\.4 GB free\)/);
+});
+
+test('a drive with room keeps the usual unreachable error', async () => {
+  const disk = { freeBytes: 80 * 1024 ** 3, totalBytes: 256 * 1024 ** 3, drive: 'C:', low: false };
+  fakeBackend(refused, () => json({ ok: true, startedAt: Date.now() - 60_000, disk }));
+  await assert.rejects(apiJson('/sync', { body: {} }), (err: unknown) => err instanceof DhvaniApiError && err.code === 'backend_unreachable');
+});
+
+test('a JSON request on a nearly full drive keeps backend_unreachable, so Sync recovery still runs', async () => {
+  const disk = { freeBytes: 0.4 * 1024 ** 3, totalBytes: 256 * 1024 ** 3, drive: 'C:', low: true };
+  fakeBackend(refused, () => json({ ok: true, startedAt: Date.now() - 60_000, disk }));
+  await assert.rejects(apiJson('/sync', { body: {} }), (err: unknown) => err instanceof DhvaniApiError && err.code === 'backend_unreachable');
 });

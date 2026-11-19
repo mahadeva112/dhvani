@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.98',
+    changes: [
+      "When this computer's drive is almost full, DHVANI now says so (\"drive C: is almost full\") instead of \"Failed to fetch\" after a Sync or \"Failed to write blobs\" when opening a project. Free a few GB, then open DHVANI again.",
+      "The problem report (Help → Save problem report) now shows how much space is free on the drive and how big DHVANI's own data is.",
+    ],
+  },
+  {
     version: '1.4.97',
     changes: [
       'Dubs with several speakers: "Man or woman?" in the Cast listens to each speaker in the original and suggests whether they are a man or a woman. Nothing is set until you click Use, or "Use what was heard" for everyone at once.',
