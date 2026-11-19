@@ -312,6 +312,19 @@ export const extractAudioTrack = async (inputPath, { onStatus, signal } = {}) =>
 };
 
 /**
+ * The first audio track of `inputPath` as a 16-bit PCM WAV at `outputPath`,
+ * at its own sample rate and with its own channels: for the app to read the
+ * original a stretch at a time instead of decoding all of it. Nothing else
+ * is done to it. Null when there is no ffmpeg.
+ */
+export const extractOriginalWav = async (inputPath, outputPath, { signal } = {}) => {
+  const binary = await resolveFfmpeg();
+  if (!binary) return null;
+  await run(binary, ['-hide_banner', '-loglevel', 'error', '-i', inputPath, '-vn', '-map', '0:a:0', '-c:a', 'pcm_s16le', '-f', 'wav', '-y', outputPath], { signal });
+  return outputPath;
+};
+
+/**
  * The stretch of `inputPath` from `start` to `end` seconds as a small mono MP3,
  * for a model to listen to. It is only heard, never played or kept.
  */

@@ -101,7 +101,7 @@ interface VoiceChangerModalProps {
   dubbedAudioBuffer?: AudioBuffer | null;
   /** The original speaker's audio, the default sample for cloning their voice. */
   originalAudioFile?: File | null;
-  originalAudioBuffer?: AudioBuffer | null;
+  originalAudioBuffer?: import('../services/waveform').WaveAudio | null;
   availableVoices: Voice[];
   selectedVoiceId: string;
   elApiKey: string;

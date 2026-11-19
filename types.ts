@@ -272,7 +272,12 @@ export interface BatchJob {
 
   // Analysis Data
   audioMetadata: AudioMetadata | null;
-  audioBuffer: AudioBuffer | null;
+  /**
+   * The original as the page holds it: decoded whole, or (a long video, any
+   * file once the server can read it) its peaks and levels, its samples read
+   * a stretch at a time (services/originalAudio.ts).
+   */
+  audioBuffer: import('./services/waveform').WaveAudio | null;
   segments: AudioSegment[];
   analysisSensitivity?: number; // 0 to 100 sensitivity threshold for pause detection (default: 50)
   /** Pause detection's gate set by hand (Advanced gate); unset = taken from analysisSensitivity. */

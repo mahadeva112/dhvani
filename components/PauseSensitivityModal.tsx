@@ -16,7 +16,7 @@ export interface PauseSensitivityModalProps {
   segmentCount?: number;
   hasAudioBuffer?: boolean;
   /** The audio and its cues, to show where the cuts fall. */
-  audioBuffer?: AudioBuffer | null;
+  audioBuffer?: import('../services/waveform').WaveAudio | null;
   segments?: AudioSegment[];
 }
 

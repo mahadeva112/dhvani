@@ -2780,7 +2780,7 @@ export const PreviewTimeline: React.FC<{
   /** The line under the playhead as it changes, or null between lines. */
   onCurrentLine?: (unit: SyncPreviewUnit | null) => void;
   /** The original, for the Original lane's waveform. */
-  sourceBuffer?: AudioBuffer | null;
+  sourceBuffer?: import('../services/waveform').WaveAudio | null;
 }> = ({ units, reportedTime, getLiveTime, onSeek, isPlaying, onTogglePlay, selectedKey, onSelect, onTrim, charsPerSecond, offClockNote, onCurrentLine, sourceBuffer }) => {
   const [drag, setDrag] = useState<{ key: string; seconds: number } | null>(null);
   // Expert lines can also be drawn as a Rythmo band: their words, each as wide as the time it takes.

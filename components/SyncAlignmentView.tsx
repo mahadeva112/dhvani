@@ -48,7 +48,7 @@ export const SyncAlignmentView: React.FC<{
   isPlaying: boolean;
   onTogglePlay: () => void;
   /** The original and the synced dub, for the lanes' waveforms. */
-  sourceBuffer?: AudioBuffer | null;
+  sourceBuffer?: WaveAudio | null;
   dubBuffer?: WaveAudio | null;
   /** As the Dub step's player: each lane's header (name, mute, solo, level) in place of its plain label. */
   trackHead?: (track: 'source' | 'synth') => React.ReactNode;

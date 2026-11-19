@@ -10,8 +10,9 @@ import '../index.css';
 import { DubEstimateLane, SourceLineLane } from '../components/SyncPreviewPanel';
 import { WindowWaveform, usePeaks } from '../components/WindowWaveform';
 import type { SyncPreviewUnit } from '../services/syncService';
-import { decodeAudioBlobUrl, readStreamedAudio, readWaveAudio } from '../services/audioService';
-import type { WaveAudio } from '../services/waveform';
+import { decodeAudioBlobUrl, readRange, readStreamedAudio, readWaveAudio } from '../services/audioService';
+import { isStreamedAudio, type WaveAudio } from '../services/waveform';
+import { loadOriginal } from '../services/originalAudio';
 import type { AudioSegment } from '../types';
 
 const HOURS = 2.5;
@@ -209,6 +210,29 @@ function Bench() {
     const audio = await readStreamedAudio(blob);
     const peaks = audio.peaks.levels.reduce((n, l) => n + l.max.byteLength + l.min.byteLength, 0);
     return { how, ms: Math.round(performance.now() - t0), keptMB: Math.round(peaks / 1e6), fileMB: Math.round(blob.size / 1e6), seconds: Math.round(audio.duration) };
+  };
+  /**
+   * An original as the app opens it (loadOriginal): `url` is a media file the
+   * dev server serves (a 2.5 h m4a in tmp/, say). Needs the bench-live
+   * launch config, whose /api is a backend from this checkout. Returns the
+   * time taken, what is kept, the speech found, and a stretch read back.
+   */
+  (window as any).benchOriginal = async (url: string) => {
+    const blob = await (await fetch(url)).blob();
+    const file = new File([blob], url.split('/').pop() || 'original', { type: blob.type || 'audio/mp4' });
+    const t0 = performance.now();
+    const { buffer, segments } = await loadOriginal(file);
+    const ms = Math.round(performance.now() - t0);
+    const streamed = isStreamedAudio(buffer);
+    const keptMB = streamed
+      ? Math.round((buffer.peaks.levels.reduce((n, l) => n + l.max.byteLength + l.min.byteLength, 0) + (buffer.levels?.levels.byteLength ?? 0)) / 1e6)
+      : Math.round((buffer.length * buffer.numberOfChannels * 4) / 1e6);
+    const t1 = performance.now();
+    const piece = await readRange(buffer, 4000, 4002);
+    const readMs = Math.round(performance.now() - t1);
+    setAudio(buffer);
+    (window as any).benchOriginalAudio = buffer;
+    return { streamed, ms, keptMB, seconds: Math.round(buffer.duration), channels: buffer.numberOfChannels, rate: buffer.sampleRate, segments: segments.length, firstSegments: segments.slice(0, 3).map((s) => [s.startTime, s.endTime]), readMs, pieceFrames: piece.length, pieceLoud: Math.max(...piece.getChannelData(0).slice(0, 48000).map(Math.abs)) };
   };
   /** One step on its own, for a step that may take minutes: benchStep('bars, whole', { look: 'bars', seconds: 9000 }). */
   (window as any).benchStep = (step: string, next: Partial<typeof view>) => time(step, next);

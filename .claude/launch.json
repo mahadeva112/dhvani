@@ -18,6 +18,19 @@
       "port": 5198
     },
     {
+      "//": "A second backend from this checkout, for benches that need the server's newest routes without touching the app on 8787.",
+      "name": "bench-server",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["cross-env", "PORT=8790", "node", "server/index.js"],
+      "port": 8790
+    },
+    {
+      "name": "bench-live",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["cross-env", "BACKEND_PORT=8790", "vite", "--port", "5197", "--strictPort"],
+      "port": 5197
+    },
+    {
       "name": "subtitle-mock",
       "runtimeExecutable": "npx",
       "runtimeArgs": ["vite", "--port", "5199", "--strictPort"],

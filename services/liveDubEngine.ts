@@ -224,8 +224,9 @@ export class LiveDubEngine {
   /** Parts of a bank read from its file, as they play (stretched where they are), by stretchKey. */
   private read = new Map<string, AudioBuffer>();
   private reading = new Set<string>();
-  /** The original, for the clips of it on the dub; they stay silent without it. */
+  /** The original, for the clips of it on the dub; they stay silent without it. Held as its peaks, they are read from its file. */
   private original: AudioBuffer | null = null;
+  private originalFile: SampleSource | null = null;
 
   constructor(ctx: AudioContext, output: AudioNode, bank: WaveAudio) {
     this.ctx = ctx;
@@ -243,11 +244,21 @@ export class LiveDubEngine {
     this.schedule();
   }
 
-  setOriginal(original: AudioBuffer | null) {
-    if (original === this.original) return;
-    this.original = original;
+  private originalAudio: WaveAudio | null = null;
+  setOriginal(original: WaveAudio | null) {
+    if (original === this.originalAudio) return;
+    this.originalAudio = original;
+    this.original = original && !isStreamedAudio(original) ? original : null;
+    this.originalFile = isStreamedAudio(original) ? original.samples ?? null : null;
     for (const key of this.stretched.keys()) if (key.startsWith('original:')) this.stretched.delete(key);
+    for (const key of this.read.keys()) if (key.startsWith('original:')) this.read.delete(key);
     this.schedule();
+  }
+
+  /** Where a part's samples are read from when they are not in memory: the bank's file, or the original's. */
+  private fileOf(clip: LiveClip): SampleSource | null {
+    if (clip.file) return null;
+    return clip.original ? this.originalFile : this.bankFile;
   }
 
   get running() {
@@ -312,6 +323,7 @@ export class LiveDubEngine {
     this.read.clear();
     this.reading.clear();
     this.bankFile = null;
+    this.originalFile = null;
   }
 
   private start(t: number) {
@@ -337,7 +349,7 @@ export class LiveDubEngine {
       const clip = this.clips.find((c) => c.id === id);
       if (!clip || clip.start + clipLength(clip) < now - 0.1) this.playing.delete(id);
     });
-    if (this.bankFile) this.readAround(now);
+    if (this.bankFile || this.originalFile) this.readAround(now);
   }
 
   /** Reads the bank's parts coming up from its file, and lets go of the ones long played. */
@@ -345,7 +357,7 @@ export class LiveDubEngine {
     const near = new Set<string>();
     for (const clip of this.clips) {
       if (clip.start > now + READ_AHEAD) break;
-      if (clip.original || clip.file || clip.start + clipLength(clip) < now - KEEP_BEHIND) continue;
+      if (!this.fileOf(clip) || clip.start + clipLength(clip) < now - KEEP_BEHIND) continue;
       near.add(clip.stretchKey);
       this.readPart(clip);
     }
@@ -354,7 +366,7 @@ export class LiveDubEngine {
   }
 
   private readPart(clip: LiveClip) {
-    const file = this.bankFile;
+    const file = this.fileOf(clip);
     const key = clip.stretchKey;
     if (!file || this.read.has(key) || this.reading.has(key)) return;
     this.reading.add(key);
@@ -362,7 +374,7 @@ export class LiveDubEngine {
     file
       .read(Math.round(clip.bankFrom * sr), Math.round(clip.bankTo * sr))
       .then((channels) => {
-        if (!this.reading.has(key) || this.bankFile !== file || channels[0].length === 0) return;
+        if (!this.reading.has(key) || this.fileOf(clip) !== file || channels[0].length === 0) return;
         const out = Math.abs(clip.rate - 1) < 1e-6 ? channels : stretchSamples(channels, sr, clip.rate);
         const buffer = this.ctx.createBuffer(out.length, out[0].length, sr);
         out.forEach((data, ch) => buffer.copyToChannel(data, ch));
@@ -375,7 +387,7 @@ export class LiveDubEngine {
   }
 
   private bufferFor(clip: LiveClip): { buffer: AudioBuffer; offset: number } | null {
-    if (!clip.file && !clip.original && this.bankFile) {
+    if (this.fileOf(clip)) {
       // Read from the file, stretched already: silent until it is read, then it joins.
       const buffer = this.read.get(clip.stretchKey);
       if (buffer) return { buffer, offset: 0 };

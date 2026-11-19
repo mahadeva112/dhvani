@@ -13,7 +13,9 @@ export type Wave = { max: Float32Array; min: Float32Array; rms: Float32Array; se
  * fractional, as in computePeaks, so bucket b sits at time b/buckets of the
  * buffer exactly.
  */
-export const computeWave = (buffer: AudioBuffer, buckets: number, stride = 4): Wave => {
+export const computeWave = (audio: WaveAudio, buckets: number, stride = 4): Wave => {
+  if (isStreamedAudio(audio)) return waveFromPeaks(audio.peaks, buckets);
+  const buffer = audio;
   const data = buffer.getChannelData(0);
   const n = data.length;
   const count = Math.max(1, Math.floor(buckets));
@@ -49,6 +51,38 @@ export const computeWave = (buffer: AudioBuffer, buckets: number, stride = 4): W
     }
   }
   return { max, min, rms, seconds: n / buffer.sampleRate };
+};
+
+/**
+ * computeWave from peaks, for audio whose samples aren't held: each bucket's
+ * extremes from the blocks, its power estimated from them (an overview only).
+ */
+const waveFromPeaks = (peaks: Peaks, buckets: number): Wave => {
+  const count = Math.max(1, Math.floor(buckets));
+  const frames = Math.round(peaks.seconds * peaks.rate);
+  const max = new Float32Array(count);
+  const min = new Float32Array(count);
+  const rms = new Float32Array(count);
+  let loudest = 0;
+  for (let b = 0; b < count; b++) {
+    const start = Math.floor((b * frames) / count);
+    const end = Math.min(frames, Math.max(start + 1, Math.floor(((b + 1) * frames) / count)));
+    const r = peakRange(peaks, start, end);
+    const hi = Math.max(0, r?.hi ?? 0);
+    const lo = Math.min(0, r?.lo ?? 0);
+    max[b] = hi;
+    min[b] = lo;
+    rms[b] = 0.35 * Math.max(hi, -lo);
+    loudest = Math.max(loudest, hi, -lo);
+  }
+  if (loudest > 0) {
+    for (let b = 0; b < count; b++) {
+      max[b] /= loudest;
+      min[b] /= loudest;
+      rms[b] /= loudest;
+    }
+  }
+  return { max, min, rms, seconds: peaks.seconds };
 };
 
 type Sample = { hi: number; lo: number; rms: number };
@@ -231,7 +265,8 @@ export type SampleSource = {
  */
 export type StreamedAudio = {
   kind: 'streamed';
-  blob: Blob;
+  /** Its file, when the page holds it (a dub); an original read from the server has none. */
+  blob?: Blob;
   duration: number;
   sampleRate: number;
   length: number;
@@ -239,6 +274,10 @@ export type StreamedAudio = {
   peaks: Peaks;
   /** Its samples, a stretch at a time; unset for a file that can't be read in slices (an MP3), whose samples must be decoded whole. */
   samples?: SampleSource;
+  /** The loudest channel's level per gate frame (`hop` samples), for finding its speech; read with the peaks for an original. */
+  levels?: { levels: Float32Array; hop: number };
+  /** The server keeps its file while it is open (an original): this lets it go. */
+  close?: () => Promise<void>;
 };
 
 /** Audio as the waves draw it: decoded whole, or known by its peaks. */

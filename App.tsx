@@ -30,7 +30,8 @@ import {
   readStreamedAudioUrl,
   resegmentAudioBuffer,
 } from './services/audioService';
-import { decodedBuffer, type WaveAudio } from './services/waveform';
+import { decodedBuffer, isStreamedAudio, type StreamedAudio, type WaveAudio } from './services/waveform';
+import { closeOriginal, loadOriginal } from './services/originalAudio';
 import { transcribeOnly } from './services/geminiService';
 import { retranslateCues, RetranslateProgress, translationFraction } from './services/subtitleService';
 import {
@@ -475,7 +476,7 @@ export default function App() {
   /** A Dhvani JSON waiting to go on a project being dubbed (Update script). */
   const [pendingScriptUpdate, setPendingScriptUpdate] = useState<(ProjectJsonFile & { jobId: string }) | null>(null);
   /** The media last read for it, so opening doesn't decode it twice. */
-  const pickedMediaRef = useRef<{ file: File; analysis: Awaited<ReturnType<typeof analyzeAudio>> } | null>(null);
+  const pickedMediaRef = useRef<{ file: File; analysis: Awaited<ReturnType<typeof loadOriginal>> } | null>(null);
 
   // Audio Playback State
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -1770,7 +1771,7 @@ export default function App() {
   // Re-decode audio buffers if needed
   useEffect(() => {
     if (activeJob && !activeJob.audioBuffer && activeJob.file) {
-      analyzeAudio(activeJob.file, { sensitivity: activeJob.analysisSensitivity ?? 50, gate: activeJob.analysisGate, detect: activeJob.segments.length === 0 })
+      loadOriginal(activeJob.file, { sensitivity: activeJob.analysisSensitivity ?? 50, gate: activeJob.analysisGate, detect: activeJob.segments.length === 0 })
         .then(({ buffer, segments }) => {
           updateJob(activeJob.id, {
             audioBuffer: buffer,
@@ -1829,6 +1830,25 @@ export default function App() {
     }, RELEASE_CLOSED_AUDIO_MS);
     return () => clearTimeout(timer);
   }, [activeJobId, workingJobIds]);
+
+  /*
+   * An original read from the server (a long video's audio, kept in the temp
+   * folder while its project is open, services/originalAudio.ts) is let go
+   * once no project holds it: closed, released above, deleted, or replaced.
+   * Leaving the page lets every one go; any the app could not tell the
+   * server about are swept when it starts again.
+   */
+  const openOriginalsRef = useRef(new Set<StreamedAudio>());
+  useEffect(() => {
+    const held = new Set(queue.map((job) => job.audioBuffer).filter((audio): audio is StreamedAudio => isStreamedAudio(audio) && Boolean(audio.close)));
+    for (const audio of openOriginalsRef.current) if (!held.has(audio) && pickedMediaRef.current?.analysis.buffer !== audio) closeOriginal(audio);
+    openOriginalsRef.current = held;
+  }, [queue]);
+  useEffect(() => {
+    const leave = () => openOriginalsRef.current.forEach((audio) => closeOriginal(audio));
+    window.addEventListener('pagehide', leave);
+    return () => window.removeEventListener('pagehide', leave);
+  }, []);
 
   // --- AUDIO SYNCHRONIZATION ENGINE ---
   /*
@@ -2389,7 +2409,7 @@ export default function App() {
     };
 
     try {
-      const { metadata, buffer, segments } = await analyzeAudio(file);
+      const { metadata, buffer, segments } = await loadOriginal(file);
       newJob.audioMetadata = metadata;
       newJob.audioBuffer = buffer;
       newJob.segments = segments;
@@ -2673,7 +2693,7 @@ export default function App() {
    */
   const scheduleSyncEditRender = (
     jobId: string,
-    input: { bank: NonNullable<BatchJob['syncBank']>; bankBlob: Blob | null | undefined; baseReport: NonNullable<BatchJob['syncReport']>; edits: SyncEdits | null; sourceDuration: number; source: AudioBuffer | null | undefined },
+    input: { bank: NonNullable<BatchJob['syncBank']>; bankBlob: Blob | null | undefined; baseReport: NonNullable<BatchJob['syncReport']>; edits: SyncEdits | null; sourceDuration: number; source: WaveAudio | null | undefined },
     delay = SYNC_EDIT_RENDER_DELAY_MS
   ) => {
     cancelSyncEditRender(jobId);
@@ -4319,7 +4339,9 @@ export default function App() {
 
   /** Reads the media picked for a Dhvani JSON: its length, and the buffer the project plays. */
   const measureProjectMedia = useCallback(async (file: File) => {
-    const analysis = await analyzeAudio(file);
+    // A media picked before replaces one picked earlier, whose kept original goes.
+    if (pickedMediaRef.current) closeOriginal(pickedMediaRef.current.analysis.buffer);
+    const analysis = await loadOriginal(file);
     pickedMediaRef.current = { file, analysis };
     return analysis.buffer.duration;
   }, []);
@@ -4329,7 +4351,7 @@ export default function App() {
     async (file: File) => {
       const pending = pendingProjectJson;
       if (!pending) return;
-      const analysis = pickedMediaRef.current?.file === file ? pickedMediaRef.current.analysis : await analyzeAudio(file);
+      const analysis = pickedMediaRef.current?.file === file ? pickedMediaRef.current.analysis : await loadOriginal(file);
       const { project } = pending;
       // A light project: the project as it was, with the original picked again.
       const job = pending.job
@@ -4553,7 +4575,7 @@ export default function App() {
         };
 
         try {
-          const { metadata, buffer, segments } = await analyzeAudio(file);
+          const { metadata, buffer, segments } = await loadOriginal(file);
           newJob.audioMetadata = metadata;
           newJob.audioBuffer = buffer;
           newJob.segments = segments;

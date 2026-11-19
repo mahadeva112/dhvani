@@ -1,7 +1,8 @@
 import type { AudioSegment, SpeakerGender } from '../types';
 import type { Voice } from './elevenLabsService';
 import { apiUpload } from './apiClient.ts';
-import { audioBufferToWav } from './audioService.ts';
+import { audioBufferToWav, readRange } from './audioService.ts';
+import type { WaveAudio } from './waveform.ts';
 import { INDIAN_LANGUAGE_CODES, isIndianVoice, languageFit } from './indianVoices.ts';
 import { speakerOf } from './speakers.ts';
 
@@ -51,15 +52,16 @@ export const speakerClipRanges = (segments: AudioSegment[], speaker: string): { 
 };
 
 /** The ranges joined into one small mono WAV. */
-const clipOf = async (buffer: AudioBuffer, ranges: { start: number; end: number }[]): Promise<Blob> => {
+const clipOf = async (audio: WaveAudio, ranges: { start: number; end: number }[]): Promise<Blob> => {
   const seconds = ranges.reduce((sum, r) => sum + (r.end - r.start) + JOIN_GAP, 0);
   const context = new OfflineAudioContext(1, Math.max(1, Math.ceil(seconds * LISTEN_SAMPLE_RATE)), LISTEN_SAMPLE_RATE);
   let at = 0;
   for (const r of ranges) {
     const source = context.createBufferSource();
-    source.buffer = buffer;
+    // Only the line itself, read from the file when the original is held as its peaks.
+    source.buffer = await readRange(audio, r.start, r.end);
     source.connect(context.destination);
-    source.start(at, r.start, r.end - r.start);
+    source.start(at, 0, r.end - r.start);
     at += r.end - r.start + JOIN_GAP;
   }
   return audioBufferToWav(await context.startRendering());
@@ -67,7 +69,7 @@ const clipOf = async (buffer: AudioBuffer, ranges: { start: number; end: number 
 
 /** Hears `speaker` in the original, or null when they have no line long enough to judge. */
 export const hearSpeakerVoice = async (
-  buffer: AudioBuffer,
+  buffer: WaveAudio,
   segments: AudioSegment[],
   speaker: string,
   signal?: AbortSignal

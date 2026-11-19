@@ -4,7 +4,7 @@ import { computeWave, drawWave } from '../services/waveform';
 
 interface MediaStripProps {
   file: File | null;
-  audioBuffer: AudioBuffer | null;
+  audioBuffer: import('../services/waveform').WaveAudio | null;
   onFileSelect: (files: FileList | File[]) => void;
   onLoadSample: (sampleType: 'podcast' | 'keynote') => void;
   /** At the end of the loaded file's row, after Replace: the step's main button, so it never scrolls away. */
@@ -33,7 +33,7 @@ const formatSize = (bytes: number) =>
  * text colour; given `spans` (seconds into the buffer), each span's stretch
  * is drawn in that span's colour instead.
  */
-export const MiniWaveform: React.FC<{ buffer: AudioBuffer; className?: string; spans?: { from: number; to: number; color: string }[] }> = ({
+export const MiniWaveform: React.FC<{ buffer: import('../services/waveform').WaveAudio; className?: string; spans?: { from: number; to: number; color: string }[] }> = ({
   buffer,
   className = 'text-cyan-400/70',
   spans,

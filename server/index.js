@@ -23,6 +23,8 @@ import { syncRouter } from './routes/sync.js';
 import { usageRouter } from './routes/usage.js';
 import { deliveryRouter } from './routes/delivery.js';
 import { subtitlesRouter } from './routes/subtitles.js';
+import { originalsRouter } from './routes/originals.js';
+import { sweepOriginals } from './lib/originals.js';
 import { ffmpegAvailable } from './lib/media.js';
 import { openClipStore } from './lib/clipStore.js';
 
@@ -161,7 +163,9 @@ if (config.rateLimitPerMinute > 0) {
         req.path.startsWith('/settings') ||
         req.path === '/sync/edit/render' ||
         (req.method === 'GET' && /\/jobs\/[^/]+(\/result)?$/.test(req.path)) ||
-        (req.method === 'GET' && /^\/sync\/audio\/[^/]+$/.test(req.path)),
+        (req.method === 'GET' && /^\/sync\/audio\/[^/]+$/.test(req.path)) ||
+        // An open original is read a stretch at a time (hundreds of Ranges to draw a long one); never a provider.
+        /^\/media\/originals(\/[^/]+)?$/.test(req.path),
       message: {
         error: {
           message:
@@ -176,7 +180,9 @@ if (config.rateLimitPerMinute > 0) {
 }
 
 app.use((req, _res, next) => {
-  if (req.path !== '/api/health' && req.path !== '/api/client-log') logger.info(`${req.method} ${req.path}`);
+  // An open original is read in hundreds of Ranges; only its upload and its closing are worth a line.
+  const originalRead = req.method === 'GET' && req.path.startsWith('/api/media/originals/');
+  if (req.path !== '/api/health' && req.path !== '/api/client-log' && !originalRead) logger.info(`${req.method} ${req.path}`);
   next();
 });
 
@@ -193,6 +199,9 @@ app.use('/api', syncRouter);
 app.use('/api', usageRouter);
 app.use('/api', deliveryRouter);
 app.use('/api', subtitlesRouter);
+app.use('/api', originalsRouter);
+// Originals left by an app that quit with a project open.
+void sweepOriginals().catch(() => {});
 
 /*
  * In production the same process serves the built frontend, so the whole app is

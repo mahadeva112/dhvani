@@ -3,24 +3,33 @@ import { sendBankAgain } from './bankUpload';
 import { fetchMixed } from './castService';
 import { DubMixReport, DubStem } from '../types';
 import type { SyncReport } from './syncService';
+import { isStreamedAudio, type WaveAudio } from './waveform.ts';
+import { readRange } from './audioService.ts';
 import { audioParts, ORIGINAL_SPEAKER, originalParts, renderPayload, type AudioFileInfo, type AudioTrack, type SyncBank, type SyncEditPart, type SyncEdits } from './syncEditModel.ts';
 
 /** The bank, the edits and what they do to the report (syncEditModel.ts); here, rendering them on the server. */
 export * from './syncEditModel.ts';
 
+/** Seconds read either side of a clip of an original held as its peaks, so the resampler sees what it would in the whole file. */
+const CLIP_MARGIN = 0.05;
+
 /** `from` to `to` seconds of `source` as one channel at `sampleRate`: the dub's own rate and channels. */
-const originalSamples = async (source: AudioBuffer, from: number, to: number, sampleRate: number) => {
+const originalSamples = async (source: WaveAudio, from: number, to: number, sampleRate: number) => {
   const length = Math.max(1, Math.round((to - from) * sampleRate));
-  if (source.sampleRate === sampleRate && source.numberOfChannels === 1) {
+  if (!isStreamedAudio(source) && source.sampleRate === sampleRate && source.numberOfChannels === 1) {
     const at = Math.round(from * sampleRate);
     return source.getChannelData(0).slice(at, at + length);
   }
+  // Held as its peaks: only this stretch is read from its file.
+  const lead = isStreamedAudio(source) ? Math.min(from, CLIP_MARGIN) : 0;
+  const buffer = isStreamedAudio(source) ? await readRange(source, from - lead, to + CLIP_MARGIN) : source;
+  const at = isStreamedAudio(source) ? Math.round((from - lead) * source.sampleRate) / source.sampleRate : 0;
   // Another rate or more channels: the browser resamples it and folds it to one channel, as the dub is.
   const ctx = new OfflineAudioContext(1, length, sampleRate);
   const node = ctx.createBufferSource();
-  node.buffer = source;
+  node.buffer = buffer;
   node.connect(ctx.destination);
-  node.start(0, from, to - from);
+  node.start(0, from - at, to - from);
   return (await ctx.startRendering()).getChannelData(0);
 };
 
@@ -81,13 +90,13 @@ export const trackSpeaker = (track: AudioTrack, speakers: Set<string>) => {
 const clipsRender = async (
   bank: SyncBank,
   edits: SyncEdits | null | undefined,
-  source: AudioBuffer | null | undefined,
+  source: WaveAudio | null | undefined,
   audio?: TrackAudio | null,
   /** How many lines the dub renders (the bank's, and copies' own samples): the clips are numbered after them. */
   dubLines = bank.lines.length
 ) => {
   const rate = bank.sampleRate;
-  type Clip = { part: SyncEditPart; buffer: AudioBuffer | null | undefined; speaker: string; gainDb: number };
+  type Clip = { part: SyncEditPart; buffer: WaveAudio | null | undefined; speaker: string; gainDb: number };
   const clips: Clip[] = originalParts(edits, source?.duration ?? Infinity).map((part) => ({ part, buffer: source, speaker: ORIGINAL_SPEAKER, gainDb: 0 }));
   if (clips.length > 0 && !source) throw new DhvaniApiError('The original audio is still loading. Try again in a moment.', { code: 'original_not_loaded' });
   if (audio) {
@@ -109,7 +118,7 @@ const clipsRender = async (
   const pieces: Float32Array[] = [];
   let at = 0;
   for (const { part, buffer, speaker } of clips) {
-    const piece = await originalSamples(buffer as AudioBuffer, part.from, part.to, rate);
+    const piece = await originalSamples(buffer as WaveAudio, part.from, part.to, rate);
     pieces.push(piece);
     lines.push({ bankStart: at, length: piece.length, speaker });
     at += piece.length;
@@ -160,7 +169,7 @@ export const renderSyncEdits = async (
     report: SyncReport;
     sourceDuration: number;
     /** The original, for the clips of it on the dub. */
-    source?: AudioBuffer | null;
+    source?: WaveAudio | null;
     /**
      * The tracks of outside audio, for the "Dub + tracks" file: mixed in, each
      * as a stem of its own, at full precision. Without it, the dub alone.

@@ -1639,7 +1639,7 @@ export interface SyncResultsPanelProps {
   /** Syncs only the changed lines: every other line is locked where it is for that Sync. */
   onSyncChangedOnly?: () => void;
   /** The original and the synced dub, drawn behind the lines of the alignment view. */
-  sourceBuffer?: AudioBuffer | null;
+  sourceBuffer?: import('../services/waveform').WaveAudio | null;
   dubBuffer?: import('../services/waveform').WaveAudio | null;
   /** One continuous read: its progress while the script is voiced in one take, before the lines are placed. */
   reading?: DubProgress | null;

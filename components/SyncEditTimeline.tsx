@@ -1326,7 +1326,7 @@ export const SyncEditTimeline: React.FC<{
    */
   onDraft?: (edits: SyncEdits | null) => void;
   onRetry: () => void;
-  sourceBuffer: AudioBuffer | null | undefined;
+  sourceBuffer: WaveAudio | null | undefined;
   /** The source's length, which the dub is as long as. */
   total: number;
   targetLanguage: string;

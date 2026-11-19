@@ -20,10 +20,10 @@ const speakerOf = (segment: AudioSegment): string => (segment.speaker || '').tri
  * held to a looser bar than one who never does.
  */
 
-export interface MonoAudio {
-  sampleRate: number;
-  getChannelData(channel: number): Float32Array;
-}
+/** Audio decoded whole, or (an original held as its peaks) read a stretch at a time. */
+export type MonoAudio =
+  | { sampleRate: number; getChannelData(channel: number): Float32Array }
+  | { sampleRate: number; length: number; samples?: { read(from: number, to: number): Promise<Float32Array[]> } };
 
 const TARGET_RATE = 16000;
 const FRAME = 400; // 25 ms
@@ -128,10 +128,18 @@ const fft = (re: Float64Array, im: Float64Array) => {
 };
 
 /** Mono samples from `start` to `end` seconds, at 16 kHz (averaged down, which is its own low-pass). */
-const cutAt16k = (audio: MonoAudio, start: number, end: number): Float32Array => {
-  const data = audio.getChannelData(0);
-  const from = Math.max(0, Math.floor(start * audio.sampleRate));
-  const to = Math.min(data.length, Math.ceil(end * audio.sampleRate));
+const cutAt16k = async (audio: MonoAudio, start: number, end: number): Promise<Float32Array> => {
+  const first = Math.max(0, Math.floor(start * audio.sampleRate));
+  let data: Float32Array;
+  let from = first;
+  if ('getChannelData' in audio) data = audio.getChannelData(0);
+  else {
+    // Only this cue's stretch is read from the file.
+    if (!audio.samples) return new Float32Array(0);
+    [data] = await audio.samples.read(first, Math.min(audio.length, Math.ceil(end * audio.sampleRate)));
+    from = 0;
+  }
+  const to = 'getChannelData' in audio ? Math.min(data.length, Math.ceil(end * audio.sampleRate)) : data.length;
   if (to <= from) return new Float32Array(0);
   const ratio = audio.sampleRate / TARGET_RATE;
   const length = Math.floor((to - from) / ratio);
@@ -248,7 +256,7 @@ export const profileSpeakers = async (
       const start = cue.startTime + EDGE_TRIM;
       const end = cue.endTime - EDGE_TRIM;
       if (end - start < 0.3) continue;
-      const frames = framesOf(cutAt16k(audio, start, end));
+      const frames = framesOf(await cutAt16k(audio, start, end));
       halves[(i / step) % 2 === 0 ? 0 : 1].push(...frames);
       seconds += end - start;
       if ((i / step) % 6 === 5) await yieldToUi();
@@ -410,7 +418,7 @@ export const scoreCues = async (
     const start = seg.startTime + EDGE_TRIM;
     const end = seg.endTime - EDGE_TRIM;
     if (end - start >= MIN_CUE_SECONDS) {
-      const frames = framesOf(cutAt16k(audio, start, end));
+      const frames = framesOf(await cutAt16k(audio, start, end));
       if (frames.length >= 20) {
         const cut = [...frames].sort((a, b) => b.energy - a.energy)[Math.max(0, Math.floor(frames.length * VOICED_SHARE) - 1)].energy;
         vectors.set(String(seg.id), meanOf(frames.filter((f) => f.energy >= cut).map((f) => f.coeffs)));

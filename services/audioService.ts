@@ -314,64 +314,40 @@ const decodeWithBrowser = async (blob: Blob): Promise<AudioBuffer> => {
     }
 };
 
-/**
- * A dub known by its length and peaks, its samples left in the file: read a
- * slice at a time, each slice's first channel folded into the peaks and let
- * go, so two hours of it never take more than a slice and about 30 MB of
- * peaks (as an AudioBuffer: 1.4 GB). A file that isn't plain PCM WAV (an MP3
- * dub) is decoded once for its peaks, and the samples let go.
- */
-export const readStreamedAudio = async (blob: Blob): Promise<StreamedAudio> => {
-  const layout = pcmWavLayout(await blob.slice(0, WAV_HEAD_BYTES).arrayBuffer(), blob.size);
-  if (!layout) {
-    const buffer = await decodeWithBrowser(blob);
-    const { data: _samples, ...peaks } = computePeaks(buffer);
-    return {
-      kind: 'streamed',
-      blob,
-      duration: buffer.duration,
-      sampleRate: buffer.sampleRate,
-      length: buffer.length,
-      numberOfChannels: buffer.numberOfChannels,
-      peaks: { ...peaks, data: null },
-    };
-  }
-  const { offset, frames, channels, sampleRate, float } = layout;
-  const builder = peaksBuilder(sampleRate, frames);
-  const frameBytes = channels * (float ? 4 : 2);
-  const framesPerSlice = Math.max(1, Math.floor(WAV_SLICE_BYTES / frameBytes));
-  const first = new Float32Array(framesPerSlice);
-  for (let frame = 0; frame < frames; frame += framesPerSlice) {
-    const count = Math.min(framesPerSlice, frames - frame);
-    const from = offset + frame * frameBytes;
-    const bytes = await blob.slice(from, from + count * frameBytes).arrayBuffer();
-    if (bytes.byteLength < count * frameBytes) throw new Error('The audio file ended before its samples did.');
-    // The first channel, as readPcmWav would put it in a buffer.
-    if (float) {
-      const samples = new Float32Array(bytes, 0, count * channels);
-      for (let i = 0; i < count; i++) first[i] = samples[i * channels];
-    } else {
-      const samples = new Int16Array(bytes, 0, count * channels);
-      for (let i = 0; i < count; i++) {
-        const v = samples[i * channels];
-        first[i] = v * (v < 0 ? FROM_NEGATIVE : FROM_POSITIVE);
+/** Where a file's bytes come from: a Blob in the page, or a file the server keeps (read with a Range). */
+export type ByteSource = { size: number; bytes(start: number, end: number): Promise<ArrayBuffer> };
+
+export const blobBytes = (blob: Blob): ByteSource => ({ size: blob.size, bytes: (start, end) => blob.slice(start, end).arrayBuffer() });
+
+/** A file on the server, `size` bytes long, read a Range at a time. */
+export const httpBytes = (url: string, size: number): ByteSource => ({
+  size,
+  async bytes(start, end) {
+    if (end <= start) return new ArrayBuffer(0);
+    const response = await fetch(url, { headers: { Range: `bytes=${start}-${end - 1}` } });
+    if (!response.ok) throw new Error(`The original could not be read (${response.status}).`);
+    const body = await response.arrayBuffer();
+    // A server that ignores the Range sends the whole file: take the part asked for.
+    return response.status === 206 ? body : body.slice(start, end);
+  },
+});
+
+/** `count` frames of interleaved PCM as one array per channel (the first `only`), as readPcmWav would put them in a buffer. */
+const deinterleave = (bytes: ArrayBuffer, count: number, channels: number, float: boolean, only = channels): Float32Array[] => {
+  const out = Array.from({ length: only }, () => new Float32Array(count));
+  if (float) {
+    const samples = new Float32Array(bytes, 0, count * channels);
+    for (let i = 0; i < count; i++) for (let ch = 0; ch < only; ch++) out[ch][i] = samples[i * channels + ch];
+  } else {
+    const samples = new Int16Array(bytes, 0, count * channels);
+    for (let i = 0; i < count; i++) {
+      for (let ch = 0; ch < only; ch++) {
+        const v = samples[i * channels + ch];
+        out[ch][i] = v * (v < 0 ? FROM_NEGATIVE : FROM_POSITIVE);
       }
     }
-    builder.add(first.subarray(0, count));
   }
-  const audio: StreamedAudio = {
-    kind: 'streamed',
-    blob,
-    duration: frames / sampleRate,
-    sampleRate,
-    length: frames,
-    numberOfChannels: channels,
-    peaks: builder.done(),
-    samples: wavSamples(blob, layout),
-  };
-  // Zoomed in past the finest blocks, a wave asks for the samples it shows.
-  audio.peaks.detail = (from, to) => detailPeaks(audio, from, to);
-  return audio;
+  return out;
 };
 
 /**
@@ -379,7 +355,8 @@ export const readStreamedAudio = async (blob: Blob): Promise<StreamedAudio> => {
  * file: as readPcmWav would put them in a buffer, so what plays from here
  * is what played from the decoded file.
  */
-export const wavSamples = (blob: Blob, layout: PcmWavLayout): SampleSource => {
+export const wavSamples = (file: Blob | ByteSource, layout: PcmWavLayout): SampleSource => {
+  const source = file instanceof Blob ? blobBytes(file) : file;
   const { offset, frames, channels, sampleRate, float } = layout;
   const frameBytes = channels * (float ? 4 : 2);
   return {
@@ -390,25 +367,88 @@ export const wavSamples = (blob: Blob, layout: PcmWavLayout): SampleSource => {
       const a = Math.max(0, Math.min(frames, Math.floor(from)));
       const b = Math.max(a, Math.min(frames, Math.ceil(to)));
       const count = b - a;
-      const out = Array.from({ length: channels }, () => new Float32Array(count));
-      if (count === 0) return out;
+      if (count === 0) return Array.from({ length: channels }, () => new Float32Array(0));
       const start = offset + a * frameBytes;
-      const bytes = await blob.slice(start, start + count * frameBytes).arrayBuffer();
+      const bytes = await source.bytes(start, start + count * frameBytes);
       if (bytes.byteLength < count * frameBytes) throw new Error('The audio file ended before its samples did.');
-      if (float) {
-        const samples = new Float32Array(bytes, 0, count * channels);
-        for (let i = 0; i < count; i++) for (let ch = 0; ch < channels; ch++) out[ch][i] = samples[i * channels + ch];
-      } else {
-        const samples = new Int16Array(bytes, 0, count * channels);
-        for (let i = 0; i < count; i++) {
-          for (let ch = 0; ch < channels; ch++) {
-            const v = samples[i * channels + ch];
-            out[ch][i] = v * (v < 0 ? FROM_NEGATIVE : FROM_POSITIVE);
-          }
+      return deinterleave(bytes, count, channels, float);
+    },
+  };
+};
+
+/**
+ * Audio known by its length and peaks, its samples left in the file: read a
+ * slice at a time, each slice's first channel folded into the peaks and let
+ * go, so two hours of it never take more than a slice and about 30 MB of
+ * peaks (as an AudioBuffer: 1.4 GB). With `levels`, the loudest channel's
+ * level per gate frame is kept too, for finding the speech in it
+ * (detectSpeechSegments). Null when the file isn't plain PCM WAV.
+ */
+export const readPcmPeaks = async (
+  file: ByteSource,
+  { levels = false, blob }: { levels?: boolean; blob?: Blob } = {}
+): Promise<StreamedAudio | null> => {
+  const layout = pcmWavLayout(await file.bytes(0, Math.min(file.size, WAV_HEAD_BYTES)), file.size);
+  if (!layout) return null;
+  const { offset, frames, channels, sampleRate, float } = layout;
+  const builder = peaksBuilder(sampleRate, frames);
+  const hop = Math.max(1, Math.round(GATE_FRAME_SECONDS * sampleRate));
+  const gate = levels ? new Float32Array(Math.ceil(frames / hop)) : null;
+  const frameBytes = channels * (float ? 4 : 2);
+  // Whole gate frames per slice, so no frame's level is split between two reads.
+  const framesPerSlice = Math.max(hop, Math.floor(WAV_SLICE_BYTES / frameBytes / hop) * hop);
+  for (let frame = 0; frame < frames; frame += framesPerSlice) {
+    const count = Math.min(framesPerSlice, frames - frame);
+    const from = offset + frame * frameBytes;
+    const bytes = await file.bytes(from, from + count * frameBytes);
+    if (bytes.byteLength < count * frameBytes) throw new Error('The audio file ended before its samples did.');
+    const data = deinterleave(bytes, count, channels, float, gate ? channels : 1);
+    builder.add(data[0]);
+    if (gate) {
+      // The loudest channel in each frame, as levelsOf reads a decoded buffer.
+      for (let i = 0; i < count; i++) {
+        const k = ((frame + i) / hop) | 0;
+        for (let ch = 0; ch < data.length; ch++) {
+          const v = data[ch][i] < 0 ? -data[ch][i] : data[ch][i];
+          if (v > gate[k]) gate[k] = v;
         }
       }
-      return out;
-    },
+    }
+  }
+  const audio: StreamedAudio = {
+    kind: 'streamed',
+    ...(blob && { blob }),
+    duration: frames / sampleRate,
+    sampleRate,
+    length: frames,
+    numberOfChannels: channels,
+    peaks: builder.done(),
+    samples: wavSamples(file, layout),
+    ...(gate && { levels: { levels: gate, hop } }),
+  };
+  // Zoomed in past the finest blocks, a wave asks for the samples it shows.
+  audio.peaks.detail = (from, to) => detailPeaks(audio, from, to);
+  return audio;
+};
+
+/**
+ * A dub held as its peaks (readPcmPeaks), its samples left in `blob`. A file
+ * that isn't plain PCM WAV (an MP3 dub) is decoded once for its peaks, and
+ * the samples let go.
+ */
+export const readStreamedAudio = async (blob: Blob): Promise<StreamedAudio> => {
+  const streamed = await readPcmPeaks(blobBytes(blob), { blob });
+  if (streamed) return streamed;
+  const buffer = await decodeWithBrowser(blob);
+  const { data: _samples, ...peaks } = computePeaks(buffer);
+  return {
+    kind: 'streamed',
+    blob,
+    duration: buffer.duration,
+    sampleRate: buffer.sampleRate,
+    length: buffer.length,
+    numberOfChannels: buffer.numberOfChannels,
+    peaks: { ...peaks, data: null },
   };
 };
 
@@ -418,8 +458,8 @@ export const wavSamples = (blob: Blob, layout: PcmWavLayout): SampleSource => {
  * MP3 bank, kept in the format the plan allowed) is decoded whole, as before.
  */
 export const readWaveAudio = async (blob: Blob): Promise<WaveAudio> => {
-  const layout = pcmWavLayout(await blob.slice(0, WAV_HEAD_BYTES).arrayBuffer(), blob.size);
-  if (layout) return readStreamedAudio(blob);
+  const streamed = await readPcmPeaks(blobBytes(blob), { blob });
+  if (streamed) return streamed;
   const url = URL.createObjectURL(blob);
   try {
     return await decodeAudioBlobUrl(url);
@@ -434,12 +474,34 @@ export const readStreamedAudioUrl = async (blobUrl: string): Promise<StreamedAud
 /** The samples of `audio`, decoded from its file when only its peaks are held: for the few things that need them (the voice changer, a save). */
 export const decodeWaveAudio = async (audio: WaveAudio): Promise<AudioBuffer> => {
   if (!isStreamedAudio(audio)) return audio;
+  if (!audio.blob) throw new Error('This audio is read from the server a stretch at a time and cannot be decoded whole.');
   const url = URL.createObjectURL(audio.blob);
   try {
     return await decodeAudioBlobUrl(url);
   } finally {
     URL.revokeObjectURL(url);
   }
+};
+
+/**
+ * [start, end) seconds of `audio`, every channel, at its own rate, as a
+ * small AudioBuffer: read from its file when only its peaks are held. For
+ * whatever needs a stretch of the original (a speaker's clip, a render's
+ * clip of the original) without the rest of it.
+ */
+export const readRange = async (audio: WaveAudio, start: number, end: number): Promise<AudioBuffer> => {
+  const rate = audio.sampleRate;
+  const a = Math.max(0, Math.min(audio.length, Math.floor(start * rate)));
+  const b = Math.max(a + 1, Math.min(audio.length, Math.ceil(end * rate)));
+  const out = new AudioBuffer({ numberOfChannels: audio.numberOfChannels, length: Math.max(1, b - a), sampleRate: rate });
+  if (!isStreamedAudio(audio)) {
+    for (let ch = 0; ch < audio.numberOfChannels; ch++) out.copyToChannel(audio.getChannelData(ch).subarray(a, b), ch);
+    return out;
+  }
+  if (!audio.samples) throw new Error('This audio cannot be read a stretch at a time.');
+  const channels = await audio.samples.read(a, b);
+  channels.forEach((data, ch) => out.copyToChannel(data, ch));
+  return out;
 };
 
 /** The file extension for an audio blob, from its type: a WAV is saved as .wav and an MP3 as .mp3. */
@@ -548,7 +610,10 @@ function writeString(view: DataView, offset: number, string: string){
 /** Each AudioBuffer's 5 ms peaks, read once: moving a slider re-runs only the gate. */
 const levelCache = new WeakMap<AudioBuffer, { levels: Float32Array; hop: number }>();
 
-const levelsOf = (buffer: AudioBuffer) => {
+const levelsOf = (audio: WaveAudio) => {
+  // An original held as its peaks had its levels read with them.
+  if (isStreamedAudio(audio)) return audio.levels ?? { levels: new Float32Array(0), hop: 1 };
+  const buffer = audio;
   const cached = levelCache.get(buffer);
   if (cached) return cached;
   let merged: { levels: Float32Array; hop: number } | null = null;
@@ -571,7 +636,7 @@ const levelsOf = (buffer: AudioBuffer) => {
  * don't run into the next one.
  */
 export const detectSpeechSegments = (
-  buffer: AudioBuffer,
+  buffer: WaveAudio,
   options?: AudioAnalysisOptions
 ): AudioSegment[] => {
   const gate = options?.gate ?? gateFromSensitivity(options?.sensitivity ?? 50);
@@ -599,7 +664,7 @@ export const detectSpeechSegments = (
  * preserving any already transcribed / translated dialogue text from previous segments.
  */
 export const resegmentAudioBuffer = (
-  buffer: AudioBuffer,
+  buffer: WaveAudio,
   sensitivity: number,
   previousSegments: AudioSegment[] = [],
   gate: PauseGate | null = null
