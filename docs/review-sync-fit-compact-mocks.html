@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Compact Sync Fit</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#06080d; color:#e2e8f0; font-family: Inter, system-ui, "Noto Sans Bengali", "Noto Sans Devanagari", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .note { font-size:13px; color:#94a3b8; line-height:1.65; }
+  .note b { color:#e2e8f0; font-weight:600; }
+  .panel { background:#101217; border:1px solid #26282e; border-radius:16px; }
+  .badge { font-size:10.5px; font-weight:600; letter-spacing:.06em; color:#a5b4fc; background:rgba(99,102,241,.15); border:1px solid rgba(99,102,241,.4); border-radius:999px; padding:2px 9px; }
+  .hgt { font-size:11px; color:#64748b; }
+  .hgt b { color:#6ee7b7; font-weight:600; }
+  .list { background:rgba(2,6,23,.5); border:1px solid #22262f; border-radius:12px; }
+  .row { border-bottom:1px solid #1a1d24; padding:8px 10px; }
+  .row:last-child { border-bottom:0; }
+  .row.on { background:rgba(99,102,241,.06); }
+  .num { font-family: ui-monospace, Consolas, monospace; font-size:11px; color:#64748b; }
+  .t { font-family: ui-monospace, Consolas, monospace; font-size:10.5px; color:#64748b; }
+  .src { font-size:13.5px; color:#cbd5e1; line-height:20px; }
+  .tgt { font-size:15px; color:#f1f5f9; line-height:22px; outline:none; border-radius:6px; padding:1px 4px; margin:-1px -4px; }
+  .tgt:focus { box-shadow: inset 0 0 0 1px #6366f1; background:#020617; }
+  /* status chip */
+  .chip { font-family: ui-monospace, Consolas, monospace; font-size:11.5px; font-variant-numeric: tabular-nums; border-radius:6px; padding:1px 7px; white-space:nowrap; cursor:default; }
+  .chip.long { color:#fcd34d; background:rgba(245,158,11,.14); border:1px solid rgba(245,158,11,.35); }
+  .chip.bad { color:#fda4af; background:rgba(244,63,94,.12); border:1px solid rgba(244,63,94,.35); }
+  .chip.short { color:#7dd3fc; background:rgba(14,165,233,.12); border:1px solid rgba(14,165,233,.35); }
+  .chip.ok { color:#6ee7b7; background:rgba(16,185,129,.08); border:1px solid rgba(16,185,129,.25); }
+  /* meter */
+  .meter { position:relative; height:5px; border-radius:99px; background:#1e2330; flex:none; }
+  .meter i { position:absolute; left:0; top:0; bottom:0; border-radius:99px; }
+  .meter b { position:absolute; top:-3px; bottom:-3px; width:2px; background:#e2e8f0; border-radius:1px; }
+  .fill-long { background:#f59e0b; } .fill-bad { background:#f43f5e; } .fill-short { background:#38bdf8; } .fill-ok { background:#10b981; }
+  /* buttons */
+  .btn { height:24px; padding:0 8px; display:inline-flex; align-items:center; gap:5px; border-radius:6px; font-size:12px; color:#cbd5e1; border:1px solid #2a2f3a; background:#11141b; cursor:default; white-space:nowrap; }
+  .btn:hover { background:#1b202a; color:#fff; border-color:#3a4150; }
+  .btn.pri { color:#c7d2fe; border-color:rgba(99,102,241,.55); background:rgba(99,102,241,.12); }
+  .btn.ghost { border-color:transparent; background:transparent; color:#94a3b8; }
+  .btn.ghost:hover { color:#fff; background:#1b202a; }
+  .btn svg, .ib svg { width:13px; height:13px; flex:none; }
+  .seg { display:inline-flex; border:1px solid #2a2f3a; border-radius:7px; overflow:hidden; }
+  .seg .btn { border:0; border-radius:0; border-right:1px solid #2a2f3a; height:24px; }
+  .seg .btn:last-child { border-right:0; }
+  .tog { height:22px; padding:0 7px; display:inline-flex; align-items:center; gap:5px; border-radius:999px; font-size:11.5px; color:#94a3b8; border:1px dashed #3a4150; cursor:default; white-space:nowrap; }
+  .tog:hover { color:#e2e8f0; border-color:#64748b; }
+  .tog.onx { color:#c7d2fe; border-style:solid; border-color:rgba(99,102,241,.6); background:rgba(99,102,241,.14); }
+  .tog svg { width:12px; height:12px; }
+  .ib { width:24px; height:24px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; color:#94a3b8; cursor:default; position:relative; flex:none; border:1px solid transparent; }
+  .ib:hover { background:#1f232c; color:#fff; }
+  .ib.onx { color:#c7d2fe; background:rgba(99,102,241,.16); border-color:rgba(99,102,241,.5); }
+  .ib.pri { color:#c7d2fe; }
+  /* tooltip */
+  [data-tip] { position:relative; }
+  [data-tip]:hover::after { content:attr(data-tip); position:absolute; bottom:calc(100% + 6px); left:50%; transform:translateX(-50%); white-space:nowrap; font-size:11px; background:#020617; border:1px solid #2c303a; color:#cbd5e1; border-radius:6px; padding:3px 7px; z-index:30; pointer-events:none; font-family: Inter, system-ui, sans-serif; }
+  /* popover */
+  .pop { position:absolute; z-index:40; width:min(380px, calc(100vw - 40px)); background:#0b0e15; border:1px solid #2c303a; border-radius:10px; padding:10px 12px; box-shadow:0 12px 30px rgba(0,0,0,.5); font-size:12.5px; line-height:1.55; color:#cbd5e1; }
+  .pop h4 { font-size:11px; color:#64748b; text-transform:uppercase; letter-spacing:.06em; margin:8px 0 3px; }
+  .pop table td { padding:1px 10px 1px 0; }
+  .muted { color:#64748b; }
+  .hover-only { opacity:0; transition:opacity .1s; }
+  .row:hover .hover-only, .row.on .hover-only { opacity:1; }
+  /* B drawer */
+  .drawer { border:1px solid #262b36; background:#0b0e15; border-radius:9px; padding:7px 9px; margin-top:6px; }
+  /* C rail */
+  .rail { border-left:1px solid #1e222b; padding-left:10px; }
+  /* Today card */
+  .old { border:1px solid #26282e; background:rgba(2,6,23,.4); border-radius:8px; padding:8px 10px; }
+  .oldbtn { height:30px; padding:0 10px; border:1px solid #2f3440; border-radius:8px; font-size:13px; color:#cbd5e1; display:inline-flex; align-items:center; gap:6px; background:#0d1017; }
+  .k { font-family: ui-monospace, Consolas, monospace; font-size:10.5px; border:1px solid #2f3440; border-bottom-width:2px; border-radius:5px; padding:0 4px; color:#cbd5e1; background:#15171c; }
+</style>
+</head>
+<body class="px-4 py-8 md:px-8">
+<div class="max-w-[1180px] mx-auto">
+  <h1 class="text-xl font-semibold text-white">Review · Sync fit, প্রতি cue-তে, কম জায়গায়</h1>
+  <p class="note mt-1 max-w-3xl">
+    আজকের Sync fit কার্ড একটা লাইনের নিচে প্রায় <b>230 px</b> নেয় (শিরোনাম, মিটার, তিন লাইনের পরামর্শ, Placed by you, Read faster, Syllables, চারটে বোতাম)।
+    নিচের তিনটে মকে <b>একই সব অপশন</b> আছে: Shorter / Longer / Same length / Edit it myself / Keep as is, Read faster, Back to auto, Reset trim, Syllables, pauses and lips, আর পুরো পরামর্শের লেখা।
+    শুধু সাজানো আলাদা, যাতে প্রতিটা cue-তে রাখা যায়। <b>লেখা</b> আর <b>সংখ্যা</b> সামনে, লম্বা ব্যাখ্যা <span class="k">i</span> বোতামের পেছনে।
+    বোতাম আর টগলগুলো সত্যিই ক্লিক হয়, হিন্দি লাইনে টাইপ করা যায়।
+  </p>
+
+  <!-- TODAY -->
+  <section class="panel p-4 mt-6">
+    <div class="flex items-center gap-3 flex-wrap"><span class="badge">TODAY</span><span class="text-sm text-slate-300">এখনকার কার্ড, তুলনার জন্য</span><span class="hgt ml-auto">কার্ড ≈ <b style="color:#fda4af">230 px</b> প্রতি লাইন</span></div>
+    <div class="old mt-3 max-w-[860px]">
+      <div class="flex items-center gap-2 text-[12px]"><span class="text-slate-400 font-medium">Sync fit</span><span class="mono text-slate-300">+1.1 s over</span><span class="text-slate-400">One line with cues 2–3</span></div>
+      <div class="mt-1.5"><span class="chip long">+1.1 s over</span></div>
+      <div class="meter mt-2" style="width:145px"><i class="fill-long" style="width:100%"></i><b style="left:84%"></b></div>
+      <div class="t mt-1">6.9 s / 5.8 s slot</div>
+      <p class="mt-1 text-[12.5px] text-rose-300 leading-snug">Runs about 1.1 s into the next line, even once Sync closes it up (read in 7.6 s, placed in about 6.9 s). Aim for about 85 characters (now 111), about 11 syllables fewer.</p>
+      <div class="mt-1.5 flex items-center gap-2 text-[12.5px] text-slate-400 flex-wrap"><span>Placed by you, −0.0 s from where Sync puts it. Sync places it there.</span><span class="oldbtn">⟲ Back to auto</span></div>
+      <label class="mt-1.5 flex items-start gap-2 text-[12.5px] text-slate-300"><input type="checkbox" class="mt-0.5 accent-indigo-500"><span>Read faster with a pace direction: about 6.1 s, fits. <span class="text-slate-400">Eleven v4 ignores the speed setting, so Sync asks the voice to read faster instead.</span></span></label>
+      <div class="mt-1.5 text-[12.5px] text-slate-400">▸ Syllables, pauses and lips</div>
+      <div class="mt-2 flex gap-2 flex-wrap"><span class="oldbtn" style="border-color:#6366f1">Shorter</span><span class="oldbtn">Longer</span><span class="oldbtn">Same length</span><span class="oldbtn">✎ Edit it myself</span><span class="text-[13px] text-slate-400 self-center ml-1">Keep as is</span></div>
+    </div>
+  </section>
+
+  <!-- A -->
+  <section class="panel p-4 mt-6">
+    <div class="flex items-center gap-3 flex-wrap"><span class="badge">MOCK A</span><span class="text-sm font-medium text-white">এক সারির ফিট-স্ট্রিপ</span><span class="hgt ml-auto">বাড়তি ≈ <b>30 px</b> প্রতি লাইন (চওড়া পর্দায় এক সারি)</span></div>
+    <p class="note mt-2 max-w-3xl">
+      অনুবাদের ঠিক নিচে একটা সারি: <b>অবস্থা</b> (+1.1 s over) · ছোট মিটার · <b>6.9 / 5.8 s</b> · <b>−26 অক্ষর · −11 সিলেবল</b> · টগল (Faster, Placed ⟲) · ডানে চারটে বোতাম + Keep · <b>i</b>।
+      <b>i</b>-তে পুরো পরামর্শ আর Syllables, pauses and lips। যে লাইন ঠিকঠাক বসে, সেখানে শুধু সবুজ “fits”; বোতাম আসে hover বা বাছা লাইনে।
+    </p>
+    <div class="list mt-3" id="listA"></div>
+  </section>
+
+  <!-- B -->
+  <section class="panel p-4 mt-6">
+    <div class="flex items-center gap-3 flex-wrap"><span class="badge">MOCK B</span><span class="text-sm font-medium text-white">চিপ + খোলা লাইনে ড্রয়ার</span><span class="hgt ml-auto">বন্ধ: বাড়তি <b>0 px</b> · খোলা লাইনে ≈ <b>95 px</b></span></div>
+    <p class="note mt-2 max-w-3xl">
+      বন্ধ অবস্থায় শুধু অনুবাদ সারির ডানে একটা চিপ: <b>+1.1 s · −26 ch</b>। বাড়তি উচ্চতা নেই।
+      চিপে ক্লিক করলে (বা লাইন বাছলে) দুই সারির ড্রয়ার খোলে: ১ম সারি মিটার + এক লাইনের পরামর্শ, ২য় সারি টগল + বোতাম। একবারে একটাই খোলা থাকে।
+      <span class="k">Tab</span>-এ পরের সমস্যার লাইনে যাওয়া যায়।
+    </p>
+    <div class="list mt-3" id="listB"></div>
+  </section>
+
+  <!-- C -->
+  <section class="panel p-4 mt-6">
+    <div class="flex items-center gap-3 flex-wrap"><span class="badge">MOCK C</span><span class="text-sm font-medium text-white">ডানে ফিট-কলাম</span><span class="hgt ml-auto">বাড়তি ≈ <b>35–45 px</b>, বাকিটা চওড়া থেকে নেয়</span></div>
+    <p class="note mt-2 max-w-3xl">
+      উচ্চতার বদলে পাশের জায়গা নেয়: প্রতি সারির ডানে 250 px-এর একটা কলাম। উপরে অবস্থা + সংখ্যা, মাঝে মিটার, নিচে <b>আইকন বোতাম</b> (নাম hover-এ)।
+      তিন সারির কলাম, তাই এক লাইনের বাক্যেও সারি একটু লম্বা হয়। সরু জানালায় (&lt; 900 px) কলামটা নিচে নেমে Mock A-র মতো এক সারি হয়ে যায়।
+    </p>
+    <div class="list mt-3" id="listC"></div>
+  </section>
+
+  <p class="note mt-6">তিনটেতেই কিছু বাদ যায়নি। পছন্দটা বললে সেটাই <span class="mono">ExpressDubWizard.tsx</span>-এর Sync fit কার্ডে বসাব।</p>
+</div>
+
+<div id="pop" class="pop hidden"></div>
+
+<script>
+const I = {
+  info:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>',
+  undo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>',
+  ff:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 6l8 6-8 6zM12 6l8 6-8 6z"/></svg>',
+  pen:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>',
+  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12l5 5 9-10"/></svg>',
+  shorter:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h6M14 12h6M10 8l-4 4 4 4M14 8l4 4-4 4" transform="rotate(180 12 12)"/></svg>',
+  longer:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M7 8l-4 4 4 4M17 8l4 4-4 4"/></svg>',
+  same:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9h14M5 15h14"/></svg>',
+  scissors:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.1 15.9M14.5 14.5L20 20M8.1 8.1L12 12"/></svg>',
+  chev:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>',
+};
+
+const lines = [
+  { cues:'1', time:'0:00.4', src:'So the first thing is, you have to sit still.', tgt:'तो सबसे पहली बात, आपको स्थिर बैठना होगा।', kind:'ok', est:2.5, slot:2.7, chip:'fits', delta:'', advice:'Fits its slot with 0.2 s to spare.' },
+  { cues:'2–3', time:'0:03.1', src:'And when you sit still, not just the body, the mind also begins to settle, and that is when something else becomes possible.', tgt:'और जब आप स्थिर बैठते हैं, सिर्फ़ शरीर ही नहीं, मन भी शांत होने लगता है, और तभी कुछ और संभव हो पाता है।', kind:'long', est:6.9, slot:5.8, chip:'+1.1 s over', delta:'−26 ch · −11 syl', deltaLong:'111 → 85 chars · −11 syllables', advice:'Runs about 1.1 s into the next line, even once Sync closes it up (read in 7.6 s, placed in about 6.9 s). Aim for about 85 characters (now 111), about 11 syllables fewer.', placed:'Placed by you, −0.0 s from where Sync puts it.', faster:{ secs:6.1, fits:true, on:false }, open:true },
+  { cues:'4', time:'0:09.0', src:'This is not a practice.', tgt:'यह अभ्यास नहीं है।', kind:'short', est:2.1, slot:3.0, chip:'−0.9 s short', delta:'+12 ch · +5 syl', deltaLong:'18 → 30 chars · +5 syllables', advice:'Ends about 0.9 s before the original speaker stops. A fuller line fills the gap: about 30 characters (now 18).' },
+  { cues:'5', time:'0:12.2', src:'It is a way of being.', tgt:'यह होने का एक तरीका है।', kind:'ok', est:3.2, slot:3.4, chip:'fits', delta:'', advice:'Fits its slot with 0.2 s to spare.' },
+  { cues:'6', time:'0:15.8', src:'If you pay attention, life will open up in ways you have not imagined.', tgt:'अगर आप ध्यान देंगे, तो जीवन ऐसे खुलेगा जिसकी आपने कल्पना भी नहीं की।', kind:'bad', est:4.4, slot:4.0, chip:'+0.4 s over', delta:'−9 ch · −4 syl', deltaLong:'68 → 59 chars · −4 syllables', advice:'Runs about 0.4 s past its slot. Reading faster fixes it; or aim for about 59 characters (now 68).', faster:{ secs:3.9, fits:true, on:true }, trim:true },
+];
+
+function meter(l, w){ const max=Math.max(l.est,l.slot)*1.05; const fill=Math.min(1,l.est/max)*100; const mark=l.slot/max*100;
+  const f={long:'fill-long',bad:'fill-bad',short:'fill-short',ok:'fill-ok'}[l.kind];
+  return `<span class="meter" style="width:${w}px"><i class="${f}" style="width:${fill}%"></i><b style="left:${mark}%"></b></span>`; }
+const chipCls = l => ({long:'long',bad:'bad',short:'short',ok:'ok'}[l.kind]);
+const tone = l => ({long:'text-amber-200/90',bad:'text-rose-300',short:'text-sky-300',ok:'text-emerald-300'}[l.kind]);
+
+function head(l, i){
+  return `<div class="flex items-baseline gap-2"><span class="num">${l.cues}</span><span class="t">${l.time}</span>${l.cues.includes('–')?'<span class="t" style="color:#818cf8">one line</span>':''}</div>`;
+}
+function texts(l){
+  return `<div class="grid md:grid-cols-2 gap-x-5 gap-y-1 mt-1"><div class="src">${l.src}</div><div class="tgt" contenteditable spellcheck="false">${l.tgt}</div></div>`;
+}
+function fasterTog(l, idx, mock){ if(!l.faster) return '';
+  return `<span class="tog ${l.faster.on?'onx':''}" data-act="faster" data-i="${idx}" data-tip="Read faster: about ${l.faster.secs} s, ${l.faster.fits?'fits':'still long'}. Eleven v4 ignores speed, so Sync asks the voice">${I.ff} Faster ${l.faster.secs} s</span>`; }
+function placedTog(l, idx){ if(!l.placed) return '';
+  return `<span class="tog onx" data-act="auto" data-i="${idx}" data-tip="Placed by you, −0.0 s from Sync's place. Click: Back to auto">${I.undo} Placed · auto</span>`; }
+function trimTog(l, idx){ if(!l.trim) return '';
+  return `<span class="tog onx" data-act="trim" data-i="${idx}" data-tip="Trimmed by you. Click: Reset trim">${I.scissors} Trim · reset</span>`; }
+function wordBtns(l, idx, cls=''){
+  const pri = l.kind==='short' ? 'longer' : 'shorter';
+  return `<span class="inline-flex items-center gap-1 ${cls}">
+    <span class="seg"><span class="btn ${pri==='shorter'?'pri':''}" data-act="word" data-w="Shorter">Shorter</span><span class="btn ${pri==='longer'?'pri':''}" data-act="word" data-w="Longer">Longer</span><span class="btn" data-act="word" data-w="Same length">Same</span></span>
+    <span class="btn ghost" data-act="edit" data-tip="Edit it myself">${I.pen}</span>
+    ${l.kind!=='ok'?`<span class="btn ghost" data-act="keep" data-i="${idx}" data-tip="Keep as is">${I.check} Keep</span>`:''}
+  </span>`;
+}
+const infoBtn = idx => `<span class="ib" data-act="info" data-i="${idx}" data-tip="Why, syllables, pauses and lips">${I.info}</span>`;
+
+/* ---------- A ---------- */
+function rowA(l, idx){
+  const okRow = l.kind==='ok';
+  const strip = okRow
+    ? `<div class="mt-1.5 flex items-center gap-2 flex-wrap min-h-[26px]"><span class="chip ok">fits</span>${meter(l,56)}<span class="t">${l.est.toFixed(1)} / ${l.slot.toFixed(1)} s</span><span class="ml-auto hover-only flex items-center gap-1">${wordBtns(l,idx)}${infoBtn(idx)}</span></div>`
+    : `<div class="mt-1.5 flex items-center gap-x-2 gap-y-1.5 flex-wrap min-h-[26px]">
+        <span class="chip ${chipCls(l)}">${l.chip}</span>${meter(l,64)}
+        <span class="t" style="color:#94a3b8">${l.est.toFixed(1)} / ${l.slot.toFixed(1)} s</span>
+        <span class="text-[12px] ${tone(l)}">${l.delta}</span>
+        ${fasterTog(l,idx)}${placedTog(l,idx)}${trimTog(l,idx)}
+        <span class="ml-auto flex items-center gap-1">${wordBtns(l,idx)}${infoBtn(idx)}</span>
+      </div>`;
+  return `<div class="row ${l.open?'on':''}" data-row>${head(l)}${texts(l)}${strip}</div>`;
+}
+
+/* ---------- B ---------- */
+let openB = 1;
+function rowB(l, idx){
+  const isOpen = openB===idx;
+  const chip = `<span class="chip ${chipCls(l)} inline-flex items-center gap-1" data-act="openB" data-i="${idx}" style="cursor:pointer">${l.kind==='ok'?'fits':l.chip.replace(' over','').replace(' short','')+(l.delta?' · '+l.delta.split(' · ')[0]:'')}<span style="width:11px;height:11px;display:inline-flex;transform:rotate(${isOpen?180:0}deg)">${I.chev}</span></span>`;
+  const drawer = !isOpen ? '' : `<div class="drawer">
+      <div class="flex items-center gap-2 flex-wrap">${meter(l,90)}<span class="t" style="color:#94a3b8">${l.est.toFixed(1)} / ${l.slot.toFixed(1)} s</span>
+        <span class="text-[12.5px] ${tone(l)} min-w-0">${l.kind==='ok'?'Fits, 0.2 s to spare.':l.deltaLong}</span>${infoBtn(idx)}</div>
+      <div class="mt-1.5 flex items-center gap-x-2 gap-y-1.5 flex-wrap">${fasterTog(l,idx)}${placedTog(l,idx)}${trimTog(l,idx)}<span class="ml-auto">${wordBtns(l,idx)}</span></div>
+    </div>`;
+  return `<div class="row ${isOpen?'on':''}" data-row>
+    ${head(l)}
+    <div class="grid md:grid-cols-2 gap-x-5 gap-y-1 mt-1"><div class="src">${l.src}</div>
+      <div class="flex items-start gap-2"><div class="tgt flex-1 min-w-0" contenteditable spellcheck="false">${l.tgt}</div><span class="shrink-0 mt-0.5">${chip}</span></div></div>
+    ${drawer}</div>`;
+}
+
+/* ---------- C ---------- */
+function rowC(l, idx){
+  const pri = l.kind==='short' ? 'longer' : 'shorter';
+  const icons = `<span class="flex items-center gap-0.5 flex-wrap">
+      <span class="ib ${pri==='shorter'?'pri':''}" data-act="word" data-w="Shorter" data-tip="Shorter">${I.shorter}</span>
+      <span class="ib ${pri==='longer'?'pri':''}" data-act="word" data-w="Longer" data-tip="Longer">${I.longer}</span>
+      <span class="ib" data-act="word" data-w="Same length" data-tip="Same length">${I.same}</span>
+      <span class="ib" data-act="edit" data-tip="Edit it myself">${I.pen}</span>
+      ${l.kind!=='ok'?`<span class="ib" data-act="keep" data-i="${idx}" data-tip="Keep as is">${I.check}</span>`:''}
+      ${l.faster?`<span class="w-px h-4 bg-slate-700 mx-1"></span><span class="ib ${l.faster.on?'onx':''}" data-act="faster" data-i="${idx}" data-tip="Read faster: ${l.faster.secs} s, ${l.faster.fits?'fits':'still long'}">${I.ff}</span>`:''}
+      ${l.placed?`<span class="ib onx" data-act="auto" data-i="${idx}" data-tip="Placed by you · click: Back to auto">${I.undo}</span>`:''}
+      ${l.trim?`<span class="ib onx" data-act="trim" data-i="${idx}" data-tip="Trimmed · click: Reset trim">${I.scissors}</span>`:''}
+      <span class="ml-auto">${infoBtn(idx)}</span>
+    </span>`;
+  return `<div class="row ${l.open?'on':''}" data-row>${head(l)}
+    <div class="grid gap-x-5 gap-y-2 mt-1 min-[900px]:grid-cols-[1fr_1fr_250px]">
+      <div class="src">${l.src}</div>
+      <div class="tgt" contenteditable spellcheck="false">${l.tgt}</div>
+      <div class="rail">
+        <div class="flex items-center gap-2"><span class="chip ${chipCls(l)}">${l.chip}</span><span class="t" style="color:#94a3b8">${l.est.toFixed(1)} / ${l.slot.toFixed(1)} s</span></div>
+        <div class="flex items-center gap-2 mt-1.5">${meter(l,110)}<span class="text-[11.5px] ${tone(l)}">${l.delta}</span></div>
+        <div class="mt-1 ${l.kind==='ok'?'hover-only':''}">${icons}</div>
+      </div>
+    </div></div>`;
+}
+
+function render(){
+  document.getElementById('listA').innerHTML = lines.map(rowA).join('');
+  document.getElementById('listB').innerHTML = lines.map(rowB).join('');
+  document.getElementById('listC').innerHTML = lines.map(rowC).join('');
+}
+render();
+
+const pop = document.getElementById('pop');
+function showPop(el, html){
+  pop.innerHTML = html; pop.classList.remove('hidden');
+  const r = el.getBoundingClientRect(); const w = pop.offsetWidth;
+  let left = Math.min(window.scrollX + r.right - w, window.scrollX + document.documentElement.clientWidth - w - 12);
+  pop.style.left = Math.max(12, left) + 'px'; pop.style.top = (window.scrollY + r.bottom + 6) + 'px';
+}
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-act]');
+  if (!el) { if (!e.target.closest('#pop')) pop.classList.add('hidden'); return; }
+  const i = +el.dataset.i, l = lines[i], act = el.dataset.act;
+  if (act === 'info') {
+    showPop(el, `<div class="${tone(l)}">${l.advice}</div>
+      ${l.placed?`<div class="mt-1 text-slate-400">${l.placed} Sync places it there.</div>`:''}
+      ${l.faster?`<div class="mt-1 text-slate-400">Read faster: about ${l.faster.secs} s, ${l.faster.fits?'fits':'still long'}. Eleven v4 ignores the speed setting, so Sync asks the voice to read faster instead.</div>`:''}
+      <h4>Syllables, pauses and lips</h4>
+      <table class="mono text-[11.5px]"><tr><td class="muted">Original</td><td>31 syl</td><td>1 pause 0.3 s</td><td>lips close at 5.6 s</td></tr>
+      <tr><td class="muted">Hindi</td><td>${l.kind==='short'?'9':'42'} syl</td><td>2 pauses</td><td>pace 6.1 syl/s</td></tr></table>`);
+    return;
+  }
+  if (act === 'openB') { openB = openB === i ? -1 : i; render(); return; }
+  if (act === 'faster') { l.faster.on = !l.faster.on; render(); return; }
+  if (act === 'auto') { l.placed = null; render(); return; }
+  if (act === 'trim') { l.trim = false; render(); return; }
+  if (act === 'keep') { l.kind = 'ok'; l.chip = 'kept'; l.delta=''; l.advice = 'Kept as is. Sync leaves it.'; render(); return; }
+  if (act === 'word' || act === 'edit') {
+    const row = el.closest('[data-row]'); const t = row.querySelector('.tgt');
+    if (act === 'edit') { t.focus(); return; }
+    t.style.opacity = .45; setTimeout(() => { t.style.opacity = 1; }, 700);
+  }
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') pop.classList.add('hidden'); });
+</script>
+</body>
+</html>

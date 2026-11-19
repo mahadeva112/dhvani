@@ -240,6 +240,9 @@ export const deepCut = (unit: SyncPreviewUnit) =>
 export const LINE_OPTIONS = 2;
 /** Wordings a line in Review is offered when the user asks: one, quick; Another asks for the next. */
 const REVIEW_OPTIONS = 1;
+/** How long a wording asked for ahead of the click stays good, and how many are held. */
+const AHEAD_FOR_MS = 5 * 60 * 1000;
+const AHEAD_KEPT = 12;
 /**
  * Earlier wordings sent back with a new request, so new ones read differently
  * and none comes back twice: a user may ask for a line as often as they like.
@@ -413,6 +416,46 @@ export const useLineFixes = ({
       };
     });
   };
+  /**
+   * Wordings asked for ahead of the click (2026-11-19): a line that runs long or
+   * ends early has its marked way asked for while the user hovers its fit row or
+   * opens it, so Shorter or Longer shows it at once (a wording took ~8 s). Only one
+   * is asked for at a time, as the gateway answers one request after another and a
+   * click must not wait behind a pile of guesses. Each is used once, for the line's
+   * words as they were, and only for a few minutes.
+   */
+  const ahead = useRef(new Map<string, { at: number; options: Promise<LineSuggestion[]> }>());
+  const aheadBusy = useRef(false);
+  const aheadKey = (unit: SyncPreviewUnit, direction: RewriteDirection) => `${unit.key}|${direction}|${unit.text}`;
+  const prefetch = (unit: SyncPreviewUnit) => {
+    if (aheadBusy.current || !notStarted(unit) || deepCut(unit) || !unit.text.trim()) return;
+    const direction = directionOf(unit);
+    if (direction === 'same') return;
+    const key = aheadKey(unit, direction);
+    const held = ahead.current.get(key);
+    if (held && Date.now() - held.at < AHEAD_FOR_MS) return;
+    aheadBusy.current = true;
+    const options = onSuggest(unit, [], direction, REVIEW_OPTIONS);
+    ahead.current.set(key, { at: Date.now(), options });
+    for (const [k, entry] of ahead.current) if (Date.now() - entry.at >= AHEAD_FOR_MS || ahead.current.size > AHEAD_KEPT) ahead.current.delete(k);
+    options.then(
+      () => {
+        aheadBusy.current = false;
+      },
+      () => {
+        aheadBusy.current = false;
+        ahead.current.delete(key);
+      }
+    );
+  };
+  /** The wording asked for ahead for this line and way, taken once; a failed one asks again. */
+  const takeAhead = (unit: SyncPreviewUnit, direction: RewriteDirection, tried: string[], count: number) => {
+    const key = aheadKey(unit, direction);
+    const held = ahead.current.get(key);
+    ahead.current.delete(key);
+    if (!held || tried.length > 0 || count !== REVIEW_OPTIONS || Date.now() - held.at >= AHEAD_FOR_MS) return onSuggest(unit, tried, direction, count);
+    return held.options.catch(() => onSuggest(unit, tried, direction, count));
+  };
   const suggest = async (unit: SyncPreviewUnit, count = REVIEW_OPTIONS, chosen?: RewriteDirection) => {
     if (chosen) directions.current[unit.key] = chosen;
     const current = rows[unit.key];
@@ -422,7 +465,7 @@ export const useLineFixes = ({
     requests.current[unit.key] = id;
     setRow(unit, { kind: 'working', tried, count });
     try {
-      const options = await onSuggest(unit, tried, direction, count);
+      const options = await takeAhead(unit, direction, tried, count);
       if (requests.current[unit.key] !== id) return;
       const [first] = options;
       if (first)
@@ -471,6 +514,8 @@ export const useLineFixes = ({
   const controlsFor = (unit: SyncPreviewUnit) => ({
     direction: directionOf(unit),
     state: stateOf(unit),
+    /** Asks for the line's marked wording ahead of the click; see prefetch. */
+    onPrefetch: () => prefetch(unit),
     /** Wordings of the line, the way the user picked, or with none picked the way its fit decides. */
     onSuggest: (chosen?: RewriteDirection) => suggest(unit, REVIEW_OPTIONS, chosen),
     /**

@@ -147,7 +147,8 @@ import { DEFAULT_DUB_AUDIO_QUALITY, DUB_AUDIO_QUALITIES, type DubAudioQuality } 
 import type { EstimateMethod, LineContext, SpeakerFitRates, SyncOptions, SyncPreviewUnit, SyncProgress, SyncReport, SyncUnitReport } from '../services/syncService';
 import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
 import { learnedPace, learnPaceFromSync, voicePaceKey, type LearnedPace } from '../services/voicePace';
-import { useSyncPreview, useLineFixes, LineFixControls, WordingButtons, lineNote, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, SourceLineLane, LaneViewSwitch, useLaneView, PauseTicksLane, WordingSuggestRow, LineFitRow, LineFitWordings, type PlaceDrag, type StretchDraft } from './SyncPreviewPanel';
+import { useSyncPreview, useLineFixes, LineFixControls, WordingButtons, isShort, EstimateSwitch, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, SourceLineLane, LaneViewSwitch, useLaneView, PauseTicksLane, WordingSuggestRow, LineFitRow, LineFitWordings, type PlaceDrag, type StretchDraft } from './SyncPreviewPanel';
+import { SyncFitStrip } from './SyncFitStrip';
 import { placeOf, withCut, withLinePlaces, withLineRate, withLineRates, withPartStart, withPauseSkip } from '../services/linePlaces';
 import type { WordingRequest } from './TakesPanel';
 import { stripPauses } from '../server/lib/linePauses.js';
@@ -155,7 +156,7 @@ import type { RateBasis, VoiceRateState } from '../services/voiceRate';
 import { VoiceRateCard } from './VoiceRateCard';
 import type { SpeakerMonitor } from '../services/speakerLevels';
 import type { RewriteDirection } from './SyncPreviewPanel';
-import { FitMeter, ScriptFitStrip, fitAdvice, fitLabel, fitNote, needsFix, pauseAdvice } from './FinalScriptFit';
+import { ScriptFitStrip, needsFix, pauseAdvice } from './FinalScriptFit';
 import { SaveScriptMenu, type ScriptScope } from './SaveScriptMenu';
 import { DOCX_MIME, buildScriptDocx, loadWordParagraphSize, scriptDocxFileName, scriptDocxRows } from '../services/scriptDocx';
 import { saveFileAs } from '../services/saveFile';
@@ -4016,85 +4017,50 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           const unit = unitOfCue.get(String(seg.id));
                           if (!unit || String(unit.cueIds[unit.cueIds.length - 1]) !== String(seg.id)) return null;
                           const fix = lineFixes.controlsFor(unit);
-                          // Closed, a line shows only what is wrong with it, in a few words; open (or Detailed), all of it.
-                          const isOpenUnit = unit.cueIds.some((id) => String(id) === openCueId);
-                          if (!isOpenUnit && !reviewDetailed && fix.state.kind === 'idle') {
-                            return needsFix(unit) ? (
-                              <p className={`mt-1.5 text-[13px] leading-snug ${unit.status === 'short' ? 'text-sky-300' : 'text-rose-300'}`}>{fitNote(unit)}</p>
-                            ) : null;
-                          }
-                          const pauses = pauseAdvice(unit);
-                          // Placed or cut on the dub lane: how, and the way back to Sync's own place.
+                          // Every line carries its fit in one row (Mock A): state, meter, seconds, what to change, wording buttons; the advice opens under it.
                           const moved = unit.parts?.filter((part) => part.placed) ?? [];
                           // Cuts at the original's pauses are Sync's: only the user's own cuts and moves are noted.
                           const ownCuts = unit.parts?.filter((part) => part.index > 0 && !part.byPause).length ?? 0;
                           const skippedPauses = unit.pauseMarks?.filter((mark) => mark.state === 'skipped').length ?? 0;
-                          const placedNote = unit.parts && (moved.length > 0 || ownCuts > 0 || skippedPauses > 0) && (
-                            <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-slate-400">
-                              <span>
-                                {ownCuts > 0 ? `Cut by you in ${ownCuts + 1} parts` : moved.length > 0 ? 'Placed by you' : `${skippedPauses} cut at a pause turned off`}
-                                {moved.length > 0 &&
-                                  `, ${moved
-                                    .map((part) => `${unit.parts!.length > 1 ? `part ${part.index + 1} ` : ''}${part.start - part.auto > 0 ? '+' : '−'}${Math.abs(part.start - part.auto).toFixed(1)} s`)
-                                    .join(', ')} from where Sync puts it`}
-                                . Sync places it there.
-                              </span>
-                              <button type="button" onClick={() => setLinePlace(unit, () => null)} className={railButton} title="Join its parts and let Sync place the line again">
-                                <RotateCcw className="w-3.5 h-3.5" /> Back to auto
-                              </button>
-                            </div>
-                          );
-                          if (!needsFix(unit) && fix.state.kind === 'idle') {
-                            return (
-                              <>
-                                <FitMeter unit={unit} className="mt-1.5 sm:items-start" />
-                                {pauses && <p className="mt-1 text-[12.5px] leading-snug text-slate-400">{pauses}</p>}
-                                {placedNote}
-                                <WordingButtons unit={unit} onSuggest={fix.onSuggest} className={isOpenUnit ? 'mt-1.5' : hoverWordings} />
-                              </>
-                            );
-                          }
+                          const placed =
+                            unit.parts && (moved.length > 0 || ownCuts > 0 || skippedPauses > 0)
+                              ? {
+                                  label: ownCuts > 0 ? `Cut in ${ownCuts + 1}` : moved.length > 0 ? 'Placed' : `${skippedPauses} pause cut${skippedPauses === 1 ? '' : 's'} off`,
+                                  detail: `${ownCuts > 0 ? `Cut by you in ${ownCuts + 1} parts` : moved.length > 0 ? 'Placed by you' : `${skippedPauses} cut at a pause turned off`}${
+                                    moved.length > 0
+                                      ? `, ${moved
+                                          .map((part) => `${unit.parts!.length > 1 ? `part ${part.index + 1} ` : ''}${part.start - part.auto > 0 ? '+' : '−'}${Math.abs(part.start - part.auto).toFixed(1)} s`)
+                                          .join(', ')} from where Sync puts it`
+                                      : ''
+                                  }. Sync places it there.`,
+                                  onReset: () => setLinePlace(unit, () => null),
+                                }
+                              : null;
                           const fasterOn = readsFaster(unit);
                           const fasterSeconds = unit.estimate * PACE_SHARE;
-                          const note = fix.state.kind === 'idle' ? { text: [fitAdvice(unit), pauses].filter(Boolean).join(' '), tone: '' } : lineNote(unit, fix.state, fix.direction);
-                          const tone = note.tone || (unit.status === 'long' ? 'text-rose-300' : unit.status === 'short' ? 'text-sky-300' : 'text-slate-400');
+                          const faster =
+                            canReadFaster && (unit.status === 'long' || fasterOn)
+                              ? {
+                                  on: fasterOn,
+                                  seconds: fasterSeconds,
+                                  fits: fasterSeconds - unit.slot <= ALLOWED_OVERFLOW[syncOptions.precision],
+                                  model: elModelId?.startsWith('eleven_v4') ? 'Eleven v4' : 'Eleven v3',
+                                  onToggle: (on: boolean) => setReadsFaster(unit, on),
+                                }
+                              : null;
                           const firstCue = cueIndexById.get(String(unit.cueIds[0]));
                           return (
-                            <div className="mt-2 rounded-lg border border-edge bg-slate-950/40 px-2.5 py-2">
-                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                <span className="text-[12px] font-medium text-slate-400">Sync fit</span>
-                                <span className="font-mono text-[12px] text-slate-300 tabular-nums">{fitLabel(unit)}</span>
-                                {unit.cueIds.length > 1 && firstCue !== undefined && (
-                                  <span className="text-[12px] text-slate-400">
-                                    One line with cues {firstCue + 1}–{cueNumber}
-                                  </span>
-                                )}
-                              </div>
-                              <FitMeter unit={unit} className="mt-1.5 sm:items-start" />
-                              {note.text && <p className={`mt-1 text-[12.5px] leading-snug ${tone}`}>{note.text}</p>}
-                              {unit.wantSeconds !== undefined && (
-                                <button type="button" onClick={() => trimLine(unit, null)} className={`${railButton} mt-1.5`} title="Go back to the length worked out from the slot">
-                                  <RotateCcw className="w-3.5 h-3.5" /> Reset trim
-                                </button>
-                              )}
-                              {placedNote}
-                              {canReadFaster && (unit.status === 'long' || fasterOn) && (
-                                <label className="mt-1.5 flex items-start gap-2 text-[12.5px] leading-snug text-slate-300 cursor-default">
-                                  <input type="checkbox" className="mt-0.5 accent-indigo-500" checked={fasterOn} onChange={(e) => setReadsFaster(unit, e.target.checked)} />
-                                  <span>
-                                    Read faster with a pace direction: about {fasterSeconds.toFixed(1)} s, {fasterSeconds - unit.slot > ALLOWED_OVERFLOW[syncOptions.precision] ? 'still long' : 'fits'}.{' '}
-                                    <span className="text-slate-400">{elModelId?.startsWith('eleven_v4') ? 'Eleven v4' : 'Eleven v3'} ignores the speed setting, so Sync asks the voice to read faster instead.</span>
-                                  </span>
-                                </label>
-                              )}
-                              {unit.expert && (
-                                <details className="mt-1.5">
-                                  <summary className="text-[12.5px] text-slate-400 hover:text-slate-200 cursor-default select-none">Syllables, pauses and lips</summary>
-                                  <ExpertLineDetail unit={unit} />
-                                </details>
-                              )}
-                              <LineFixControls unit={unit} cps={linePreview.charsPerSecond} {...fix} />
-                            </div>
+                            <SyncFitStrip
+                              unit={unit}
+                              cps={linePreview.charsPerSecond}
+                              fix={fix}
+                              open={unit.cueIds.some((id) => String(id) === openCueId)}
+                              cuesLabel={unit.cueIds.length > 1 && firstCue !== undefined ? `Cues ${firstCue + 1}–${cueNumber}` : undefined}
+                              pauses={pauseAdvice(unit)}
+                              faster={faster}
+                              placed={placed}
+                              onResetTrim={() => trimLine(unit, null)}
+                            />
                           );
                         }
                         // Until the line fit is worked out, each cue is judged on its own.
