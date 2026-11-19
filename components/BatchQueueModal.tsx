@@ -22,6 +22,7 @@ import { ProjectNameField } from './ProjectNameField';
 import { PROJECT_FILE_EXTENSION } from '../services/projectArchive';
 import JSZip from 'jszip';
 import { audioBufferToWav, audioFileExtension } from '../services/audioService';
+import { decodedBuffer } from '../services/waveform';
 import { generateSrtContent, DEFAULT_SRT_OPTIONS } from '../services/srtService';
 import { PageScrollLock } from './usePageScrollLock';
 
@@ -152,9 +153,10 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
 
         // The synced dub is its own file beside the dub, so it goes in as well.
         let syncedBlob: Blob | null = job.syncedBlob || null;
-        if (!syncedBlob && job.syncedAudioBuffer) {
+        const syncedDecoded = decodedBuffer(job.syncedAudioBuffer);
+        if (!syncedBlob && syncedDecoded) {
           try {
-            syncedBlob = audioBufferToWav(job.syncedAudioBuffer);
+            syncedBlob = audioBufferToWav(syncedDecoded);
           } catch (err) {
             console.error(`Failed to encode the synced AudioBuffer for ${rawFileName}:`, err);
           }

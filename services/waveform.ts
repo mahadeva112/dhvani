@@ -182,22 +182,51 @@ export const drawWave = (ctx: CanvasRenderingContext2D, wave: Wave | null, o: Dr
  */
 
 /** Samples per block at each level, finest first; each is 16 of the one before. */
-const LEVEL_SIZES = [64, 1024, 16384];
+export const LEVEL_SIZES = [64, 1024, 16384];
 const Q = 32767;
 
 /**
  * The first channel's samples, plus each block's lowest and highest sample at
  * a few block sizes (stored as 16-bit, about 11 MB for an hour at 48 kHz).
- * The samples are the buffer's own, not a copy.
+ * The samples are the buffer's own, not a copy. `data` is null for audio that
+ * is not held in memory (a long dub, read from its file a slice at a time,
+ * see StreamedAudio): zoomed in past its finest blocks, those are drawn.
  */
 export type Peaks = {
-  data: Float32Array;
+  data: Float32Array | null;
   rate: number;
   seconds: number;
   levels: { size: number; max: Int16Array; min: Int16Array }[];
 };
 
-const quantize = (v: number) => Math.max(-Q, Math.min(Q, Math.round(v * Q)));
+/**
+ * Audio known by its length and peaks only, its samples left in its file
+ * (`blob`) instead of in memory: two hours of 48 kHz audio is 1.4 GB as an
+ * AudioBuffer and about 30 MB as this. It stands in for an AudioBuffer
+ * wherever audio is only drawn or timed; whatever needs the samples decodes
+ * the blob when it does.
+ */
+export type StreamedAudio = {
+  kind: 'streamed';
+  blob: Blob;
+  duration: number;
+  sampleRate: number;
+  length: number;
+  numberOfChannels: number;
+  peaks: Peaks;
+};
+
+/** Audio as the waves draw it: decoded whole, or known by its peaks. */
+export type WaveAudio = AudioBuffer | StreamedAudio;
+
+export const isStreamedAudio = (audio: WaveAudio | null | undefined): audio is StreamedAudio =>
+  Boolean(audio) && (audio as StreamedAudio).kind === 'streamed';
+
+/** The decoded AudioBuffer, or null for streamed audio, whose samples are not in memory. */
+export const decodedBuffer = (audio: WaveAudio | null | undefined): AudioBuffer | null =>
+  !audio || isStreamedAudio(audio) ? null : audio;
+
+export const quantize = (v: number) => Math.max(-Q, Math.min(Q, Math.round(v * Q)));
 
 /**
  * Peaks by buffer: Review's player, Edit timing, the Sync estimate and the
@@ -207,36 +236,69 @@ const quantize = (v: number) => Math.max(-Q, Math.min(Q, Math.round(v * Q)));
  */
 const peaksByBuffer = new WeakMap<AudioBuffer, Peaks>();
 
-export const computePeaks = (buffer: AudioBuffer): Peaks => {
-  const kept = peaksByBuffer.get(buffer);
+export const computePeaks = (audio: WaveAudio): Peaks => {
+  if (isStreamedAudio(audio)) return audio.peaks;
+  const kept = peaksByBuffer.get(audio);
   if (kept) return kept;
-  const peaks = readPeaks(buffer);
-  peaksByBuffer.set(buffer, peaks);
+  const peaks = readPeaks(audio);
+  peaksByBuffer.set(audio, peaks);
   return peaks;
+};
+
+/**
+ * Builds the finest level's blocks from samples handed over in pieces, so a
+ * file can be read a slice at a time without its samples ever being held
+ * whole. `add` takes the next samples; `done` gives the peaks.
+ */
+export const peaksBuilder = (rate: number, frames: number) => {
+  const first = LEVEL_SIZES[0];
+  const count0 = Math.ceil(frames / first);
+  const max0 = new Int16Array(count0);
+  const min0 = new Int16Array(count0);
+  let at = 0;
+  let hi = -1;
+  let lo = 1;
+  const close = () => {
+    const b = Math.floor((at - 1) / first);
+    max0[b] = quantize(hi);
+    min0[b] = quantize(lo);
+    hi = -1;
+    lo = 1;
+  };
+  return {
+    add(samples: ArrayLike<number>) {
+      const n = Math.min(samples.length, frames - at);
+      let i = 0;
+      while (i < n) {
+        // To the end of the block being built, or of the samples given.
+        const end = Math.min(n, i + first - (at % first));
+        for (let j = i; j < end; j++) {
+          const v = samples[j];
+          if (v > hi) hi = v;
+          if (v < lo) lo = v;
+        }
+        at += end - i;
+        i = end;
+        if (at % first === 0) close();
+      }
+    },
+    done(data: Float32Array | null = null): Peaks {
+      if (at % first !== 0 && at > 0) close();
+      return withCoarserLevels({ size: first, max: max0, min: min0 }, data, rate, frames);
+    },
+  };
 };
 
 const readPeaks = (buffer: AudioBuffer): Peaks => {
   const data = buffer.getChannelData(0);
-  const n = data.length;
-  const levels: Peaks['levels'] = [];
-  // The finest level from the samples; each coarser one from the level below.
-  const first = LEVEL_SIZES[0];
-  const count0 = Math.ceil(n / first);
-  const max0 = new Int16Array(count0);
-  const min0 = new Int16Array(count0);
-  for (let b = 0; b < count0; b++) {
-    const end = Math.min(n, (b + 1) * first);
-    let hi = -1;
-    let lo = 1;
-    for (let i = b * first; i < end; i++) {
-      const v = data[i];
-      if (v > hi) hi = v;
-      if (v < lo) lo = v;
-    }
-    max0[b] = quantize(hi);
-    min0[b] = quantize(lo);
-  }
-  levels.push({ size: first, max: max0, min: min0 });
+  const builder = peaksBuilder(buffer.sampleRate, data.length);
+  builder.add(data);
+  return builder.done(data);
+};
+
+/** Each coarser level from the level below it. */
+const withCoarserLevels = (finest: Peaks['levels'][number], data: Float32Array | null, rate: number, frames: number): Peaks => {
+  const levels: Peaks['levels'] = [finest];
   for (let k = 1; k < LEVEL_SIZES.length; k++) {
     const below = levels[k - 1];
     const ratio = LEVEL_SIZES[k] / below.size;
@@ -256,23 +318,33 @@ const readPeaks = (buffer: AudioBuffer): Peaks => {
     }
     levels.push({ size: LEVEL_SIZES[k], max, min });
   }
-  return { data, rate: buffer.sampleRate, seconds: n / buffer.sampleRate, levels };
+  return { data, rate, seconds: frames / rate, levels };
 };
 
 /** Lowest and highest sample in [i0, i1), from the coarsest blocks that fit and the samples at the edges. */
 export const peakRange = (p: Peaks, i0: number, i1: number): { hi: number; lo: number } | null => {
+  const frames = p.data ? p.data.length : Math.round(p.seconds * p.rate);
   const a = Math.max(0, i0);
-  const b = Math.min(p.data.length, i1);
+  const b = Math.min(frames, i1);
   if (b <= a) return null;
   let hi = -Infinity;
   let lo = Infinity;
   const scan = (level: number, from: number, to: number) => {
     if (to <= from) return;
     if (level < 0) {
-      for (let i = from; i < to; i++) {
-        const v = p.data[i];
-        if (v > hi) hi = v;
-        if (v < lo) lo = v;
+      if (p.data) {
+        for (let i = from; i < to; i++) {
+          const v = p.data[i];
+          if (v > hi) hi = v;
+          if (v < lo) lo = v;
+        }
+        return;
+      }
+      // No samples held: the finest blocks the edge touches.
+      const { size, max, min } = p.levels[0];
+      for (let k = Math.floor(from / size); k < Math.ceil(to / size); k++) {
+        if (max[k] / Q > hi) hi = max[k] / Q;
+        if (min[k] / Q < lo) lo = min[k] / Q;
       }
       return;
     }
@@ -337,18 +409,19 @@ export const drawPeaks = (ctx: CanvasRenderingContext2D, peaks: Peaks | null, o:
   };
 
   const samplesPerPx = (span * peaks.rate) / W;
-  if (samplesPerPx < 1) {
+  const samples = peaks.data;
+  if (samplesPerPx < 1 && samples) {
     // Each sample a point on one line, in the style where it falls.
     ctx.lineWidth = Math.max(1, dpr);
     ctx.lineJoin = 'round';
     const i0 = Math.max(0, Math.floor(o.from * peaks.rate) - 1);
-    const i1 = Math.min(peaks.data.length - 1, Math.ceil(o.to * peaks.rate) + 1);
+    const i1 = Math.min(samples.length - 1, Math.ceil(o.to * peaks.rate) + 1);
     let prev: { x: number; y: number; silent: boolean } | null = null;
     for (let i = i0; i <= i1; i++) {
       const t = i / peaks.rate;
       const s = styleAt(t);
       const x = X + ((t - o.from) / span) * W;
-      const v = peaks.data[i] * gainAt(t);
+      const v = samples[i] * gainAt(t);
       const y = yOf(v);
       const silent = quiet(v);
       // A stretch of silence leaves the lane blank; the line resumes where the sound does.

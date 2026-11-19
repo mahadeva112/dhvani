@@ -1640,7 +1640,7 @@ export interface SyncResultsPanelProps {
   onSyncChangedOnly?: () => void;
   /** The original and the synced dub, drawn behind the lines of the alignment view. */
   sourceBuffer?: AudioBuffer | null;
-  dubBuffer?: AudioBuffer | null;
+  dubBuffer?: import('../services/waveform').WaveAudio | null;
   /** One continuous read: its progress while the script is voiced in one take, before the lines are placed. */
   reading?: DubProgress | null;
 }

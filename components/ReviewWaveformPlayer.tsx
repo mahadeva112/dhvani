@@ -19,12 +19,13 @@ import {
 } from 'lucide-react';
 import { AudioSegment } from '../types';
 import { useLiveFrame, useLiveTime } from './useLiveTime';
-import { computePeaks, drawCentreLine, drawPeaks, WaveStyle } from '../services/waveform';
+import { computePeaks, drawCentreLine, drawPeaks, WaveStyle, type WaveAudio } from '../services/waveform';
 import { MIN_WINDOW_SECONDS, PLAYHEAD_RED, Playhead, RULER_STEPS, placePlayheadAt, tickDecimals, ticksBetween } from './TimelineControls';
 import { LINE_HUES, shadeOf, tintOf } from './lineColors';
 
 export interface ReviewWaveformPlayerProps {
-  audioBuffer: AudioBuffer | null;
+  /** The audio the wave is drawn from: decoded, or its peaks only (a synced dub). */
+  audioBuffer: WaveAudio | null;
   segments: AudioSegment[];
   currentTime: number;
   /**

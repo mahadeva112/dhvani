@@ -1,14 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { bufferSeconds } from '../services/playbackTimeline';
-import { computePeaks, drawCentreLine, drawPeaks, type Peaks } from '../services/waveform';
+import { computePeaks, drawCentreLine, drawPeaks, type Peaks, type WaveAudio } from '../services/waveform';
 import { shadeOf, tintOf } from './lineColors';
 
 export type PeakData = Peaks;
 
 /** Full-resolution peaks of a whole buffer, once; drawn a window at a time. */
-export const usePeaks = (buffer: AudioBuffer | null | undefined): PeakData | null =>
+export const usePeaks = (buffer: WaveAudio | null | undefined): PeakData | null =>
   useMemo(() => {
-    if (!buffer || bufferSeconds(buffer) <= 0) return null;
+    if (!buffer || buffer.length / buffer.sampleRate <= 0) return null;
     try {
       return computePeaks(buffer);
     } catch {

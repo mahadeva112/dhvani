@@ -331,7 +331,11 @@ export interface BatchJob {
    */
   syncedAudioUrl?: string | null;
   syncedBlob?: Blob | null;
-  syncedAudioBuffer?: AudioBuffer | null;
+  /**
+   * The synced dub as the waves draw it: its peaks, its samples left in
+   * `syncedBlob` (StreamedAudio), so a long dub isn't held in memory whole.
+   */
+  syncedAudioBuffer?: import('./services/waveform').WaveAudio | null;
   /** Set with the synced dub: how each line lined up with the source, with any Edit timing edits measured in. */
   syncReport?: SyncReport | null;
   syncOptions?: import('./services/syncService').SyncOptions;

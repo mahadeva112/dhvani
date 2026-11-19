@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import type { SyncReport, SyncUnitReport } from '../services/syncService';
 import { hueOf, withAlpha } from './lineColors';
 import { WindowWaveform, usePeaks } from './WindowWaveform';
+import type { WaveAudio } from '../services/waveform';
 import { Playhead, TimelineRuler, TimelineScrollbar, TimelineTransport, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
 import { LinePair } from './LinePair';
@@ -48,7 +49,7 @@ export const SyncAlignmentView: React.FC<{
   onTogglePlay: () => void;
   /** The original and the synced dub, for the lanes' waveforms. */
   sourceBuffer?: AudioBuffer | null;
-  dubBuffer?: AudioBuffer | null;
+  dubBuffer?: WaveAudio | null;
   /** As the Dub step's player: each lane's header (name, mute, solo, level) in place of its plain label. */
   trackHead?: (track: 'source' | 'synth') => React.ReactNode;
   /** Lanes not heard now (muted, or left out by solo), drawn dimmed. */

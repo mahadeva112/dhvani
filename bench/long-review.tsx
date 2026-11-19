@@ -10,6 +10,7 @@ import '../index.css';
 import { DubEstimateLane, SourceLineLane } from '../components/SyncPreviewPanel';
 import { WindowWaveform, usePeaks } from '../components/WindowWaveform';
 import type { SyncPreviewUnit } from '../services/syncService';
+import { decodeAudioBlobUrl, readStreamedAudio } from '../services/audioService';
 import type { AudioSegment } from '../types';
 
 const HOURS = 2.5;
@@ -88,6 +89,35 @@ const makeAudio = (seconds: number, rate: number) => {
   return buffer;
 };
 
+/** A 16-bit mono PCM WAV of `seconds`, built a slice at a time (a dub as Sync writes it). */
+const makeWav = (seconds: number, rate: number) => {
+  const frames = Math.round(seconds * rate);
+  const head = new DataView(new ArrayBuffer(44));
+  const text = (at: number, s: string) => [...s].forEach((c, i) => head.setUint8(at + i, c.charCodeAt(0)));
+  text(0, 'RIFF');
+  head.setUint32(4, 36 + frames * 2, true);
+  text(8, 'WAVE');
+  text(12, 'fmt ');
+  head.setUint32(16, 16, true);
+  head.setUint16(20, 1, true);
+  head.setUint16(22, 1, true);
+  head.setUint32(24, rate, true);
+  head.setUint32(28, rate * 2, true);
+  head.setUint16(32, 2, true);
+  head.setUint16(34, 16, true);
+  text(36, 'data');
+  head.setUint32(40, frames * 2, true);
+  const parts: BlobPart[] = [head.buffer];
+  const slice = rate * 60;
+  for (let at = 0; at < frames; at += slice) {
+    const n = Math.min(slice, frames - at);
+    const pcm = new Int16Array(n);
+    for (let i = 0; i < n; i++) pcm[i] = Math.round(Math.sin((at + i) / 37) * 12000 * (Math.floor((at + i) / rate / 3) % 2));
+    parts.push(pcm.buffer);
+  }
+  return new Blob(parts, { type: 'audio/wav' });
+};
+
 type Row = { step: string; ms: number };
 
 /** Lets the page run what it queued (observers, effects); a hidden page gets no animation frames, so not rAF. */
@@ -161,6 +191,24 @@ function Bench() {
     return result;
   };
   (window as any).runBench = run;
+  /**
+   * The synced dub as a 2.5 h, 48 kHz 16-bit WAV, read as Dhvani reads it:
+   * whole into an AudioBuffer ('decode'), or as peaks only ('stream').
+   * Returns the time taken and the bytes the result keeps.
+   */
+  (window as any).benchDub = async (how: 'decode' | 'stream') => {
+    const blob = makeWav(SECONDS, 48000);
+    const t0 = performance.now();
+    if (how === 'decode') {
+      const url = URL.createObjectURL(blob);
+      const buffer = await decodeAudioBlobUrl(url);
+      URL.revokeObjectURL(url);
+      return { how, ms: Math.round(performance.now() - t0), keptMB: Math.round((buffer.length * buffer.numberOfChannels * 4) / 1e6), fileMB: Math.round(blob.size / 1e6) };
+    }
+    const audio = await readStreamedAudio(blob);
+    const peaks = audio.peaks.levels.reduce((n, l) => n + l.max.byteLength + l.min.byteLength, 0);
+    return { how, ms: Math.round(performance.now() - t0), keptMB: Math.round(peaks / 1e6), fileMB: Math.round(blob.size / 1e6), seconds: Math.round(audio.duration) };
+  };
   /** One step on its own, for a step that may take minutes: benchStep('bars, whole', { look: 'bars', seconds: 9000 }). */
   (window as any).benchStep = (step: string, next: Partial<typeof view>) => time(step, next);
 

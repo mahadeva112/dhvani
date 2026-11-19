@@ -27,8 +27,10 @@ import {
   decodeAudioBlobUrl,
   audioBufferToWav,
   audioFileExtension,
+  readStreamedAudioUrl,
   resegmentAudioBuffer,
 } from './services/audioService';
+import { decodedBuffer } from './services/waveform';
 import { transcribeOnly } from './services/geminiService';
 import { retranslateCues, RetranslateProgress, translationFraction } from './services/subtitleService';
 import {
@@ -1780,7 +1782,8 @@ export default function App() {
       const url = synthAudioUrl;
       const field = synthBufferField;
       decodingSynthUrlRef.current = url;
-      decodeAudioBlobUrl(url)
+      // The synced dub is held as peaks only (it can run for hours); an older dub is decoded whole.
+      (field === 'syncedAudioBuffer' ? readStreamedAudioUrl(url) : decodeAudioBlobUrl(url))
         .then((buffer) => {
           if (currentSynthUrlRef.current === url) updateJob(activeJob.id, { [field]: buffer });
         })
@@ -2698,7 +2701,7 @@ export default function App() {
           syncedAudioBuffer: null,
         });
         decodingSynthUrlRef.current = url;
-        decodeAudioBlobUrl(url)
+        readStreamedAudioUrl(url)
           .then((buffer) => {
             if (syncedUrlOf(jobId) === url) updateJob(jobId, { syncedAudioBuffer: buffer });
           })
@@ -3266,7 +3269,7 @@ export default function App() {
         }, 0);
       }
       decodingSynthUrlRef.current = url;
-      decodeAudioBlobUrl(url)
+      readStreamedAudioUrl(url)
         .then((syncedBuffer) => {
           if (syncedUrlOf(activeJob.id) === url) updateJob(activeJob.id, { syncedAudioBuffer: syncedBuffer });
         })
@@ -3974,7 +3977,7 @@ export default function App() {
     } else {
       setSyncEditStatus(jobId, { state: 'ready' });
       if (fileUrl && file) {
-        decodeAudioBlobUrl(fileUrl)
+        readStreamedAudioUrl(fileUrl)
           .then((buffer) => {
             if (syncedUrlOf(jobId) === fileUrl) updateJob(jobId, { syncedAudioBuffer: buffer });
           })
@@ -4098,7 +4101,8 @@ export default function App() {
     if (!activeJob) return null;
     const blob = playsSynced ? activeJob.syncedBlob : activeJob.synthesizedBlob;
     const buffer = playsSynced ? activeJob.syncedAudioBuffer : activeJob.synthAudioBuffer;
-    const file = blob || (buffer ? audioBufferToWav(buffer) : null);
+    const decoded = decodedBuffer(buffer);
+    const file = blob || (decoded ? audioBufferToWav(decoded) : null);
     return file && { file, name: projectFileStem(activeJob) };
   }, [activeJob, playsSynced]);
 
@@ -4702,7 +4706,7 @@ export default function App() {
     });
     setSyncEditStatus(activeJob.id, { state: 'ready' });
     decodingSynthUrlRef.current = url;
-    decodeAudioBlobUrl(url)
+    readStreamedAudioUrl(url)
       .then((buffer) => {
         if (syncedUrlOf(activeJob.id) === url) updateJob(activeJob.id, { syncedAudioBuffer: buffer });
       })
@@ -4923,7 +4927,8 @@ export default function App() {
   const voiceChangerDubFile = useMemo(() => {
     if (!isVoiceChangerOpen || !activeJob) return null;
     const buffer = voiceChangerBufferRef.current;
-    const blob = voiceChangerBlob || (buffer ? audioBufferToWav(buffer) : null);
+    const decoded = decodedBuffer(buffer);
+    const blob = voiceChangerBlob || (decoded ? audioBufferToWav(decoded) : null);
     if (!blob) return null;
     const name = `dhvani_${activeJob.language || 'dubbed'}_${playsSynced ? 'synced' : 'dub'}.${audioFileExtension(blob)}`;
     return new File([blob], name, { type: blob.type || 'audio/wav' });
@@ -5385,7 +5390,8 @@ export default function App() {
         isOpen={isVoiceChangerOpen}
         onClose={() => setIsVoiceChangerOpen(false)}
         dubbedAudioFile={voiceChangerDubFile}
-        dubbedAudioBuffer={voiceChangerBuffer}
+        // A synced dub held as peaks only: the voice changer decodes its file when it opens.
+        dubbedAudioBuffer={decodedBuffer(voiceChangerBuffer)}
         originalAudioFile={activeJob?.file || null}
         originalAudioBuffer={activeJob?.audioBuffer || null}
         elApiKey={elApiKey}

@@ -2,6 +2,7 @@
 
 import type { AudioMetadata, AudioSegment, PauseGate } from '../types';
 import { GATE_FRAME_SECONDS, gateSounds, peakLevels } from '../server/lib/silenceGate.js';
+import { computePeaks, isStreamedAudio, peaksBuilder, type StreamedAudio, type WaveAudio } from './waveform.ts';
 
 export type { PauseGate };
 
@@ -311,6 +312,68 @@ const decodeWithBrowser = async (blob: Blob): Promise<AudioBuffer> => {
         await audioContext.close();
       }
     }
+};
+
+/**
+ * A dub known by its length and peaks, its samples left in the file: read a
+ * slice at a time, each slice's first channel folded into the peaks and let
+ * go, so two hours of it never take more than a slice and about 30 MB of
+ * peaks (as an AudioBuffer: 1.4 GB). A file that isn't plain PCM WAV (an MP3
+ * dub) is decoded once for its peaks, and the samples let go.
+ */
+export const readStreamedAudio = async (blob: Blob): Promise<StreamedAudio> => {
+  const layout = pcmWavLayout(await blob.slice(0, WAV_HEAD_BYTES).arrayBuffer(), blob.size);
+  if (!layout) {
+    const buffer = await decodeWithBrowser(blob);
+    const { data: _samples, ...peaks } = computePeaks(buffer);
+    return {
+      kind: 'streamed',
+      blob,
+      duration: buffer.duration,
+      sampleRate: buffer.sampleRate,
+      length: buffer.length,
+      numberOfChannels: buffer.numberOfChannels,
+      peaks: { ...peaks, data: null },
+    };
+  }
+  const { offset, frames, channels, sampleRate, float } = layout;
+  const builder = peaksBuilder(sampleRate, frames);
+  const frameBytes = channels * (float ? 4 : 2);
+  const framesPerSlice = Math.max(1, Math.floor(WAV_SLICE_BYTES / frameBytes));
+  const first = new Float32Array(framesPerSlice);
+  for (let frame = 0; frame < frames; frame += framesPerSlice) {
+    const count = Math.min(framesPerSlice, frames - frame);
+    const from = offset + frame * frameBytes;
+    const bytes = await blob.slice(from, from + count * frameBytes).arrayBuffer();
+    if (bytes.byteLength < count * frameBytes) throw new Error('The audio file ended before its samples did.');
+    // The first channel, as readPcmWav would put it in a buffer.
+    if (float) {
+      const samples = new Float32Array(bytes, 0, count * channels);
+      for (let i = 0; i < count; i++) first[i] = samples[i * channels];
+    } else {
+      const samples = new Int16Array(bytes, 0, count * channels);
+      for (let i = 0; i < count; i++) {
+        const v = samples[i * channels];
+        first[i] = v * (v < 0 ? FROM_NEGATIVE : FROM_POSITIVE);
+      }
+    }
+    builder.add(first.subarray(0, count));
+  }
+  return { kind: 'streamed', blob, duration: frames / sampleRate, sampleRate, length: frames, numberOfChannels: channels, peaks: builder.done() };
+};
+
+/** readStreamedAudio for a blob URL. */
+export const readStreamedAudioUrl = async (blobUrl: string): Promise<StreamedAudio> => readStreamedAudio(await (await fetch(blobUrl)).blob());
+
+/** The samples of `audio`, decoded from its file when only its peaks are held: for the few things that need them (the voice changer, a save). */
+export const decodeWaveAudio = async (audio: WaveAudio): Promise<AudioBuffer> => {
+  if (!isStreamedAudio(audio)) return audio;
+  const url = URL.createObjectURL(audio.blob);
+  try {
+    return await decodeAudioBlobUrl(url);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 };
 
 /** The file extension for an audio blob, from its type: a WAV is saved as .wav and an MP3 as .mp3. */
