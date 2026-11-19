@@ -3,7 +3,7 @@ import { Check, Loader2, Pencil, RotateCcw, X } from 'lucide-react';
 import { Playhead, TimelineRuler, TimelineScrollbar, TimelineTransport, TimelineZoomControls, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
 import { hueOf, shadeOf, tintOf, withAlpha } from './lineColors';
-import { FitText, SqueezedWord } from './FitText';
+import { FIT_TEXT_MIN_WIDTH_PX, FitText, SqueezedWord } from './FitText';
 import { WindowWaveform, usePeaks } from './WindowWaveform';
 import { AudioSegment } from '../types';
 import {
@@ -1271,6 +1271,8 @@ export const SourceLineLane: React.FC<{
                       className="absolute top-1.5 bottom-1.5 rounded border pointer-events-none"
                       style={{ left: `${pct(c.from)}%`, width: `${Math.max(0.3, pct(c.to) - pct(c.from))}%`, background: withAlpha(hue, 0.22), borderColor: hue }}
                     >
+                      {/* Too narrow to read at this zoom: no text, as FitText would hide it anyway */}
+                      {(laneWidth === 0 || ((pct(c.to) - pct(c.from)) / 100) * laneWidth >= FIT_TEXT_MIN_WIDTH_PX) && (
                       <FitText fitKey={`${c.text}|${numbers}|${n}`}>
                         <span className="text-slate-50">
                           {numbers && l.index !== null && n === 0 && (
@@ -1284,6 +1286,7 @@ export const SourceLineLane: React.FC<{
                           {(c.to - c.from).toFixed(2)} s
                         </span>
                       </FitText>
+                      )}
                     </span>
                     {next && (
                       <span
@@ -2104,7 +2107,7 @@ export const DubEstimateLane: React.FC<{
                         );
                       })}
                     {/* Bars: the dub script inside the bar, broken between words, smaller only when it must */}
-                    {drawn === 'bars' && (
+                    {drawn === 'bars' && (laneWidth === 0 || (width / 100) * laneWidth >= FIT_TEXT_MIN_WIDTH_PX) && (
                       <FitText
                         className="z-[5]"
                         fitKey={`${partText(u, p, parts.length)}|${u.index}|${layers.numbers}|${over > 0 && showFit}|${marksRate(u) ? u.rate : 1}|${knifeHere?.k ?? ''}`}

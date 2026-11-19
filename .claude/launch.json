@@ -11,6 +11,13 @@
       "autoPort": true
     },
     {
+      "//": "Dev-only benches (bench/*.html); the backend is not needed for them.",
+      "name": "bench",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--port", "5198", "--strictPort"],
+      "port": 5198
+    },
+    {
       "name": "subtitle-mock",
       "runtimeExecutable": "npx",
       "runtimeArgs": ["vite", "--port", "5199", "--strictPort"],
