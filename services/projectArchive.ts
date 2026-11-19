@@ -2,6 +2,7 @@ import type { BatchJob } from '../types';
 import type { JobSignoff } from './signoffService';
 import { compactBank } from './syncTakes.ts';
 import { hasEdits, withoutAudioClips } from './syncEditModel.ts';
+import { shareWithHistory } from './projectHistory.ts';
 import type { HistoryBank } from './storageService';
 import { readZip, writeZip } from './zipStore.ts';
 
@@ -278,7 +279,14 @@ export const importProject = async (
   const signoffs = (Array.isArray(manifest.signoffs) ? manifest.signoffs : [])
     .filter((s) => s && s.jobId === oldId)
     .map((s) => ({ ...s, jobId: newId, key: `${newId}::${s.key.split('::').pop()}` }));
-  return { job: { ...job, id: newId }, signoffs, needsMedia, historyBanks, reviewVideo };
+  // Read from the file, the script and dub are copies of what its history holds: they share it again, as when it was saved.
+  let shared: Partial<BatchJob> = {};
+  try {
+    if (job.projectHistory) shared = shareWithHistory(job, job.projectHistory);
+  } catch (err) {
+    console.warn("The project's undo history could not be shared with its script:", err);
+  }
+  return { job: { ...job, ...shared, id: newId }, signoffs, needsMedia, historyBanks, reviewVideo };
 };
 
 /** The name a project's file is saved under. */

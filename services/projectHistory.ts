@@ -318,6 +318,159 @@ export const historyLabels = (history: ProjectHistory | null | undefined) => ({
 export const historyEntries = (history: ProjectHistory | null | undefined) =>
   (history?.steps || []).map((step) => ({ label: step.label, time: step.time, scriptOnly: !step.dub }));
 
+/* ---------- On disk ---------- */
+
+/** Refs a stored list is cut into: a piece the step before has the same is that step's piece. */
+const PIECE = 64;
+type Pieces = Int32Array[];
+
+const piecesOf = (refs: Ref[], before: Pieces | undefined): Pieces => {
+  const out: Pieces = [];
+  for (let at = 0, k = 0; at < refs.length; at += PIECE, k++) {
+    const end = Math.min(refs.length, at + PIECE);
+    const prev = before?.[k];
+    let same = prev !== undefined && prev.length === end - at;
+    for (let i = at; same && i < end; i++) if (prev![i - at] !== refs[i]) same = false;
+    out.push(same ? prev! : Int32Array.from(refs.slice(at, end)));
+  }
+  return out;
+};
+
+/** A step's takes or edits (key to ref): the step before's own object when they are the same. */
+const mapLike = (refs: Record<string, Ref> | null, before: Record<string, Ref> | null | undefined) => {
+  if (!refs || !before || refs === before) return refs;
+  const keys = Object.keys(refs);
+  if (keys.length !== Object.keys(before).length) return refs;
+  for (const key of keys) if (before[key] !== refs[key]) return refs;
+  return before;
+};
+
+const refsOf = (pieces: Pieces): Ref[] => {
+  const out: Ref[] = [];
+  for (const piece of pieces) for (let i = 0; i < piece.length; i++) out.push(piece[i]);
+  return out;
+};
+
+/**
+ * A history as it is written to disk. Each step's lists of refs (a cue, bank
+ * line and report line each) are cut into pieces, and a piece that is the
+ * same as the step before's is that very piece, as are its takes and edits
+ * when they are the same: IndexedDB writes an object held twice once. A thousand steps of a 1500-line synced project hold four
+ * and a half million refs, nearly all repeats of the step before, and wrote
+ * them all with every save; now about one piece a step is new.
+ */
+export interface StoredProjectHistory {
+  stored: 1;
+  pool: unknown[];
+  steps: (Omit<ProjectHistoryStep, 'segments' | 'dub'> & {
+    segments: Pieces;
+    dub: (Omit<PackedDub, 'bank' | 'base'> & { bank: { rest: Ref; lines: Pieces } | null; base: { rest: Ref; units: Pieces } | null }) | null;
+  })[];
+  at: number;
+  compactedAt: number;
+}
+
+type StoredStep = StoredProjectHistory['steps'][number];
+
+/** Steps already in their stored form: a step never changes, so each is cut once. */
+const storedSteps = new WeakMap<ProjectHistoryStep, StoredStep>();
+
+export const toStoredHistory = (history: ProjectHistory): StoredProjectHistory => {
+  let before: StoredStep | undefined;
+  const steps = history.steps.map((step) => {
+    let out = storedSteps.get(step);
+    if (!out) {
+      const prev = before;
+      out = {
+        ...step,
+        segments: piecesOf(step.segments, prev?.segments),
+        dub: step.dub && {
+          ...step.dub,
+          bank: step.dub.bank && { rest: step.dub.bank.rest, lines: piecesOf(step.dub.bank.lines, prev?.dub?.bank?.lines) },
+          base: step.dub.base && { rest: step.dub.base.rest, units: piecesOf(step.dub.base.units, prev?.dub?.base?.units) },
+          edits: mapLike(step.dub.edits, prev?.dub?.edits),
+          takes: mapLike(step.dub.takes, prev?.dub?.takes),
+        },
+      };
+      storedSteps.set(step, out);
+    }
+    before = out;
+    return out;
+  });
+  return { stored: 1, pool: history.pool, steps, at: history.at, compactedAt: history.compactedAt };
+};
+
+export const isStoredHistory = (value: unknown): value is StoredProjectHistory =>
+  Boolean(value) && typeof value === 'object' && (value as StoredProjectHistory).stored === 1 && Array.isArray((value as StoredProjectHistory).steps);
+
+export const fromStoredHistory = (stored: StoredProjectHistory): ProjectHistory => ({
+  pool: stored.pool,
+  steps: stored.steps.map((step) => ({
+    ...step,
+    segments: refsOf(step.segments),
+    dub: step.dub && {
+      ...step.dub,
+      bank: step.dub.bank && { rest: step.dub.bank.rest, lines: refsOf(step.dub.bank.lines) },
+      base: step.dub.base && { rest: step.dub.base.rest, units: refsOf(step.dub.base.units) },
+    },
+  })),
+  at: stored.at,
+  compactedAt: stored.compactedAt,
+});
+
+/**
+ * The project's cues, bank lines, report lines, takes and edits as the very
+ * objects the step it is at holds, where they are the same: read from a
+ * .dhvani file (JSON) they are copies, and a copy is written to disk a second
+ * time with every save and found in the history by its text, not by itself.
+ * Only the fields that change are returned.
+ */
+export const shareWithHistory = (state: Partial<HistoryState>, history: ProjectHistory): Partial<HistoryState> => {
+  const step = history.steps[history.at];
+  if (!step) return {};
+  const { pool } = history;
+  const same = (value: unknown, ref: Ref | undefined) => {
+    const kept = ref === undefined ? undefined : pool[ref];
+    return kept !== undefined && kept !== value && json(kept) === json(value) ? kept : value;
+  };
+  const list = <T>(values: T[] | null | undefined, refs: Ref[] | undefined) => {
+    if (!values || !refs || values.length !== refs.length) return null;
+    let changed = false;
+    const out = values.map((value, i) => {
+      const next = same(value, refs[i]) as T;
+      if (next !== value) changed = true;
+      return next;
+    });
+    return changed ? out : null;
+  };
+  const map = <T>(values: Record<string, T> | null | undefined, refs: Record<string, Ref> | null | undefined) => {
+    if (!values || !refs) return null;
+    let changed = false;
+    const out = Object.fromEntries(
+      Object.entries(values).map(([key, value]) => {
+        const next = same(value, refs[key]) as T;
+        if (next !== value) changed = true;
+        return [key, next];
+      })
+    );
+    return changed ? out : null;
+  };
+  const out: Partial<HistoryState> = {};
+  const segments = list(state.segments, step.segments);
+  if (segments) out.segments = segments;
+  const dub = step.dub;
+  if (!dub || (state.syncEpoch ?? null) !== dub.epoch) return out;
+  const lines = list(state.syncBank?.lines, dub.bank?.lines);
+  if (lines && state.syncBank) out.syncBank = { ...state.syncBank, lines };
+  const units = list(state.syncBaseReport?.units, dub.base?.units);
+  if (units && state.syncBaseReport) out.syncBaseReport = { ...state.syncBaseReport, units } as HistoryState['syncBaseReport'];
+  const takes = map(state.syncTakes, dub.takes);
+  if (takes) out.syncTakes = takes as HistoryState['syncTakes'];
+  const edits = map(state.syncEdits, dub.edits);
+  if (edits) out.syncEdits = edits as HistoryState['syncEdits'];
+  return out;
+};
+
 /* ---------- Syncs ---------- */
 
 /** The Syncs the steps' banks belong to, newest last (by the last step of each). */

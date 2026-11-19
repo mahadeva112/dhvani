@@ -10,7 +10,11 @@ import {
   keepRecentSyncs,
   moveTo,
   recordProjectStep,
+  fromStoredHistory,
+  isStoredHistory,
+  shareWithHistory,
   stateAt,
+  toStoredHistory,
   type HistoryState,
 } from './projectHistory.ts';
 import type { AudioSegment } from '../types';
@@ -168,4 +172,63 @@ test('a change is named by what it did', () => {
   assert.equal(describeProjectChange(s0, { ...s0, syncLineSeeds: { '1': 5 } })?.label, 'Retake line 1 at the next Sync');
   assert.equal(describeProjectChange(s0, { ...s0, syncEdits: { '1': { locked: true, parts: [] } } })?.label, 'Edit timing');
   assert.deepEqual(describeProjectChange(s0, { ...s0, syncSpeakerLevels: { Speaker: -2 } }), { label: 'Speaker level', key: 'levels' });
+});
+
+test('a history written to disk and read back undoes the same, each step sharing the pieces it has in common with the one before', () => {
+  // 150 cues: three pieces of refs.
+  const cues = Array.from({ length: 150 }, (_, i) => cue(String(i + 1), `line ${i + 1}`));
+  const s0 = synced('e1', { segments: cues });
+  const s1: HistoryState = { ...s0, segments: cues.map((c, i) => (i === 100 ? { ...c, textTarget: 'changed' } : c)) };
+  const s2: HistoryState = { ...s1, syncTakes: { '2': { takes: [take('sync', 10), take('t1', 20)], active: 't1' } } };
+  let h = recordProjectStep(null, s0, s1, { label: 'Edit line 101' });
+  h = recordProjectStep(h, s1, s2, { label: 'Take' });
+  const stored = toStoredHistory(h);
+  assert.ok(isStoredHistory(stored));
+  assert.ok(!isStoredHistory(h));
+  const [a, b, c] = stored.steps.map((step) => step.segments);
+  assert.equal(a.length, 3);
+  assert.ok(a[0] instanceof Int32Array);
+  // Line 101 is in the second piece: only that piece is new.
+  assert.equal(b[0], a[0]);
+  assert.notEqual(b[1], a[1]);
+  assert.equal(b[2], a[2]);
+  assert.deepEqual(c, b);
+  assert.equal(stored.steps[1].dub?.bank?.lines[0], stored.steps[0].dub?.bank?.lines[0]);
+  // The takes changed at the last step only.
+  const s3: HistoryState = { ...s2, segments: s2.segments.map((c, i) => (i === 0 ? { ...c, textTarget: 'first' } : c)) };
+  const stored3 = toStoredHistory(recordProjectStep(h, s2, s3, { label: 'Edit line 1' }));
+  assert.equal(stored3.steps[3].dub?.takes, stored3.steps[2].dub?.takes);
+  assert.notEqual(stored3.steps[2].dub?.takes, stored3.steps[1].dub?.takes);
+  // As IndexedDB copies it: a piece held by two steps is still one piece.
+  const copy = structuredClone(stored);
+  assert.equal(copy.steps[1].segments[0], copy.steps[0].segments[0]);
+  const back = fromStoredHistory(copy);
+  assert.deepEqual(back, h);
+  for (let i = 0; i < h.steps.length; i++) assert.deepEqual(stateAt(back, i), stateAt(h, i));
+  // A step is cut once: the next save reuses it.
+  assert.equal(toStoredHistory(h).steps[0], stored.steps[0]);
+});
+
+test('read from a project file, the script and dub share their objects with the step the project is at again', () => {
+  const s0 = synced('e1', { syncTakes: { '1': { takes: [take('sync', 0), take('t1', 20)], active: 't1' } }, syncEdits: { '2': { parts: [] } as never } });
+  const s1: HistoryState = { ...s0, segments: [cue('1', 'one!'), s0.segments[1]] };
+  const h = recordProjectStep(null, s0, s1, { label: 'Edit line 1' });
+  // A .dhvani file is JSON: the script and the history come back as copies of each other.
+  const read = { state: JSON.parse(JSON.stringify(s1)) as HistoryState, history: JSON.parse(JSON.stringify(h)) as typeof h };
+  const shared = shareWithHistory(read.state, read.history);
+  const at = stateAt(read.history).state;
+  assert.equal(shared.segments![0], at.segments![0]);
+  assert.equal(shared.segments![1], at.segments![1]);
+  assert.equal(shared.syncBank!.lines[1], at.syncBank!.lines[1]);
+  assert.equal(shared.syncBaseReport!.units[0], at.syncBaseReport!.units[0]);
+  assert.equal(shared.syncTakes!['1'], at.syncTakes!['1']);
+  assert.equal(shared.syncEdits!['2'], at.syncEdits!['2']);
+  assert.deepEqual({ ...read.state, ...shared }, read.state);
+  // A cue changed since the step (a change the history missed) keeps its own object.
+  const changed = { ...read.state, segments: [cue('1', 'other'), read.state.segments[1]] };
+  const some = shareWithHistory(changed, read.history);
+  assert.equal(some.segments![0], changed.segments[0]);
+  assert.equal(some.segments![1], at.segments![1]);
+  // Already shared: nothing to change.
+  assert.deepEqual(shareWithHistory({ ...read.state, ...shared }, read.history), {});
 });

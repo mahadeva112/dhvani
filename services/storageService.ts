@@ -1,5 +1,6 @@
 import { BatchJob } from "../types";
 import { trackSave } from "./pendingSaves";
+import { fromStoredHistory, isStoredHistory, toStoredHistory } from "./projectHistory";
 
 const DB_NAME = "DhvaniDB";
 const STORE_NAME = "jobs";
@@ -8,6 +9,13 @@ const HISTORY_STORE = "historyBanks";
 /** The video added for review, one per project: a copy, so it is there after a restart even if the original moves. */
 const REVIEW_VIDEO_STORE = "reviewVideos";
 const DB_VERSION = 3;
+/**
+ * Where a project's undo history is kept on disk, in its stored form
+ * (services/projectHistory.ts); `projectHistory` itself is left empty there,
+ * so a Dhvani from before it opens the project without its undo steps
+ * rather than failing on them.
+ */
+const STORED_HISTORY = "storedHistory";
 
 /**
  * Opens the IndexedDB database.
@@ -60,7 +68,9 @@ const writeJob = async (job: BatchJob): Promise<void> => {
       syncedAudioBuffer: null, // Cannot store
       synthesizedAudioUrl: null, // Revoked on reload
       syncedAudioUrl: null, // Revoked on reload
-      srtUrl: null // Revoked on reload
+      srtUrl: null, // Revoked on reload
+      projectHistory: null,
+      [STORED_HISTORY]: job.projectHistory ? toStoredHistory(job.projectHistory) : null,
     };
 
     const request = store.put(serializableJob);
@@ -70,6 +80,23 @@ const writeJob = async (job: BatchJob): Promise<void> => {
     transaction.onerror = () => reject(transaction.error ?? request.error);
     transaction.onabort = () => reject(transaction.error ?? request.error);
   });
+};
+
+/**
+ * A project as read from disk, its undo history back in the form the app
+ * uses. (Its script and dub still share their objects with the history: one
+ * record keeps that as it was.) Should that fail, the project opens without
+ * its undo steps rather than not at all.
+ */
+const fromDisk = (stored: BatchJob): BatchJob => {
+  const { [STORED_HISTORY]: kept, ...job } = stored as BatchJob & { [STORED_HISTORY]?: unknown };
+  if (!isStoredHistory(kept)) return job as BatchJob;
+  try {
+    return { ...job, projectHistory: fromStoredHistory(kept) } as BatchJob;
+  } catch (err) {
+    console.warn("A project's undo history could not be read back; it opens without it:", err);
+    return job as BatchJob;
+  }
 };
 
 /** Every project that can be read, and the ids of any that could not (left on disk untouched). */
@@ -93,7 +120,7 @@ export const getAllJobsFromStorage = async (): Promise<StoredJobs> => {
       request.onerror = () => reject(request.error);
     });
   try {
-    return { jobs: await read((store) => store.getAll() as IDBRequest<BatchJob[]>), unreadable: [] };
+    return { jobs: (await read((store) => store.getAll() as IDBRequest<BatchJob[]>)).map(fromDisk), unreadable: [] };
   } catch (err) {
     console.warn("Projects could not be read together; reading them one at a time:", err);
   }
@@ -103,7 +130,7 @@ export const getAllJobsFromStorage = async (): Promise<StoredJobs> => {
   for (const key of keys) {
     try {
       const job = await read((store) => store.get(key) as IDBRequest<BatchJob | undefined>);
-      if (job) jobs.push(job);
+      if (job) jobs.push(fromDisk(job));
     } catch (err) {
       console.warn(`Project ${String(key)} could not be read:`, err);
       unreadable.push(String(key));
