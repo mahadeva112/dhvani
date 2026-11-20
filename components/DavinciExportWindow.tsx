@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AudioWaveform, Captions, Check, FileOutput, Flag, FolderOpen, ListVideo, Loader2, X } from 'lucide-react';
+import { AudioLines, AudioWaveform, Captions, Check, Clipboard, ExternalLink, FileOutput, Film, Flag, FolderOpen, ListVideo, Loader2, Lock, Repeat, X } from 'lucide-react';
 import { CenteredPanel } from './CenteredPanel';
 import type { SyncReport } from '../services/syncService';
 import {
@@ -7,18 +7,46 @@ import {
   type DavinciExportResult,
   type DavinciFps,
   type DavinciPrefs,
+  type ResolveStatus,
   davinciTracks,
   defaultDavinciFolder,
   exportForDavinci,
+  freshDavinciFolder,
   isTimecode,
+  isVideoFile,
   lineNote,
   loadDavinciPrefs,
+  openResolve,
+  originalFileName,
+  resolveStatus,
   revealDavinciFolder,
   saveDavinciPrefs,
 } from '../services/davinciExport';
 
 /** The desktop shell's folder picker; absent in a browser, where the path is typed. */
 const pickFolder = (window as unknown as { dhvaniFiles?: { pickFolder: (start?: string) => Promise<string | null> } }).dhvaniFiles?.pickFolder;
+
+/** Puts text on the clipboard; false when the browser refuses. */
+const copyText = async (text: string): Promise<boolean> => {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand('copy');
+      area.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+};
 
 const sectionLabel = 'text-[10.5px] uppercase tracking-wider font-semibold text-slate-500';
 const LANE_COLORS = ['#60a5fa', '#34d399', '#f472b6', '#fbbf24', '#a78bfa', '#22d3ee'];
@@ -43,8 +71,14 @@ export const DavinciExportWindow: React.FC<{
   subtitleLanguage: string;
   /** Lines changed since the last Sync: the export is the dub as synced, without them. */
   pendingCount?: number;
+  /** The project's original media: its picture goes on V1, its sound on the guide track. */
+  source?: File | null;
+  /** The review video's name, when the original has no picture but one was added for review. */
+  reviewVideoName?: string | null;
+  /** Reads the review video when the export runs. */
+  loadReviewVideo?: () => Promise<File | null>;
   onError: (err: unknown) => void;
-}> = ({ open, onClose, title, fileStem, report, dub, stems, colorOf, buildSrt, subtitleLanguage, pendingCount = 0, onError }) => {
+}> = ({ open, onClose, title, fileStem, report, dub, stems, colorOf, buildSrt, subtitleLanguage, pendingCount = 0, source = null, reviewVideoName = null, loadReviewVideo, onError }) => {
   const [prefs, setPrefs] = useState<DavinciPrefs>(loadDavinciPrefs);
   const set = (patch: Partial<DavinciPrefs>) =>
     setPrefs((p) => {
@@ -55,12 +89,21 @@ export const DavinciExportWindow: React.FC<{
   const [folder, setFolder] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [done, setDone] = useState<DavinciExportResult | null>(null);
+  /** What happened after the export: the path copied, Resolve started. */
+  const [after, setAfter] = useState<string | null>(null);
+  const [resolve, setResolve] = useState<ResolveStatus | null>(null);
   const abort = useRef<AbortController | null>(null);
+  const checkResolve = () =>
+    resolveStatus()
+      .then(setResolve)
+      .catch(() => setResolve(null));
 
   // A fresh window each time it opens: the default folder for this project, nothing left from before.
   useEffect(() => {
     if (!open) return;
     setDone(null);
+    setAfter(null);
+    checkResolve();
     let live = true;
     defaultDavinciFolder(fileStem)
       .then((f) => live && setFolder((now) => now || f))
@@ -86,7 +129,18 @@ export const DavinciExportWindow: React.FC<{
   const dubForTimeline = prefs.timeline && tracks.some((t) => t.blob === dub);
   const fullDub = prefs.fullDub || dubForTimeline;
   const tcOk = isTimecode(prefs.timecode, prefs.fps);
+  // The original: its picture from itself, or from the review video when it has none.
+  const sourceIsVideo = isVideoFile(source);
+  const videoName = sourceIsVideo ? source?.name || null : reviewVideoName;
+  const videoOn = prefs.timeline && prefs.video && Boolean(videoName);
+  const guideOn = prefs.timeline && prefs.guide && Boolean(source);
+  const videoFileName = videoOn ? (sourceIsVideo && source ? originalFileName(fileStem, source, 'original') : originalFileName(fileStem, { name: reviewVideoName || '' , type: 'video/mp4' }, 'video')) : null;
+  const guideFileName = guideOn && source ? originalFileName(fileStem, source, 'original') : null;
+  const fpsAuto = videoOn && prefs.fpsAuto;
+  const canOpenResolve = Boolean(resolve?.installed);
   const files = [
+    ...(videoFileName ? [videoFileName] : []),
+    ...(guideFileName ? [guideFileName] : []),
     ...(prefs.timeline ? [timelineName, ...tracks.map((t) => t.fileName)] : []),
     ...(fullDub ? [dubFileName] : []),
     ...(prefs.subtitles ? [srtFileName] : []),
@@ -106,12 +160,21 @@ export const DavinciExportWindow: React.FC<{
     const srtText = prefs.subtitles ? buildSrt() : null;
     abort.current = new AbortController();
     setBusy('Starting…');
+    setAfter(null);
     try {
+      const videoBlob = videoOn ? (sourceIsVideo ? source : await (loadReviewVideo?.() ?? Promise.resolve(null))) : null;
+      if (videoOn && !videoBlob) throw new Error('The review video could not be read. Add it again on the Dub page, or export without the video.');
+      // Off: this export gets a folder of its own, and the files of the one before stay as they were.
+      const target = prefs.sameFiles ? folder.trim() : await freshDavinciFolder(folder.trim());
+      if (target !== folder.trim()) setFolder(target);
       const result = await exportForDavinci({
-        folder: folder.trim(),
+        folder: target,
         title: `${title} dub`,
         fileStem,
         fps: prefs.fps,
+        fpsAuto,
+        video: videoBlob && videoFileName ? { fileName: videoFileName, blob: videoBlob } : null,
+        guide: guideOn && source && guideFileName ? { fileName: guideFileName, blob: source } : null,
         timecode: prefs.timecode.trim(),
         tracks,
         timeline: prefs.timeline,
@@ -122,6 +185,17 @@ export const DavinciExportWindow: React.FC<{
         signal: abort.current.signal,
       });
       setDone(result);
+      if (result.fpsFromVideo && result.fps !== prefs.fps) set({ fps: result.fps });
+      const notes: string[] = [];
+      if (prefs.copyPath && result.timeline) {
+        const copied = await copyText(result.timeline);
+        notes.push(copied ? 'Timeline path copied' : 'Could not copy the path');
+      }
+      if (prefs.openResolve && canOpenResolve) {
+        const opened = await openResolve().catch(() => null);
+        notes.push(!opened ? 'Resolve did not start' : opened.running ? 'Resolve is already open' : 'Resolve is starting');
+      }
+      setAfter(notes.join(' · ') || null);
     } catch (err) {
       if ((err as Error)?.name !== 'AbortError') onError(err);
     } finally {
@@ -182,6 +256,24 @@ export const DavinciExportWindow: React.FC<{
         <div className="flex flex-col">
           <span className={`${sectionLabel} mb-1`}>What goes in the folder</span>
           {row(prefs.timeline, () => set({ timeline: !prefs.timeline }), <ListVideo className="w-4 h-4" />, 'Timeline', 'Each dub line a clip, in place. Import it with File › Import › Timeline.', 'FCPXML')}
+          {videoName &&
+            row(
+              videoOn,
+              prefs.timeline ? () => set({ video: !prefs.video }) : null,
+              <Film className="w-4 h-4" />,
+              'Original video on V1',
+              `${videoName}${sourceIsVideo ? '' : ' (the review video)'}: copied as it is, not re-encoded. Not copied again while it's unchanged.`,
+              'V1'
+            )}
+          {source &&
+            row(
+              guideOn,
+              prefs.timeline ? () => set({ guide: !prefs.guide }) : null,
+              <AudioLines className="w-4 h-4" />,
+              'Original audio as a guide track',
+              'Its own track, turned off in Resolve. Turn it on to compare with the dub.',
+              'guide'
+            )}
           {row(
             fullDub,
             dubForTimeline ? null : () => set({ fullDub: !prefs.fullDub }),
@@ -190,7 +282,7 @@ export const DavinciExportWindow: React.FC<{
             dubForTimeline ? 'The timeline reads this file, so it goes in with it.' : 'One file with its start timecode inside; every sample as the dub has it.',
             dub && /wav|wave/i.test(dub.type) ? 'WAV' : 'MP3'
           )}
-          {row(prefs.subtitles, () => set({ subtitles: !prefs.subtitles }), <Captions className="w-4 h-4" />, 'Subtitles', `${subtitleLanguage || 'Dub'}, timed to the dub. Your edited subtitles if you edited them.`, 'SRT')}
+          {row(prefs.subtitles, () => set({ subtitles: !prefs.subtitles }), <Captions className="w-4 h-4" />, 'Subtitles', `${subtitleLanguage || 'Dub'}, timed to the dub, as an SRT file beside the timeline (Resolve takes subtitles only by their own import). Your edited subtitles if you edited them.`, 'SRT')}
           {row(
             prefs.markers && prefs.timeline,
             prefs.timeline ? () => set({ markers: !prefs.markers }) : null,
@@ -215,17 +307,24 @@ export const DavinciExportWindow: React.FC<{
           <label className="flex flex-col gap-1">
             <span className={sectionLabel}>Frame rate</span>
             <select
-              value={prefs.fps}
-              onChange={(e) => set({ fps: e.target.value as DavinciFps })}
+              value={fpsAuto ? 'auto' : prefs.fps}
+              onChange={(e) => (e.target.value === 'auto' ? set({ fpsAuto: true }) : set({ fps: e.target.value as DavinciFps, fpsAuto: false }))}
               className="h-9 px-2 rounded-lg bg-slate-950 border border-edge text-[13px] text-slate-100 focus:outline-none focus:border-indigo-500 cursor-default"
             >
+              {videoOn && (
+                <option value="auto" className="bg-slate-900">
+                  From the video
+                </option>
+              )}
               {DAVINCI_FPS.map((f) => (
                 <option key={f} value={f} className="bg-slate-900">
                   {f} fps
                 </option>
               ))}
             </select>
-            <span className="text-[11px] text-slate-500">Match your Resolve timeline</span>
+            <span className="text-[11px] text-slate-500">
+              {done?.fpsFromVideo ? `${done.fps} fps, read from the video` : fpsAuto ? 'Read when exporting' : 'Match your Resolve timeline'}
+            </span>
           </label>
           <div className="flex flex-col gap-1">
             <span className={sectionLabel}>Tracks</span>
@@ -265,6 +364,8 @@ export const DavinciExportWindow: React.FC<{
               false,
               'h-4 !bg-transparent'
             )}
+            {videoOn &&
+              laneRow('V1 Video', <span className="absolute inset-y-0.5 left-0 right-0 rounded-[3px] bg-violet-400/60" />, true)}
             {prefs.timeline ? (
               tracks.map((t, i) =>
                 laneRow(
@@ -282,6 +383,8 @@ export const DavinciExportWindow: React.FC<{
             ) : (
               <p className="pl-[7.5rem] text-[11px] text-slate-500 py-1">Timeline off: drop the dub WAV in with "Insert Using Timecode".</p>
             )}
+            {guideOn &&
+              laneRow(`A${tracks.length + 1} Original (off)`, <span className="absolute inset-y-1 left-0 right-0 rounded-[3px] bg-slate-500/40" />)}
             {prefs.subtitles &&
               laneRow(
                 'ST1 Subtitles',
@@ -293,6 +396,46 @@ export const DavinciExportWindow: React.FC<{
                 false,
                 'h-3.5'
               )}
+          </div>
+        </div>
+
+        <div className="flex flex-col">
+          <span className={`${sectionLabel} mb-1`}>After export</span>
+          {canOpenResolve &&
+            row(
+              prefs.openResolve,
+              () => set({ openResolve: !prefs.openResolve }),
+              <ExternalLink className="w-4 h-4" />,
+              'Open DaVinci Resolve',
+              resolve?.running ? 'Resolve is open already.' : `Found on this computer${resolve?.studio === true ? ' (Studio)' : resolve?.studio === false ? ' (free version)' : ''}.`,
+              ''
+            )}
+          {prefs.timeline && row(prefs.copyPath, () => set({ copyPath: !prefs.copyPath }), <Clipboard className="w-4 h-4" />, "Copy the timeline's path", 'Paste it in File › Import › Timeline.', '')}
+          {row(
+            prefs.sameFiles,
+            () => set({ sameFiles: !prefs.sameFiles }),
+            <Repeat className="w-4 h-4" />,
+            'Export again writes over the same files',
+            prefs.sameFiles ? 'Same names, so Resolve keeps its links.' : 'Each export gets a new folder beside this one.',
+            ''
+          )}
+          <div className="mt-2 flex items-center gap-3 rounded-lg border border-dashed border-slate-700 px-3 py-2">
+            <Lock className="w-4 h-4 text-slate-500 shrink-0" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[12.5px] text-slate-300">Open in DaVinci, one click</span>
+              <span className="block text-[11.5px] text-slate-500 leading-snug">
+                {!resolve
+                  ? 'Resolve Studio only: it makes the project, imports the timeline and opens the Edit page.'
+                  : !resolve.installed
+                    ? 'DaVinci Resolve is not installed in its usual place on this computer.'
+                    : resolve.studio
+                      ? 'Resolve Studio found. One-click open is not built yet.'
+                      : 'Resolve Studio only. This computer has the free version, which takes no outside commands.'}
+              </span>
+            </span>
+            <button type="button" onClick={checkResolve} className="h-8 px-2.5 rounded-lg border border-slate-700 text-[12px] text-slate-300 hover:bg-slate-800 cursor-default shrink-0">
+              Check again
+            </button>
           </div>
         </div>
 
@@ -327,14 +470,22 @@ export const DavinciExportWindow: React.FC<{
                 1. File › Import › Timeline, pick <span className="font-mono text-slate-200">{timelineName}</span>
               </div>
               <div>2. Keep "Automatically import source clips into media pool" on</div>
-              <div>3. Put your video on V1 at the start, or copy the dub tracks into your edit</div>
-              {prefs.subtitles && <div>4. Drag the SRT onto the timeline's start for subtitles</div>}
+              <div>{videoOn ? '3. Your video is already on V1, under the dub' : '3. Put your video on V1 at the start, or copy the dub tracks into your edit'}</div>
+              {prefs.subtitles && (
+                <div>
+                  4. Subtitles: File › Import › Subtitle, pick <span className="font-mono text-slate-200">{srtFileName}</span>, then drag it from the Media Pool to the timeline's very start ({prefs.timecode}). Resolve makes a subtitle track for it.
+                </div>
+              )}
             </>
           ) : (
             <>
               <div>1. Import the files into the Media Pool</div>
               <div>2. Right-click the dub › Insert Selected Clips to Timeline Using Timecode</div>
-              {prefs.subtitles && <div>3. Drag the SRT onto the timeline's start for subtitles</div>}
+              {prefs.subtitles && (
+                <div>
+                  3. Subtitles: File › Import › Subtitle, pick <span className="font-mono text-slate-200">{srtFileName}</span>, then drag it from the Media Pool to the timeline's very start. Resolve makes a subtitle track for it.
+                </div>
+              )}
             </>
           )}
         </div>
@@ -342,7 +493,18 @@ export const DavinciExportWindow: React.FC<{
 
       <footer className="flex items-center gap-2 px-5 py-3 border-t border-edge">
         <span className={`flex-1 min-w-0 truncate text-[12px] ${blocked && !busy ? 'text-amber-300' : 'text-slate-400'}`}>
-          {busy ? busy : done ? `Exported ${done.files.length} ${done.files.length === 1 ? 'file' : 'files'}` : blocked || `${files.length} ${files.length === 1 ? 'file' : 'files'}`}
+          {busy
+            ? busy
+            : done
+              ? [
+                  `Exported ${done.files.length} ${done.files.length === 1 ? 'file' : 'files'}${done.kept.length ? `, ${done.kept.length} unchanged` : ''}`,
+                  done.fpsNote,
+                  ...done.notes,
+                  after,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')
+              : blocked || `${files.length} ${files.length === 1 ? 'file' : 'files'}`}
         </span>
         {done && !busy && (
           <button type="button" onClick={() => revealDavinciFolder(done.folder).catch(onError)} className="h-9 px-3 flex items-center gap-1.5 rounded-lg border border-slate-700 text-[12.5px] text-slate-200 hover:bg-slate-800 cursor-default">
@@ -359,7 +521,7 @@ export const DavinciExportWindow: React.FC<{
           className="h-9 px-4 flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold whitespace-nowrap transition-colors disabled:bg-slate-800 disabled:text-slate-500 cursor-default"
         >
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : done ? <Check className="w-4 h-4" /> : <FileOutput className="w-4 h-4" />}
-          {done && !busy ? 'Export again' : 'Export'}
+          {done && !busy ? 'Export again' : prefs.openResolve && canOpenResolve ? 'Export and open' : 'Export'}
         </button>
       </footer>
     </CenteredPanel>

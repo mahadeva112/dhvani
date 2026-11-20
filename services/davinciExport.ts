@@ -113,10 +113,22 @@ export interface DavinciPrefs {
   fullDub: boolean;
   subtitles: boolean;
   markers: boolean;
+  /** The original's picture on V1. */
+  video: boolean;
+  /** The frame rate read from the video, not the one picked. */
+  fpsAuto: boolean;
+  /** The original's sound on a track of its own, turned off. */
+  guide: boolean;
+  /** Start Resolve when the export is done. */
+  openResolve: boolean;
+  /** Put the timeline's path on the clipboard, for File › Import › Timeline. */
+  copyPath: boolean;
+  /** Export again writes over the same files; off, each export gets a new folder. */
+  sameFiles: boolean;
 }
 
 const PREFS_KEY = 'dhvani_davinci_export';
-export const DEFAULT_DAVINCI_PREFS: DavinciPrefs = { fps: '25', timecode: '01:00:00:00', perSpeaker: true, timeline: true, fullDub: true, subtitles: true, markers: true };
+export const DEFAULT_DAVINCI_PREFS: DavinciPrefs = { fps: '25', timecode: '01:00:00:00', perSpeaker: true, timeline: true, fullDub: true, subtitles: true, markers: true, video: true, fpsAuto: true, guide: true, openResolve: true, copyPath: true, sameFiles: true };
 
 export const loadDavinciPrefs = (): DavinciPrefs => {
   try {
@@ -141,28 +153,81 @@ export const defaultDavinciFolder = (name: string) => apiGet<{ folder: string }>
 
 export const revealDavinciFolder = (folder: string) => apiJson('/davinci/reveal', { body: { folder } });
 
+/** The folder itself when it is new or empty, else the next "folder 2", "folder 3"… */
+export const freshDavinciFolder = (folder: string) => apiJson<{ folder: string }>('/davinci/fresh-folder', { body: { folder } }).then((r) => r.folder);
+
+export interface ResolveStatus {
+  installed: boolean;
+  /** True for Resolve Studio, false for the free version, null when it can't be told. */
+  studio: boolean | null;
+  running: boolean;
+}
+
+export const resolveStatus = () => apiGet<ResolveStatus>('/davinci/resolve');
+
+/** Starts Resolve unless it is open already; `running` says it was. */
+export const openResolve = () => apiJson<{ opened: boolean; running: boolean }>('/davinci/open-resolve', { body: {} });
+
+const VIDEO_EXT = /\.(mp4|mov|mkv|m4v|mxf|avi|webm|mts|m2ts|mpe?g|ts|wmv|3gp|flv)$/i;
+
+/** True for a file with a picture: a video by its type or its name. */
+export const isVideoFile = (file: { type?: string; name?: string } | null | undefined) =>
+  Boolean(file && (/^video\//i.test(file.type || '') || VIDEO_EXT.test(file.name || '')));
+
+/** The name the original's copy gets in the export folder: the project's name, the file's own extension. */
+export const originalFileName = (fileStem: string, file: { name?: string; type?: string }, role: 'video' | 'original') => {
+  const ext = /\.([a-z0-9]{2,5})$/i.exec(file.name || '')?.[1]?.toLowerCase() || (/wav/i.test(file.type || '') ? 'wav' : isVideoFile(file) ? 'mp4' : 'mp3');
+  return `${fileStem} - ${role}.${ext}`;
+};
+
+/** What the server read in a video or audio file. */
+export interface MediaInfo {
+  duration: number | null;
+  hasVideo: boolean;
+  hasAudio: boolean;
+  width: number | null;
+  height: number | null;
+  fps: number | null;
+  /** The Resolve timeline rate it matches, or null when none does. */
+  rate: DavinciFps | null;
+}
+
 export interface DavinciExportResult {
   folder: string;
   timeline: string | null;
   files: string[];
+  /** The frame rate the timeline and timecodes used. */
+  fps: DavinciFps;
+  /** True when that rate was read from the video. */
+  fpsFromVideo: boolean;
+  /** Set when the rate was to come from the video and couldn't: what was used instead, and why. */
+  fpsNote: string | null;
+  /** What the timeline left out, and why (a video with no sound has no guide track). */
+  notes: string[];
+  /** Files already in the folder as they were, not copied again. */
+  kept: string[];
 }
 
 /**
- * Writes the export: each audio file (a WAV gets its start timecode in a
- * `bext` chunk), then the FCPXML and the SRT. `onStep` says what is being
- * written, for the window's progress line.
+ * Writes the export: the original (video and guide sound) as it is, each
+ * audio file (a WAV gets its start timecode in a `bext` chunk), then the
+ * FCPXML and the SRT. `onStep` says what is being written, for the window's
+ * progress line. With `fpsAuto`, the timeline takes the video's frame rate.
  */
 export const exportForDavinci = async ({
   folder,
   title,
   fileStem,
   fps,
+  fpsAuto = false,
   timecode,
   tracks,
   timeline,
   markers,
   audio,
   srt,
+  video = null,
+  guide = null,
   onStep = () => {},
   signal,
 }: {
@@ -170,6 +235,7 @@ export const exportForDavinci = async ({
   title: string;
   fileStem: string;
   fps: DavinciFps;
+  fpsAuto?: boolean;
   timecode: string;
   /** The timeline's tracks; their files are written whether or not `audio` lists them. */
   tracks: DavinciTrack[];
@@ -178,28 +244,62 @@ export const exportForDavinci = async ({
   /** More audio files to write beside the timeline's own (the whole dub). */
   audio: { fileName: string; blob: Blob }[];
   srt: { fileName: string; text: string } | null;
+  /** The original's picture, for V1. */
+  video?: { fileName: string; blob: Blob } | null;
+  /** The original's sound, for the guide track; may be the same file as the video. */
+  guide?: { fileName: string; blob: Blob } | null;
   onStep?: (text: string) => void;
   signal?: AbortSignal;
 }): Promise<DavinciExportResult> => {
+  const written: string[] = [];
+  const kept: string[] = [];
+  const put = (fileName: string, blob: Blob, rate: DavinciFps) => {
+    const query = new URLSearchParams({ folder, name: fileName, fps: rate, tc: timecode });
+    return apiPutBlob<{ path: string; media: MediaInfo | null }>(`/davinci/file?${query}`, blob.type ? blob : new Blob([blob], { type: 'application/octet-stream' }), { signal });
+  };
+
+  /** Copies one of the original's files, unless the same one is there already; what it holds. */
+  const copyOriginal = async (fileName: string, blob: Blob, rate: DavinciFps): Promise<MediaInfo | null> => {
+    const isWav = /\.wav$/i.test(fileName);
+    // An unchanged video is already there: a file of the same size isn't sent again. A WAV is, for its start timecode.
+    const there = isWav ? null : await apiGet<{ exists: boolean; size?: number; path?: string; media?: MediaInfo | null }>(`/davinci/probe?${new URLSearchParams({ folder, name: fileName })}`, { signal });
+    if (there?.exists && there.size === blob.size) {
+      kept.push(there.path || fileName);
+      return there.media ?? null;
+    }
+    onStep(`Copying ${fileName}…`);
+    const res = await put(fileName, blob, rate);
+    written.push(res.path);
+    return res.media;
+  };
+
+  // The video first: its frame rate decides every timecode after it.
+  const videoInfo = timeline && video ? await copyOriginal(video.fileName, video.blob, fps) : null;
+  let rate = fps;
+  let fpsNote: string | null = null;
+  const fpsFromVideo = Boolean(timeline && video && fpsAuto && videoInfo?.rate);
+  if (fpsFromVideo) rate = videoInfo!.rate as DavinciFps;
+  else if (timeline && video && fpsAuto)
+    fpsNote = videoInfo?.fps ? `The video runs at ${Math.round(videoInfo.fps * 1000) / 1000} fps, which Resolve has no timeline for: used ${fps} fps.` : `DHVANI could not read the video's frame rate: used ${fps} fps.`;
+  if (timeline && guide && guide.fileName !== video?.fileName) await copyOriginal(guide.fileName, guide.blob, rate);
+
   const files = new Map<string, Blob>();
   if (timeline) for (const t of tracks) files.set(t.fileName, t.blob);
   for (const a of audio) files.set(a.fileName, a.blob);
-  const written: string[] = [];
   for (const [fileName, blob] of files) {
     onStep(`Writing ${fileName}…`);
-    const query = new URLSearchParams({ folder, name: fileName, fps, tc: timecode });
-    const res = await apiPutBlob<{ path: string }>(`/davinci/file?${query}`, blob.type ? blob : new Blob([blob], { type: 'application/octet-stream' }), { signal });
+    const res = await put(fileName, blob, rate);
     written.push(res.path);
   }
-  if (!timeline && !srt) return { folder, timeline: null, files: written };
+  if (!timeline && !srt) return { folder, timeline: null, files: written, fps: rate, fpsFromVideo, fpsNote, notes: [], kept };
   onStep(timeline ? 'Writing the timeline…' : 'Writing the subtitles…');
-  const res = await apiJson<{ folder: string; timeline: string | null; written: string[] }>('/davinci/timeline', {
+  const res = await apiJson<{ folder: string; timeline: string | null; written: string[]; notes?: string[] }>('/davinci/timeline', {
     signal,
     body: {
       folder,
       title,
       fileName: fileStem,
-      fps,
+      fps: rate,
       startTimecode: timecode,
       tracks: timeline
         ? tracks.map((t) => ({
@@ -208,8 +308,10 @@ export const exportForDavinci = async ({
             lines: t.lines.map((l) => (markers ? l : { start: l.start, end: l.end, name: l.name })),
           }))
         : [],
+      video: timeline && video ? { file: video.fileName } : undefined,
+      guide: timeline && guide ? { file: guide.fileName } : undefined,
       srt: srt && { name: srt.fileName, text: srt.text },
     },
   });
-  return { folder: res.folder, timeline: res.timeline, files: [...written, ...res.written] };
+  return { folder: res.folder, timeline: res.timeline, files: [...written, ...res.written], fps: rate, fpsFromVideo, fpsNote, notes: res.notes || [], kept };
 };

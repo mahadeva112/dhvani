@@ -105,6 +105,7 @@ import { VoiceSelectorCard, SelectedVoiceSummary, POPULAR_ELEVENLABS_VOICES, Voi
 import { MediaStrip } from './MediaStrip';
 import { FloatingWindow } from './FloatingWindow';
 import { useReviewVideo } from './ReviewVideoPanel';
+import { getReviewVideo } from '../services/storageService';
 import { ReviewVideoFloat, reserveReviewWindow } from './ReviewVideoFloat';
 import { useLiveTime } from './useLiveTime';
 import { TrackStrip } from './TrackStrip';
@@ -5448,6 +5449,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           colorOf={davinciColorOf}
           subtitleLanguage={targetLanguage}
           pendingCount={syncPendingLines.length}
+          source={activeJob.file?.size ? activeJob.file : null}
+          reviewVideoName={reviewVideo.video?.name ?? null}
+          loadReviewVideo={() => getReviewVideo(activeJob.id)}
           buildSrt={buildDavinciSrt}
           onError={(err) => reportError(err, { title: 'Export for DaVinci failed', safe: 'The dub and its files are unchanged.' })}
         />

@@ -357,6 +357,26 @@ export const cutAudioClip = async (inputPath, start, end, { signal } = {}) => {
   }
 };
 
+/**
+ * ffmpeg's own report on a file (`-i` with no output): its streams, rates,
+ * length and tags, as text. Reads the header only, never decodes. Null when
+ * there is no ffmpeg.
+ */
+export const mediaReport = async (inputPath) => {
+  const binary = await resolveFfmpeg();
+  if (!binary) return null;
+  return new Promise((resolve) => {
+    const child = spawn(binary, ['-hide_banner', '-i', inputPath]);
+    let stderr = '';
+    child.stderr.on('data', (chunk) => {
+      if (stderr.length < 64000) stderr += chunk.toString();
+    });
+    child.on('error', () => resolve(null));
+    // It exits 1 ("At least one output file must be specified"); the report is all that's wanted.
+    child.on('close', () => resolve(stderr));
+  });
+};
+
 /** Reads the media duration in seconds, or null when ffmpeg cannot report it. */
 export const probeDuration = async (inputPath) => {
   const binary = await resolveFfmpeg();

@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.1',
+    changes: [
+      'Export for DaVinci puts the original video on V1 at its own frame rate and timecode, with the original audio on a guide track you can turn on.',
+      'Export and open: DHVANI starts Resolve and copies the timeline path for File › Import › Timeline. The window also says how to bring the subtitles in.',
+    ],
+  },
+  {
     version: '1.5.0',
     changes: [
       'DHVANI 1.5: the same app as 1.4.102 under a new number, starting with Export for DaVinci Resolve on the Dub page.',
