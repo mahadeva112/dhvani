@@ -1850,6 +1850,32 @@ export default function App() {
     return () => window.removeEventListener('pagehide', leave);
   }, []);
 
+  /*
+   * What is open, for the desktop app's freeze notes (desktop/main.cjs
+   * STATUS_PING asks every 2 s and keeps the last answer): lengths and counts
+   * only, never a name or a word of the script.
+   */
+  useEffect(() => {
+    const page = window as unknown as { __dhvaniStatus?: () => Record<string, unknown> };
+    const kind = (audio: WaveAudio | null | undefined) => (!audio ? undefined : isStreamedAudio(audio) ? 'as peaks' : 'decoded whole');
+    page.__dhvaniStatus = () => {
+      const jobs = queueRef.current;
+      const job = jobs.find((j) => j.id === activeJobIdRef.current);
+      return {
+        seconds: job?.audioMetadata?.duration ?? 0,
+        lines: job?.segments?.length ?? 0,
+        original: kind(job?.audioBuffer),
+        dub: kind(job?.syncedAudioBuffer),
+        steps: job?.projectHistory?.steps.length ?? 0,
+        projects: jobs.length,
+        decoded: jobs.filter((j) => kind(j.audioBuffer) === 'decoded whole' || kind(j.syncedAudioBuffer) === 'decoded whole').length,
+      };
+    };
+    return () => {
+      delete page.__dhvaniStatus;
+    };
+  }, []);
+
   // --- AUDIO SYNCHRONIZATION ENGINE ---
   /*
    * Everything here reads refs, not render-time values, so a handler that

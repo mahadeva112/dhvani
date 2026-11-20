@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const net = require('node:net');
 const { fork, execFile } = require('node:child_process');
 const { app, BrowserWindow, shell, dialog, Menu, ipcMain, session, net: electronNet, contentTracing } = require('electron');
-const { summarizeFreezeTrace, FREEZE_TRACE_CATEGORIES } = require('./freezeTrace.cjs');
+const { summarizeFreezeTrace, describeFreezeMemory, FREEZE_TRACE_CATEGORIES } = require('./freezeTrace.cjs');
 
 /**
  * DHVANI desktop shell.
@@ -743,6 +743,19 @@ const startBackend = async () => {
 const FREEZE_AFTER_MS = 5000;
 /** While a page stays frozen, its call stack is logged again this often. */
 const FREEZE_RELOG_MS = 10_000;
+/**
+ * The ping a page answers: its script memory and what it has open
+ * (window.__dhvaniStatus, set by the app: lengths and counts, never names or
+ * text), kept so a freeze note can say what the page held just before.
+ */
+const STATUS_PING = `(() => {
+  try {
+    const status = typeof window.__dhvaniStatus === 'function' ? window.__dhvaniStatus() : {};
+    return { ...status, heap: performance.memory ? performance.memory.usedJSHeapSize : 0 };
+  } catch {
+    return {};
+  }
+})()`;
 
 /**
  * Logs a frozen page with the script it is stuck in, so a freeze can be
@@ -788,12 +801,32 @@ const watchForFreezes = (win) => {
       appendLog(`[hang] the freeze trace could not be read: ${err?.message || err}\n`);
     }
   };
+  // What the page last said it held, and when.
+  let lastStatus = null;
+  /** Memory now and what the page last had open, as [hang] lines so the problem report's summary keeps them. */
+  const memoryLines = () => {
+    try {
+      const os = require('node:os');
+      return describeFreezeMemory({
+        metrics: app.getAppMetrics(),
+        pagePid: contents.getOSProcessId(),
+        freeBytes: os.freemem(),
+        totalBytes: os.totalmem(),
+        status: lastStatus?.status,
+        ageMs: lastStatus ? Date.now() - lastStatus.at : 0,
+      })
+        .map((line) => `[hang]   ${line}\n`)
+        .join('');
+    } catch (err) {
+      return `[hang]   memory could not be read: ${err?.message || err}\n`;
+    }
+  };
   const logStack = async (seconds) => {
     try {
       const stack = await contents.mainFrame.collectJavaScriptCallStack();
-      appendLog(`[hang] ${new Date().toISOString()} the page has not answered for ${seconds} s; it is running:\n${stack || '(not available)'}\n`);
+      appendLog(`[hang] ${new Date().toISOString()} the page has not answered for ${seconds} s; it is running:\n${memoryLines()}${stack || '(not available)'}\n`);
     } catch (err) {
-      appendLog(`[hang] ${new Date().toISOString()} the page has not answered for ${seconds} s; its call stack could not be read: ${err?.message || err}\n`);
+      appendLog(`[hang] ${new Date().toISOString()} the page has not answered for ${seconds} s; its call stack could not be read: ${err?.message || err}\n${memoryLines()}`);
     }
   };
   const timer = setInterval(() => {
@@ -802,8 +835,9 @@ const watchForFreezes = (win) => {
     if (!pingSent) {
       pingSent = now;
       contents
-        .executeJavaScript('1', false)
-        .then(() => {
+        .executeJavaScript(STATUS_PING, false)
+        .then((status) => {
+          lastStatus = { status, at: Date.now() };
           if (frozenSince) {
             appendLog(`[hang] ${new Date().toISOString()} the page answers again after ${Math.round((Date.now() - frozenSince) / 1000)} s\n`);
             stopTrace('until it answered');

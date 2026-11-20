@@ -75,4 +75,43 @@ const summarizeFreezeTrace = (trace, { top = 8 } = {}) => {
 /** Trace categories: the page's work, script and garbage collection, without the heavy samplers. */
 const FREEZE_TRACE_CATEGORIES = ['devtools.timeline', 'v8', 'v8.execute', 'blink', 'loading', 'disabled-by-default-devtools.timeline'];
 
-module.exports = { summarizeFreezeTrace, FREEZE_TRACE_CATEGORIES };
+const megabytes = (bytes) => `${Math.round(bytes / (1024 * 1024))} MB`;
+const clock = (seconds) => {
+  const s = Math.max(0, Math.round(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` : `${m}:${String(s % 60).padStart(2, '0')}`;
+};
+
+/**
+ * What a frozen page held, for its freeze note: the memory of its process
+ * and of the whole app (Electron's app metrics, in KB), the computer's free
+ * memory, and what the page last said it had open (the status it answers
+ * the freeze ping with, `ageMs` before). A freeze from running short of
+ * memory looks just like one from work; these say which.
+ */
+const describeFreezeMemory = ({ metrics = [], pagePid, freeBytes, totalBytes, status, ageMs } = {}) => {
+  const kb = (n) => megabytes((n || 0) * 1024);
+  const page = metrics.find((m) => m.pid === pagePid);
+  const all = metrics.reduce((sum, m) => sum + (m.memory?.workingSetSize || 0), 0);
+  const lines = [];
+  const pageMemory = page
+    ? `page ${kb(page.memory.workingSetSize)}${page.memory.privateBytes ? ` (${kb(page.memory.privateBytes)} its own)` : ''}${page.memory.peakWorkingSetSize ? `, peak ${kb(page.memory.peakWorkingSetSize)}` : ''}`
+    : 'page not found';
+  lines.push(`memory: ${pageMemory}; whole app ${kb(all)}; computer ${megabytes(freeBytes || 0)} free of ${megabytes(totalBytes || 0)}`);
+  if (status && typeof status === 'object') {
+    const said = [];
+    if (status.heap > 0) said.push(`script memory ${megabytes(status.heap)}`);
+    if (status.seconds > 0) said.push(`project ${clock(status.seconds)}`);
+    if (status.lines > 0) said.push(`${status.lines} lines`);
+    if (status.original) said.push(`original ${status.original}`);
+    if (status.dub) said.push(`dub ${status.dub}`);
+    if (status.steps > 0) said.push(`${status.steps} undo steps`);
+    if (status.projects > 1) said.push(`${status.projects} projects`);
+    if (status.decoded > 0) said.push(`${status.decoded} with audio decoded whole`);
+    if (said.length) lines.push(`last heard from the page ${Math.round((ageMs || 0) / 1000)} s before: ${said.join(', ')}`);
+  }
+  return lines;
+};
+
+module.exports = { summarizeFreezeTrace, describeFreezeMemory, FREEZE_TRACE_CATEGORIES };
