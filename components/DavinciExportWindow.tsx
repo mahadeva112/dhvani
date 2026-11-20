@@ -16,6 +16,7 @@ import {
   isVideoFile,
   lineNote,
   loadDavinciPrefs,
+  openInResolveStudio,
   openResolve,
   originalFileName,
   resolveStatus,
@@ -138,6 +139,8 @@ export const DavinciExportWindow: React.FC<{
   const guideFileName = guideOn && source ? originalFileName(fileStem, source, 'original') : null;
   const fpsAuto = videoOn && prefs.fpsAuto;
   const canOpenResolve = Boolean(resolve?.installed);
+  /** Studio, or a Resolve that can't be told apart (macOS): the one-click open is offered, as beta. */
+  const studioOffered = Boolean(resolve?.installed && resolve.studio !== false);
   const files = [
     ...(videoFileName ? [videoFileName] : []),
     ...(guideFileName ? [guideFileName] : []),
@@ -155,7 +158,7 @@ export const DavinciExportWindow: React.FC<{
           ? 'Pick at least one file.'
           : null;
 
-  const run = async () => {
+  const run = async (inStudio = false) => {
     if (blocked || !dub) return;
     const srtText = prefs.subtitles ? buildSrt() : null;
     abort.current = new AbortController();
@@ -187,6 +190,26 @@ export const DavinciExportWindow: React.FC<{
       setDone(result);
       if (result.fpsFromVideo && result.fps !== prefs.fps) set({ fps: result.fps });
       const notes: string[] = [];
+      if (inStudio && result.timeline) {
+        setBusy('Opening in Resolve Studio… (it may take a minute while Resolve starts)');
+        try {
+          const opened = await openInResolveStudio({
+            timeline: result.timeline,
+            srt: result.files.find((f) => /\.srt$/i.test(f)) || null,
+            name: `${title} dub`,
+            fps: result.fps,
+          });
+          notes.push(
+            `Opened in Resolve as "${opened.project}"`,
+            opened.subtitles === 'timeline' ? 'subtitles on ST1' : opened.subtitles === 'pool' ? 'subtitles in the Media Pool: drag them to the start' : opened.subtitles === 'failed' ? 'subtitles not imported' : ''
+          );
+        } catch (err) {
+          notes.push('Not opened in Resolve');
+          onError(err);
+        }
+        setAfter(notes.filter(Boolean).join(' · ') || null);
+        return;
+      }
       if (prefs.copyPath && result.timeline) {
         const copied = await copyText(result.timeline);
         notes.push(copied ? 'Timeline path copied' : 'Could not copy the path');
@@ -419,23 +442,38 @@ export const DavinciExportWindow: React.FC<{
             prefs.sameFiles ? 'Same names, so Resolve keeps its links.' : 'Each export gets a new folder beside this one.',
             ''
           )}
-          <div className="mt-2 flex items-center gap-3 rounded-lg border border-dashed border-slate-700 px-3 py-2">
-            <Lock className="w-4 h-4 text-slate-500 shrink-0" />
+          <div className={`mt-2 flex items-center gap-3 rounded-lg border px-3 py-2 ${studioOffered ? 'border-indigo-500/40 bg-indigo-500/5' : 'border-dashed border-slate-700'}`}>
+            {studioOffered ? <ExternalLink className="w-4 h-4 text-indigo-300 shrink-0" /> : <Lock className="w-4 h-4 text-slate-500 shrink-0" />}
             <span className="min-w-0 flex-1">
-              <span className="block text-[12.5px] text-slate-300">Open in DaVinci, one click</span>
+              <span className="flex items-center gap-1.5 text-[12.5px] text-slate-300">
+                Open in DaVinci, one click
+                <span className="rounded px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide bg-amber-500/15 text-amber-300">Beta</span>
+              </span>
               <span className="block text-[11.5px] text-slate-500 leading-snug">
                 {!resolve
                   ? 'Resolve Studio only: it makes the project, imports the timeline and opens the Edit page.'
                   : !resolve.installed
                     ? 'DaVinci Resolve is not installed in its usual place on this computer.'
-                    : resolve.studio
-                      ? 'Resolve Studio found. One-click open is not built yet.'
+                    : studioOffered
+                      ? 'Resolve Studio makes a new project at this frame rate, imports the timeline and subtitles, and opens the Edit page. Save your open Resolve project first. Needs Preferences › System › General › External scripting using: Local.'
                       : 'Resolve Studio only. This computer has the free version, which takes no outside commands.'}
               </span>
             </span>
-            <button type="button" onClick={checkResolve} className="h-8 px-2.5 rounded-lg border border-slate-700 text-[12px] text-slate-300 hover:bg-slate-800 cursor-default shrink-0">
-              Check again
-            </button>
+            {studioOffered ? (
+              <button
+                type="button"
+                onClick={() => run(true)}
+                disabled={Boolean(blocked) || Boolean(busy) || !prefs.timeline}
+                title={!prefs.timeline ? 'Needs the timeline' : undefined}
+                className="h-8 px-2.5 rounded-lg border border-indigo-500/50 text-[12px] text-indigo-200 hover:bg-indigo-500/10 cursor-default shrink-0 whitespace-nowrap disabled:opacity-40"
+              >
+                Export and open in Studio
+              </button>
+            ) : (
+              <button type="button" onClick={checkResolve} className="h-8 px-2.5 rounded-lg border border-slate-700 text-[12px] text-slate-300 hover:bg-slate-800 cursor-default shrink-0">
+                Check again
+              </button>
+            )}
           </div>
         </div>
 
@@ -516,7 +554,7 @@ export const DavinciExportWindow: React.FC<{
         </button>
         <button
           type="button"
-          onClick={run}
+          onClick={() => run()}
           disabled={Boolean(blocked) || Boolean(busy)}
           className="h-9 px-4 flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold whitespace-nowrap transition-colors disabled:bg-slate-800 disabled:text-slate-500 cursor-default"
         >

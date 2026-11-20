@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.2',
+    changes: [
+      'Export for DaVinci, beta: with DaVinci Resolve Studio, "Export and open in Studio" makes a new Resolve project, imports the timeline and subtitles, and opens the Edit page. The free version keeps File › Import › Timeline.',
+    ],
+  },
+  {
     version: '1.5.1',
     changes: [
       'Export for DaVinci puts the original video on V1 at its own frame rate and timecode, with the original audio on a guide track you can turn on.',

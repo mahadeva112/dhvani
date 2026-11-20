@@ -168,6 +168,14 @@ export const resolveStatus = () => apiGet<ResolveStatus>('/davinci/resolve');
 /** Starts Resolve unless it is open already; `running` says it was. */
 export const openResolve = () => apiJson<{ opened: boolean; running: boolean }>('/davinci/open-resolve', { body: {} });
 
+/**
+ * Open in DaVinci, one click (beta, Resolve Studio): Resolve makes a new
+ * project, imports the exported timeline and subtitles, and opens the Edit
+ * page. `subtitles` says where the subtitles ended up.
+ */
+export const openInResolveStudio = (body: { timeline: string; srt?: string | null; name: string; fps: DavinciFps }) =>
+  apiJson<{ project: string; subtitles: 'timeline' | 'pool' | 'failed' | 'none' }>('/davinci/open-in-studio', { body });
+
 const VIDEO_EXT = /\.(mp4|mov|mkv|m4v|mxf|avi|webm|mts|m2ts|mpe?g|ts|wmv|3gp|flv)$/i;
 
 /** True for a file with a picture: a video by its type or its name. */

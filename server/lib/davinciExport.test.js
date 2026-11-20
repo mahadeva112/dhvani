@@ -193,3 +193,18 @@ test('a WAV that already has a bext keeps its own', async () => {
   const twice = (await through(once, { timeReferenceSeconds: 99 })).out;
   assert.ok(twice.equals(once));
 });
+
+test("Studio one-click finds Resolve's own Python and scripting files", async () => {
+  const { resolveScripting, fcpxmlFormat, STUDIO_ERRORS, OPEN_SCRIPT } = await import('./resolveStudio.js');
+  const win = resolveScripting('C:\Program Files\Blackmagic Design\DaVinci Resolve\Resolve.exe', 'win32', { PROGRAMDATA: 'C:\ProgramData' });
+  assert.ok(win.python.endsWith(path.join('ResolvePython', 'ResolvePython.exe')));
+  assert.ok(win.api.endsWith(path.join('Support', 'Developer', 'Scripting')));
+  assert.ok(win.lib.endsWith('fusionscript.dll'));
+  assert.ok(resolveScripting('/Applications/DaVinci Resolve/DaVinci Resolve.app', 'darwin').python.endsWith(path.join('Contents', 'Applications', 'ResolvePython')));
+  assert.deepEqual(fcpxmlFormat('<format id="r1" name="DHVANI 720p25" frameDuration="1/25s" width="1280" height="720"/>'), { width: 1280, height: 720 });
+  assert.deepEqual(fcpxmlFormat('nothing'), { width: 1920, height: 1080 });
+  for (const code of ['no_python', 'no_module', 'not_reachable', 'no_project', 'import_failed', 'failed']) assert.ok(STUDIO_ERRORS[code], code);
+  // Subtitles that land anywhere but a subtitle track are taken back off.
+  assert.match(OPEN_SCRIPT, /k == 'subtitle'/);
+  assert.match(OPEN_SCRIPT, /timeline\.DeleteClips\(placed\)/);
+});
