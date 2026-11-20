@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.100',
+    changes: [
+      'Long videos (2 hours and more) open without slowing DHVANI down, and their sound takes a small part of the memory it did: about 40 MB instead of 3.5 GB for a 2½-hour video. The temporary copy DHVANI keeps of it is cleared within a minute after the project closes, even if DHVANI closed unexpectedly.',
+      'Long projects stay quick: Export subtitles → Edit, Edit segments, the transcript and the script matching window draw only the lines on screen, and saving and Undo stay fast with a long history.',
+      'Help → Save problem report: when DHVANI stops answering, the report now says how much memory DHVANI and the computer had at that moment.',
+    ],
+  },
+  {
     version: '1.4.99',
     changes: [
       'Review: every line now shows its sync fit in one row under it: how long it runs against its slot, how much to cut or add, and Shorter / Longer / Same length, Edit and Keep. The i button opens the full advice and the syllables.',
