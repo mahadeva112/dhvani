@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
-import { isPlainWav, originalPath, storeOriginal, dropOriginal, sweepOriginals } from './originals.js';
+import { createHolds, isPlainWav, originalPath, storeOriginal, dropOriginal, sweepOriginals } from './originals.js';
 
 const wavHead = ({ format = 1, bits = 16, channels = 2 } = {}) => {
   const b = Buffer.alloc(44 + 400);
@@ -66,15 +66,51 @@ test('without ffmpeg a video is refused in plain words, and nothing is left', as
   assert.deepEqual(fs.readdirSync(dir), []);
 });
 
-test('only ids make paths, and old originals are swept', async () => {
+const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+
+test('only ids make paths', () => {
+  assert.equal(originalPath('../../etc/passwd', tempDir()), null);
+});
+
+test('an original goes a grace after the last page holding it lets go, and stays while one holds it', async () => {
+  const dropped = [];
+  const holds = createHolds({ graceMs: 30, drop: (id) => dropped.push(id) });
+  const first = holds.hold('a');
+  const second = holds.hold('a');
+  first();
+  first(); // letting go twice counts once
+  await wait(60);
+  assert.deepEqual(dropped, [], 'still held by the second page');
+  second();
+  assert.ok(holds.isWaiting('a'));
+  await wait(60);
+  assert.deepEqual(dropped, ['a']);
+});
+
+test('held again within the grace (a reload, a server restart), an original is kept', async () => {
+  const dropped = [];
+  const holds = createHolds({ graceMs: 30, drop: (id) => dropped.push(id) });
+  holds.dropLater('b'); // just stored, or found when the server started
+  await wait(10);
+  const release = holds.hold('b');
+  await wait(60);
+  assert.deepEqual(dropped, []);
+  assert.ok(holds.isHeld('b'));
+  release();
+  await holds.dropNow('b'); // its project closed: gone at once, no second drop later
+  await wait(60);
+  assert.deepEqual(dropped, ['b']);
+});
+
+test('when the server starts, cut-short uploads go at once and originals after the grace', async () => {
   const dir = tempDir();
-  assert.equal(originalPath('../../etc/passwd', dir), null);
-  const old = path.join(dir, 'old.wav');
-  const fresh = path.join(dir, 'fresh.wav');
-  fs.writeFileSync(old, 'x');
-  fs.writeFileSync(fresh, 'x');
-  const day = 24 * 3600_000;
-  fs.utimesSync(old, new Date(Date.now() - day), new Date(Date.now() - day));
-  assert.equal(await sweepOriginals({ dir }), 1);
-  assert.deepEqual(fs.readdirSync(dir), ['fresh.wav']);
+  const id = '0f8fad5b-d9cb-469f-a165-70867728950e';
+  fs.writeFileSync(path.join(dir, `${id}.wav`), 'x');
+  fs.writeFileSync(path.join(dir, 'c9a646d3-9c61-4cb7-bfcd-ee2522c8f633.in'), 'x');
+  fs.writeFileSync(path.join(dir, 'notes.txt'), 'x');
+  const holds = createHolds({ graceMs: 30, drop: (gone) => dropOriginal(gone, dir) });
+  assert.deepEqual(await sweepOriginals({ dir, using: holds }), { uploads: 1, originals: 1 });
+  assert.deepEqual(fs.readdirSync(dir).sort(), [`${id}.wav`, 'notes.txt']);
+  await wait(80);
+  assert.deepEqual(fs.readdirSync(dir), ['notes.txt']);
 });

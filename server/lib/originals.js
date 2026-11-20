@@ -9,9 +9,10 @@ import { extractOriginalWav } from './media.js';
 /**
  * The originals of open projects, as WAVs the app reads a stretch at a time
  * (GET with a Range) instead of decoding a long video whole in the page.
- * Each is made when its project opens and deleted when it closes; any left
- * by an app that quit are swept when the server starts. They live in the
- * temp folder, never beside the user's files.
+ * Each is made when its project opens and kept while a page holds it open
+ * (createHolds); it is deleted when the project closes, or a minute after
+ * the last page holding it is gone, however it went. They live in the temp
+ * folder, never beside the user's files.
  */
 const DIR = path.join(os.tmpdir(), 'dhvani-originals');
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -86,26 +87,83 @@ export const dropOriginal = async (id, dir = DIR) => {
   if (file) await fs.promises.rm(file, { force: true });
 };
 
-/** Removes originals older than `maxAgeMs` (left by an app that quit with a project open). */
-export const sweepOriginals = async ({ maxAgeMs = 12 * 3600_000, dir = DIR, now = Date.now() } = {}) => {
+/** How long an original nothing holds is kept: a page reloading, or a server restarting, holds it again well within this. */
+export const HOLD_GRACE_MS = 60_000;
+
+/**
+ * Which originals pages hold open. A page holds its project's original by
+ * keeping a request open (GET /api/media/originals/:id/hold), so a page that
+ * is closed, reloaded or killed lets go of it without having to say so; the
+ * original is deleted HOLD_GRACE_MS after nothing holds it.
+ */
+export const createHolds = ({ graceMs = HOLD_GRACE_MS, drop = (id) => dropOriginal(id) } = {}) => {
+  const count = new Map();
+  const timers = new Map();
+  const cancel = (id) => {
+    clearTimeout(timers.get(id));
+    timers.delete(id);
+  };
+  /** Deletes `id` after the grace, unless something holds it by then. */
+  const dropLater = (id) => {
+    if (count.get(id)) return;
+    cancel(id);
+    const timer = setTimeout(() => {
+      timers.delete(id);
+      if (!count.get(id)) void Promise.resolve(drop(id)).catch(() => {});
+    }, graceMs);
+    timer.unref?.();
+    timers.set(id, timer);
+  };
+  /** Holds `id`; the function returned lets go (once). */
+  const hold = (id) => {
+    cancel(id);
+    count.set(id, (count.get(id) ?? 0) + 1);
+    let held = true;
+    return () => {
+      if (!held) return;
+      held = false;
+      const left = (count.get(id) ?? 1) - 1;
+      if (left > 0) count.set(id, left);
+      else {
+        count.delete(id);
+        dropLater(id);
+      }
+    };
+  };
+  /** Deletes `id` now, held or not: its project closed. */
+  const dropNow = async (id) => {
+    cancel(id);
+    count.delete(id);
+    await drop(id);
+  };
+  return { hold, dropLater, dropNow, isHeld: (id) => Boolean(count.get(id)), isWaiting: (id) => timers.has(id) };
+};
+
+export const holds = createHolds();
+
+/**
+ * When the server starts: uploads cut short are deleted, and every original
+ * left is deleted after the grace unless a page still open holds it again
+ * (the server restarted under it). Returns how many of each.
+ */
+export const sweepOriginals = async ({ dir = DIR, using = holds } = {}) => {
   let names = [];
   try {
     names = await fs.promises.readdir(dir);
   } catch {
-    return 0;
+    return { uploads: 0, originals: 0 };
   }
-  let removed = 0;
+  let uploads = 0;
+  let originals = 0;
   for (const name of names) {
-    const file = path.join(dir, name);
-    try {
-      const { mtimeMs } = await fs.promises.stat(file);
-      if (now - mtimeMs > maxAgeMs) {
-        await fs.promises.rm(file, { force: true });
-        removed++;
-      }
-    } catch {
-      // Gone already.
+    const id = name.replace(/\.wav$/, '');
+    if (name.endsWith('.wav') && originalPath(id, dir)) {
+      using.dropLater(id);
+      originals++;
+    } else if (name.endsWith('.in')) {
+      await fs.promises.rm(path.join(dir, name), { force: true }).catch(() => {});
+      uploads++;
     }
   }
-  return removed;
+  return { uploads, originals };
 };

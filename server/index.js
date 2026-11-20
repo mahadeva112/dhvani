@@ -165,7 +165,7 @@ if (config.rateLimitPerMinute > 0) {
         (req.method === 'GET' && /\/jobs\/[^/]+(\/result)?$/.test(req.path)) ||
         (req.method === 'GET' && /^\/sync\/audio\/[^/]+$/.test(req.path)) ||
         // An open original is read a stretch at a time (hundreds of Ranges to draw a long one); never a provider.
-        /^\/media\/originals(\/[^/]+)?$/.test(req.path),
+        /^\/media\/originals(\/[^/]+(\/hold)?)?$/.test(req.path),
       message: {
         error: {
           message:
@@ -200,7 +200,7 @@ app.use('/api', usageRouter);
 app.use('/api', deliveryRouter);
 app.use('/api', subtitlesRouter);
 app.use('/api', originalsRouter);
-// Originals left by an app that quit with a project open.
+// Originals left by an app that quit with a project open: deleted in a minute unless a page still open holds them again.
 void sweepOriginals().catch(() => {});
 
 /*
