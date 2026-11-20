@@ -24,6 +24,7 @@ import { usageRouter } from './routes/usage.js';
 import { deliveryRouter } from './routes/delivery.js';
 import { subtitlesRouter } from './routes/subtitles.js';
 import { originalsRouter } from './routes/originals.js';
+import { davinciRouter } from './routes/davinci.js';
 import { sweepOriginals } from './lib/originals.js';
 import { ffmpegAvailable } from './lib/media.js';
 import { openClipStore } from './lib/clipStore.js';
@@ -200,6 +201,7 @@ app.use('/api', usageRouter);
 app.use('/api', deliveryRouter);
 app.use('/api', subtitlesRouter);
 app.use('/api', originalsRouter);
+app.use('/api', davinciRouter);
 // Originals left by an app that quit with a project open: deleted in a minute unless a page still open holds them again.
 void sweepOriginals().catch(() => {});
 

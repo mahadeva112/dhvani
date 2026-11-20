@@ -44,6 +44,7 @@ import {
   Video,
   Zap,
   Ear,
+  FileOutput,
 } from 'lucide-react';
 import { AudioSegment, BatchJob, MixPeakMode, ProcessingStatus, SpeakerProfile, SpeakerVoice, TargetSource, TrackSwitchOptions } from '../types';
 import { hasTranscript } from '../services/steps';
@@ -88,7 +89,12 @@ import {
   loadSubtitleExportChoice,
   saveSubtitleExportChoice,
   resolveSubtitleTiming,
+  buildSubtitleSegments,
+  generateSrtContent,
 } from '../services/srtService';
+import { editedSrt, subtitleEditKey } from '../services/subtitleEdits';
+import { reportError } from '../services/errorPopup';
+import { DavinciExportWindow } from './DavinciExportWindow';
 import { timelineMapper } from '../services/playbackTimeline';
 import { ReviewWaveformPlayer } from './ReviewWaveformPlayer';
 import { GrammarCheckButton, GrammarPanel, type GrammarScope } from './review/GrammarPanel';
@@ -876,6 +882,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   })();
   const [copiedCueId, setCopiedCueId] = useState<string | number | null>(null);
   const [isSrtModalOpen, setIsSrtModalOpen] = useState<boolean>(false);
+  /** Export for DaVinci Resolve, from the Dub page's bottom row once the dub is synced. */
+  const [davinciOpen, setDavinciOpen] = useState(false);
   // The subtitle preview plays its own audio; the project's playback stops so the two never overlap.
   useEffect(() => {
     if (isSrtModalOpen && isPlaying) onTogglePlay();
@@ -1488,6 +1496,16 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     }
     return ids;
   }, [hasSyncReport, activeJob?.syncReport]);
+  /** A speaker's colour, for the DaVinci export's lanes. */
+  const davinciColorOf = useCallback((name: string) => speakers.find((sp) => sp.name === name)?.color, [speakers]);
+  /** The subtitles timed to the synced dub, for the DaVinci export: the hand-edited list if there is one. */
+  const buildDavinciSrt = useCallback((): string | null => {
+    const edit = activeJob?.subtitleEdits?.[subtitleEditKey('target', 'synced')];
+    if (edit) return editedSrt(edit.cues) || null;
+    if (!syncedCues?.length) return null;
+    const cues = buildSubtitleSegments({ segments, syncedSegments: syncedCues, timing: 'synced', track: 'target', options: srtOptions });
+    return cues.length ? generateSrtContent(cues, srtOptions) : null;
+  }, [activeJob?.subtitleEdits, syncedCues, segments, srtOptions]);
   const scriptFollowsDub = scriptScope === 'heard' && Boolean(syncedCues);
   /** Each cue's start in the synced dub, for the script's times as heard. */
   const syncedStartOf = useMemo(() => new Map((syncedCues || []).map((cue) => [String(cue.id), cue.startTime])), [syncedCues]);
@@ -4642,6 +4660,17 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               openRequest: 0,
               saveExtras: legacySaves,
               extras: (
+                <>
+                <button
+                  type="button"
+                  onClick={() => setDavinciOpen(true)}
+                  disabled={isSyncing}
+                  aria-haspopup="dialog"
+                  title="Export for DaVinci Resolve: a timeline with each line in place, the dub and the subtitles. Works in the free version."
+                  className="h-9 px-3 flex items-center gap-1.5 rounded-lg border border-slate-700 text-[12.5px] font-medium text-slate-200 hover:text-white hover:bg-slate-800 whitespace-nowrap transition-colors disabled:opacity-40 cursor-default"
+                >
+                  <FileOutput className="w-3.5 h-3.5" /> DaVinci
+                </button>
                 <SaveScriptMenu
                   compact
                   title={`${targetLanguage} script`}
@@ -4651,6 +4680,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   onScopeChange={setScriptScope}
                   removedCount={removedCueIds.size}
                 />
+                </>
               ),
             })
           : null;
@@ -5406,6 +5436,22 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       )}
 
       {/* Custom SRT Export Settings & Live Preview Modal */}
+      {activeJob?.syncReport && hasSyncReport && (
+        <DavinciExportWindow
+          open={davinciOpen}
+          onClose={() => setDavinciOpen(false)}
+          title={projectFileStem(activeJob)}
+          fileStem={projectFileStem(activeJob)}
+          report={activeJob.syncReport}
+          dub={activeJob.syncedBlob ?? null}
+          stems={multiSpeaker ? activeJob.syncedStems : null}
+          colorOf={davinciColorOf}
+          subtitleLanguage={targetLanguage}
+          pendingCount={syncPendingLines.length}
+          buildSrt={buildDavinciSrt}
+          onError={(err) => reportError(err, { title: 'Export for DaVinci failed', safe: 'The dub and its files are unchanged.' })}
+        />
+      )}
       <SrtExportModal
         isOpen={isSrtModalOpen}
         onClose={() => setIsSrtModalOpen(false)}

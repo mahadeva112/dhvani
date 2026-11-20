@@ -340,6 +340,16 @@ const checkForUpdates = () => {
   autoUpdater.checkForUpdates().catch(() => {}); // Reported through 'error'.
 };
 
+/** Export for DaVinci: the folder picker. Answers a folder path, or null when the user cancels. */
+ipcMain.handle('files:pick-folder', async (_event, start) => {
+  const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
+    title: 'Export for DaVinci Resolve',
+    defaultPath: typeof start === 'string' && start ? start : undefined,
+    properties: ['openDirectory', 'createDirectory', 'promptToCreate'],
+  });
+  return result.canceled ? null : result.filePaths[0] || null;
+});
+
 const setupAutoUpdates = () => {
   ipcMain.handle('updates:get-state', () => updateState);
   ipcMain.handle('updates:check', () => checkForUpdates());

@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 /**
- * The page's only door into the desktop shell: app updates, nothing else.
+ * The page's doors into the desktop shell: app updates, and a folder picker.
  *
  * The window stays sandboxed with no Node. These five calls are all the page
  * can reach, and each one only asks the main process to act on the updater it
@@ -27,4 +27,9 @@ contextBridge.exposeInMainWorld('dhvaniUpdates', {
     ipcRenderer.on('updates:open', listener);
     return () => ipcRenderer.removeListener('updates:open', listener);
   },
+});
+
+/** Export for DaVinci: picks a folder with the system dialog. Returns its path, or null. */
+contextBridge.exposeInMainWorld('dhvaniFiles', {
+  pickFolder: (start) => ipcRenderer.invoke('files:pick-folder', start),
 });
