@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.102',
+    changes: [
+      'Fixes 1.4.101, which could not start: DHVANI opens again, with Export for DaVinci Resolve on the Dub page.',
+    ],
+  },
+  {
     version: '1.4.101',
     changes: [
       'Export for DaVinci Resolve: once a dub is synced, the DaVinci button on the Dub page saves a timeline for File › Import › Timeline, with each line as a clip in place, one track per speaker and the problem lines marked. The dub and the subtitles go in the same folder. It works in the free version of Resolve, with no scripts.',
