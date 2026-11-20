@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.101',
+    changes: [
+      'Export for DaVinci Resolve: once a dub is synced, the DaVinci button on the Dub page saves a timeline for File › Import › Timeline, with each line as a clip in place, one track per speaker and the problem lines marked. The dub and the subtitles go in the same folder. It works in the free version of Resolve, with no scripts.',
+    ],
+  },
+  {
     version: '1.4.100',
     changes: [
       'Long videos (2 hours and more) open without slowing DHVANI down, and their sound takes a small part of the memory it did: about 40 MB instead of 3.5 GB for a 2½-hour video. The temporary copy DHVANI keeps of it is cleared within a minute after the project closes, even if DHVANI closed unexpectedly.',
