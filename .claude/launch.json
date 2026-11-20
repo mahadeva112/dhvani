@@ -31,6 +31,13 @@
       "port": 5197
     },
     {
+      "//": "The production build in tmp/bench-dist (npx vite build --outDir tmp/bench-dist), for timing without React's dev checks.",
+      "name": "bench-prod",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["cross-env", "BACKEND_PORT=8790", "vite", "preview", "--outDir", "tmp/bench-dist", "--port", "5196", "--strictPort"],
+      "port": 5196
+    },
+    {
       "name": "subtitle-mock",
       "runtimeExecutable": "npx",
       "runtimeArgs": ["vite", "--port", "5199", "--strictPort"],

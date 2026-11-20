@@ -2,7 +2,7 @@
 
 import type { AudioMetadata, AudioSegment, PauseGate } from '../types';
 import { GATE_FRAME_SECONDS, gateSounds, peakLevels } from '../server/lib/silenceGate.js';
-import { computePeaks, detailPeaks, isStreamedAudio, peaksBuilder, type SampleSource, type StreamedAudio, type WaveAudio } from './waveform.ts';
+import { computePeaks, detailPeaks, isStreamedAudio, peaksBuilder, type Peaks, type SampleSource, type StreamedAudio, type WaveAudio } from './waveform.ts';
 
 export type { PauseGate };
 
@@ -314,14 +314,21 @@ const decodeWithBrowser = async (blob: Blob): Promise<AudioBuffer> => {
     }
 };
 
-/** Where a file's bytes come from: a Blob in the page, or a file the server keeps (read with a Range). */
-export type ByteSource = { size: number; bytes(start: number, end: number): Promise<ArrayBuffer> };
+/** Where a file's bytes are, as a Worker can be told: a Blob, or a file the server keeps (`url`, `size` bytes). */
+export type ByteOrigin = { blob: Blob } | { url: string; size: number };
 
-export const blobBytes = (blob: Blob): ByteSource => ({ size: blob.size, bytes: (start, end) => blob.slice(start, end).arrayBuffer() });
+/** Where a file's bytes come from: a Blob in the page, or a file the server keeps (read with a Range). */
+export type ByteSource = { size: number; bytes(start: number, end: number): Promise<ArrayBuffer>; origin?: ByteOrigin };
+
+export const blobBytes = (blob: Blob): ByteSource => ({ size: blob.size, bytes: (start, end) => blob.slice(start, end).arrayBuffer(), origin: { blob } });
+
+/** The bytes `origin` names. */
+export const bytesOf = (origin: ByteOrigin): ByteSource => ('blob' in origin ? blobBytes(origin.blob) : httpBytes(origin.url, origin.size));
 
 /** A file on the server, `size` bytes long, read a Range at a time. */
 export const httpBytes = (url: string, size: number): ByteSource => ({
   size,
+  origin: { url, size },
   async bytes(start, end) {
     if (end <= start) return new ArrayBuffer(0);
     const response = await fetch(url, { headers: { Range: `bytes=${start}-${end - 1}` } });
@@ -376,18 +383,19 @@ export const wavSamples = (file: Blob | ByteSource, layout: PcmWavLayout): Sampl
   };
 };
 
+/** What one pass through a plain PCM WAV gives: where its samples are, its peaks, and (asked for) its gate levels. */
+export interface PcmScan {
+  layout: PcmWavLayout;
+  peaks: Peaks;
+  levels: { levels: Float32Array; hop: number } | null;
+}
+
 /**
- * Audio known by its length and peaks, its samples left in the file: read a
- * slice at a time, each slice's first channel folded into the peaks and let
- * go, so two hours of it never take more than a slice and about 30 MB of
- * peaks (as an AudioBuffer: 1.4 GB). With `levels`, the loudest channel's
- * level per gate frame is kept too, for finding the speech in it
- * (detectSpeechSegments). Null when the file isn't plain PCM WAV.
+ * Reads a plain PCM WAV through once, a slice at a time, for its peaks and,
+ * with `levels`, the gate levels speech is found by (the loudest channel in
+ * each GATE_FRAME_SECONDS). Null for a file that isn't plain PCM WAV.
  */
-export const readPcmPeaks = async (
-  file: ByteSource,
-  { levels = false, blob }: { levels?: boolean; blob?: Blob } = {}
-): Promise<StreamedAudio | null> => {
+export const scanPcm = async (file: ByteSource, { levels = false }: { levels?: boolean } = {}): Promise<PcmScan | null> => {
   const layout = pcmWavLayout(await file.bytes(0, Math.min(file.size, WAV_HEAD_BYTES)), file.size);
   if (!layout) return null;
   const { offset, frames, channels, sampleRate, float } = layout;
@@ -415,16 +423,67 @@ export const readPcmPeaks = async (
       }
     }
   }
+  return { layout, peaks: builder.done(), levels: gate && { levels: gate, hop } };
+};
+
+/**
+ * scanPcm in a Worker, so a long file's minutes of reading leave the page
+ * free (2.5 hours of stereo kept the page about 90% busy for ten seconds).
+ * Null when there is no Worker here or it could not run, and the page reads
+ * the file itself; an error reading the file is the file's, and is thrown.
+ */
+const scanInWorker = (origin: ByteOrigin, levels: boolean): Promise<PcmScan | null> | null => {
+  if (typeof Worker === 'undefined' || typeof window === 'undefined') return null;
+  let worker: Worker;
+  try {
+    worker = new Worker(new URL('./pcmScanWorker.ts', import.meta.url), { type: 'module' });
+  } catch {
+    return null;
+  }
+  return new Promise<PcmScan | null>((resolve, reject) => {
+    worker.onmessage = (event: MessageEvent<{ scan?: PcmScan | null; error?: string }>) => {
+      worker.terminate();
+      if (event.data.error !== undefined) reject(new Error(event.data.error));
+      else resolve(event.data.scan ?? null);
+    };
+    // The Worker itself failed (it could not load): the page reads the file instead.
+    worker.onerror = (event) => {
+      event.preventDefault();
+      worker.terminate();
+      resolve(null);
+    };
+    worker.postMessage({ origin, levels });
+  });
+};
+
+/**
+ * Audio known by its length and peaks, its samples left in the file: read a
+ * slice at a time, each slice's first channel folded into the peaks and let
+ * go, so two hours of it never take more than a slice and about 30 MB of
+ * peaks (as an AudioBuffer: 1.4 GB). With `levels`, the loudest channel's
+ * level per gate frame is kept too, for finding the speech in it
+ * (detectSpeechSegments). Null when the file isn't plain PCM WAV.
+ */
+export const readPcmPeaks = async (
+  file: ByteSource,
+  { levels = false, blob }: { levels?: boolean; blob?: Blob } = {}
+): Promise<StreamedAudio | null> => {
+  // Not a WAV the page reads as it is: nothing for a Worker to do.
+  if (!pcmWavLayout(await file.bytes(0, Math.min(file.size, WAV_HEAD_BYTES)), file.size)) return null;
+  const inWorker = file.origin ? scanInWorker(file.origin, levels) : null;
+  const scan = (inWorker && (await inWorker)) ?? (await scanPcm(file, { levels }));
+  if (!scan) return null;
+  const { layout } = scan;
   const audio: StreamedAudio = {
     kind: 'streamed',
     ...(blob && { blob }),
-    duration: frames / sampleRate,
-    sampleRate,
-    length: frames,
-    numberOfChannels: channels,
-    peaks: builder.done(),
+    duration: layout.frames / layout.sampleRate,
+    sampleRate: layout.sampleRate,
+    length: layout.frames,
+    numberOfChannels: layout.channels,
+    peaks: scan.peaks,
     samples: wavSamples(file, layout),
-    ...(gate && { levels: { levels: gate, hop } }),
+    ...(scan.levels && { levels: scan.levels }),
   };
   // Zoomed in past the finest blocks, a wave asks for the samples it shows.
   audio.peaks.detail = (from, to) => detailPeaks(audio, from, to);
