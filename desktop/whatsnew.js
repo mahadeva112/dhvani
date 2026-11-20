@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.0',
+    changes: [
+      'DHVANI 1.5: the same app as 1.4.102 under a new number, starting with Export for DaVinci Resolve on the Dub page.',
+    ],
+  },
+  {
     version: '1.4.102',
     changes: [
       'Fixes 1.4.101, which could not start: DHVANI opens again, with Export for DaVinci Resolve on the Dub page.',
