@@ -6,7 +6,6 @@ import { pipeline } from 'node:stream/promises';
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { ApiError, badRequest } from '../errors.js';
-import { isLoopback } from './settings.js';
 import { buildFcpxml, framesToSeconds, rateOf, safeFileName, timecodeFrames, wavDuration, wavLayout, withBextTimecode } from '../lib/davinciExport.js';
 
 /**
@@ -18,6 +17,12 @@ import { buildFcpxml, framesToSeconds, rateOf, safeFileName, timecodeFrames, wav
 export const davinciRouter = Router();
 
 const FILE_TYPES = { '.wav': 'audio', '.mp3': 'audio', '.srt': 'text', '.fcpxml': 'text' };
+
+/** The request came from this machine. */
+const isLoopback = (req) => {
+  const address = (req.socket?.remoteAddress || req.ip || '').replace(/^::ffff:/, '');
+  return address === '127.0.0.1' || address === '::1' || address.startsWith('127.');
+};
 
 const localOnly = (req) => {
   if (!isLoopback(req)) throw new ApiError('Exporting to a folder works only on the machine running DHVANI.', { status: 403, code: 'remote_export_forbidden' });

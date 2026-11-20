@@ -1,4 +1,7 @@
 import { test } from 'node:test';
+import os from 'node:os';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import { buffer } from 'node:stream/consumers';
@@ -69,13 +72,14 @@ test('silent lines (no placed words) make no clip', () => {
 });
 
 test('the timeline puts each speaker on a lane of their own at the start timecode', () => {
+  const dir = path.join(os.tmpdir(), 'Dubs', 'Talk');
   const out = buildFcpxml({
     title: 'Talk & dub',
     fps: '25',
     startTimecode: '01:00:00:00',
     tracks: [
-      { name: 'Speaker 1', file: 'D:\\Dubs\\Talk\\Talk - Speaker 1.wav', duration: 10, sampleRate: 48000, channels: 1, lines: [{ start: 1, end: 3, name: '1 Namaste', note: 'Line 1: <late>' }] },
-      { name: 'Speaker 2', file: 'D:\\Dubs\\Talk\\Talk - Speaker 2.wav', duration: 10, sampleRate: 48000, channels: 1, lines: [{ start: 4, end: 6, name: '2 Haan' }] },
+      { name: 'Speaker 1', file: path.join(dir, 'Talk - Speaker 1.wav'), duration: 10, sampleRate: 48000, channels: 1, lines: [{ start: 1, end: 3, name: '1 Namaste', note: 'Line 1: <late>' }] },
+      { name: 'Speaker 2', file: path.join(dir, 'Talk - Speaker 2.wav'), duration: 10, sampleRate: 48000, channels: 1, lines: [{ start: 4, end: 6, name: '2 Haan' }] },
     ],
   });
   assert.match(out, /<fcpxml version="1\.9">/);
@@ -84,7 +88,9 @@ test('the timeline puts each speaker on a lane of their own at the start timecod
   assert.match(out, /lane="-1" name="1 Namaste" offset="90000\/25s" start="90000\/25s" duration="250\/25s"/);
   assert.match(out, /lane="-2" name="2 Haan"/);
   assert.match(out, /<marker start="90025\/25s" duration="1\/25s" value="Line 1: &lt;late&gt;"\/>/);
-  assert.match(out, /src="file:\/\/\/D:\/Dubs\/Talk\/Talk%20-%20Speaker%201\.wav"/);
+  const src = pathToFileURL(path.join(dir, 'Talk - Speaker 1.wav')).href;
+  assert.ok(out.includes(`src="${src}"`), 'the file as a file:// URL');
+  assert.match(src, /Talk%20-%20Speaker%201\.wav$/);
 });
 
 test('a bad start timecode is refused, not guessed', () => {
