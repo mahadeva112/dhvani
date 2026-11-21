@@ -11,6 +11,8 @@
  * languages are drafts to be checked by native speakers.
  */
 
+import { bookishLine } from './spokenWords.js';
+
 /** The English of each example, one string per cue. */
 const SOURCES = [
   ['Today, if you say you are a spiritual person, people think you need an investigation.'],
@@ -34,6 +36,9 @@ const LESSONS = [
  */
 const LANGUAGE_EXAMPLES = {
   Hindi: {
+    // The app's Hindi kept every idea but still sounded written: नश्वरता for "that we are mortal",
+    // संशय for a doubt, समयबद्ध for "limited". spokenWords.js lists the words a dub voice should not say.
+    note: `Write the Hindi a speaker says aloud, not written or classical Hindi, unless the style above asks for it or the word is a spiritual term the speaker means as one (mukti, sadhana). An abstract English noun usually becomes a short spoken clause with a verb ("I saw our mortality" → मुझे साफ़ दिख गया कि हम नश्वर हैं, not नश्वरता). Say these the spoken way: ${bookishLine('Hindi')}.`,
     pairs: [
       [
         ['आज, यदि आप कहते हैं कि आप एक आध्यात्मिक व्यक्ति हैं, लोग सोचते हैं कि आपको एक जाँच की ज़रूरत है।'],
@@ -52,6 +57,12 @@ const LANGUAGE_EXAMPLES = {
       {
         english: ['not with a sword or any kind of weapon, but simply out of their consciousness.'],
         right: ['किसी तलवार या हथियार के बल पर नहीं, बल्कि सिर्फ़ अपनी चेतना से।'],
+      },
+      {
+        lesson: 'Spoken words, not bookish ones, and the idea said as a clause rather than an abstract noun.',
+        english: ['Once you know your time is limited,', 'you will live with clarity.'],
+        wrong: ['यदि आपको अपनी समयबद्धता का ज्ञान हो,', 'तो आप स्पष्टता के साथ जिएँगे।'],
+        right: ['एक बार आपको पता चल जाए कि आपका समय सीमित है,', 'तो आप साफ़ समझ के साथ जिएँगे।'],
       },
     ],
   },
@@ -267,7 +278,7 @@ export const examplesBlock = (targetLanguage) => {
   if (!set) return '';
   const lines = [
     `EXAMPLES IN ${targetLanguage.toUpperCase()}`,
-    `How the approach above sounds in ${targetLanguage}. "|" separates cues. "Not this" keeps the English word order cue by cue; "This" says the whole sentence the way a ${targetLanguage} speaker would, then splits it over the same cues by their length. Learn the approach from them; never copy their words into the translation.`,
+    `How the approach above sounds in ${targetLanguage}. "|" separates cues. "Not this" keeps the English word order cue by cue, or makes the mistake its lesson names; "This" says the whole sentence the way a ${targetLanguage} speaker would, then splits it over the same cues by their length. Learn the approach from them; never copy their words into the translation.`,
     ...(set.note ? [set.note] : []),
   ];
   set.pairs.forEach(([wrong, right], index) => {

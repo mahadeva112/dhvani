@@ -2,6 +2,7 @@ import { lineSyllables } from './syllables.js';
 import { PAUSE_SPLIT, withoutSplits } from './translationPauses.js';
 import { examplesBlock } from './translationExamples.js';
 import { speakerField, speakerGenderRule, speakerGenderReview } from './speakerGender.js';
+import { bookishWordsIn } from './spokenWords.js';
 
 /**
  * Checks on a fresh translation that code can make better than the model can:
@@ -208,6 +209,9 @@ const describeIssue = (issue) => {
   }
   if (issue.kind === 'term') {
     return `- id ${issue.id}: the key term "${issue.english}" is said as "${issue.translated}" elsewhere in this talk; say it with that same word here, in a natural line.`;
+  }
+  if (issue.kind === 'bookish') {
+    return `- id ${issue.id}: "${issue.said}" is a written, bookish word that people rarely say aloud. Say that part the way a ${issue.language} speaker says it (for example ${issue.say}), as a natural line with the same meaning and about the same length.`;
   }
   if (issue.kind === 'end') return `- id ${issue.id}: the English sentence ends in this cue; end the sentence here too.`;
   if (issue.kind === 'open') return `- id ${issue.id}: the English sentence carries on into the next cue; do not end the sentence here.`;
@@ -484,6 +488,26 @@ const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const termStem = (word) => {
   const chars = [...word];
   return chars.slice(0, Math.max(2, Math.ceil(chars.length * 0.6))).join('');
+};
+
+/**
+ * Cues whose translation says a bookish word of `targetLanguage`
+ * (spokenWords.js): `bookish` issues, one per word, to be said the spoken way.
+ * A word the talk's key terms use is left alone: the talk chose it.
+ *
+ * @param {{english: string, translated: string}[]} terms
+ * @returns {{id: string, kind: 'bookish', word: string, said: string, say: string, language: string}[]}
+ */
+export const bookishIssues = (cues, translations, targetLanguage, terms = []) => {
+  const chosen = terms.map((term) => spoken(term.translated));
+  const issues = [];
+  for (const cue of cues) {
+    for (const found of bookishWordsIn(spoken(translations.get(cue.id)), targetLanguage)) {
+      if (chosen.some((term) => term.includes(found.said))) continue;
+      issues.push({ id: cue.id, kind: 'bookish', ...found, language: targetLanguage });
+    }
+  }
+  return issues;
 };
 
 /**

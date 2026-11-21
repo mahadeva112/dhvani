@@ -14,6 +14,7 @@ import {
   mergeTerms,
   termsBlock,
   termIssues,
+  bookishIssues,
   buildFixPrompt,
   buildMeaningReviewPrompt,
   buildMeaningFixPrompt,
@@ -314,10 +315,13 @@ const askJson = async (prompt, { apiKey, models, temperature, effort = writeEffo
  *    length fix (`lengthUndone`).
  * 4. Key terms: a cue that says one of `terms` (the talk's key terms so far)
  *    with another word is asked to use the listed word.
+ * 5. Bookish words (spokenWords.js): a cue that says one is asked to say it
+ *    the spoken way; kept when fewer are left and the length grows by at
+ *    most BOOKISH_SLACK syllables a changed cue.
  * A check that fails (the model unreachable or its answer unreadable) leaves
  * the translation as it was: the checks only ever improve it.
  *
- * @returns {Promise<{translations: Map<string,string>, lengthFixed: number, lengthUndone: number, meaningFixed: number, termsFixed: number}>}
+ * @returns {Promise<{translations: Map<string,string>, lengthFixed: number, lengthUndone: number, meaningFixed: number, termsFixed: number, bookishFixed: number}>}
  */
 export const refineBatch = async (batch, translated, { targetLanguage, customPrompt = '', terms = [], brief = null, apiKey, models, ask = askJson } = {}) => {
   let translations = new Map(translated);
@@ -398,8 +402,35 @@ export const refineBatch = async (batch, translated, { targetLanguage, customPro
     }
   }
 
-  return { translations, lengthFixed, lengthUndone, meaningFixed, termsFixed };
+  // Bookish words last of all: a spoken clause is often a syllable or two
+  // longer than the written noun it replaces, so a little more length is let
+  // through for it, never more.
+  let bookishFixed = 0;
+  const bookish = bookishIssues(batch, translations, targetLanguage, terms);
+  if (bookish.length) {
+    try {
+      const answer = await ask(buildFixPrompt({ cues: batch, translations, issues: bookish, targetLanguage, customPrompt, brief }), { apiKey, models, temperature: 0.2 });
+      const changes = readFix(answer, [...new Set(bookish.map((issue) => issue.id))]);
+      const fixed = new Map([...translations, ...changes]);
+      if (
+        changes.size &&
+        bookishIssues(batch, fixed, targetLanguage, terms).length < bookish.length &&
+        termIssues(batch, fixed, terms).length <= termIssues(batch, translations, terms).length &&
+        issueScore(batch, fixed) <= issueScore(batch, translations) + BOOKISH_SLACK * changes.size
+      ) {
+        translations = fixed;
+        bookishFixed = changes.size;
+      }
+    } catch (err) {
+      logger.warn(`Translation bookish-word check skipped: ${err?.message || err}`);
+    }
+  }
+
+  return { translations, lengthFixed, lengthUndone, meaningFixed, termsFixed, bookishFixed };
 };
+
+/** Syllables past the budget a cue may gain when a bookish word becomes the spoken words for it. */
+export const BOOKISH_SLACK = 2;
 
 /** Lines of context on each side of a batch, so a sentence cut by a batch boundary still reads whole. */
 const CONTEXT_CUES = 2;
@@ -694,6 +725,7 @@ const translateBatchesChecked = async (
   let meaningFixed = 0;
   let retriedBatches = 0;
   let termsFixed = 0;
+  let bookishFixed = 0;
   // How the talk says its key terms, so every batch uses the same words.
   let terms = resumedTerms;
 
@@ -725,7 +757,7 @@ const translateBatchesChecked = async (
     const attempt = async () => {
       const outcome = await translateBatch({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount, before, after, terms, brief, apiKey, models, generate });
       modelUsed = outcome.modelUsed;
-      if (!check) return { translations: outcome.result, lengthFixed: 0, lengthUndone: 0, meaningFixed: 0, termsFixed: 0, terms: outcome.terms };
+      if (!check) return { translations: outcome.result, lengthFixed: 0, lengthUndone: 0, meaningFixed: 0, termsFixed: 0, bookishFixed: 0, terms: outcome.terms };
       onProgress?.({
         stage: 'translating',
         batch: finished + 1,
@@ -754,6 +786,7 @@ const translateBatchesChecked = async (
     lengthUndone += kept.lengthUndone;
     meaningFixed += kept.meaningFixed;
     termsFixed += kept.termsFixed;
+    bookishFixed += kept.bookishFixed || 0;
     terms = mergeTerms(terms, kept.terms, kept.translations);
     for (const [id, text] of kept.translations) translations.set(id, text);
     starts.add(position);
@@ -829,9 +862,9 @@ const translateBatchesChecked = async (
     logger.warn(`${missingIds.length} cue(s) came back untranslated; keeping their source text.`);
   }
   if (seamsFixed) logger.info(`Translation smoothed ${seamsFixed} cue(s) where two parts met.`);
-  if (lengthFixed || lengthUndone || meaningFixed || retriedBatches || termsFixed) {
+  if (lengthFixed || lengthUndone || meaningFixed || retriedBatches || termsFixed || bookishFixed) {
     logger.info(
-      `Translation checks refit ${lengthFixed} cue(s) for length, restored the meaning of ${meaningFixed}, undid ${lengthUndone} length fit(s) that lost meaning and made ${termsFixed} use the talk's key term` +
+      `Translation checks refit ${lengthFixed} cue(s) for length, restored the meaning of ${meaningFixed}, undid ${lengthUndone} length fit(s) that lost meaning, made ${termsFixed} use the talk's key term and ${bookishFixed} say a bookish word the spoken way` +
         (retriedBatches ? `; ${retriedBatches} batch(es) far too long were translated again.` : '.')
     );
   }
@@ -847,6 +880,7 @@ const translateBatchesChecked = async (
     meaningFixed,
     retriedBatches,
     termsFixed,
+    bookishFixed,
     seamsFixed,
     terms,
     brief,

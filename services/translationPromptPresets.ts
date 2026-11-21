@@ -42,7 +42,8 @@ export const TRANSLATION_PRESETS: TranslationPromptPreset[] = [
 
 4. WORDS
 - Everyday spoken forms, not bookish or officialese ones; respectful forms for the people he speaks about with respect.
-- Use the classical spiritual word where the idea calls for it (mukti, sadhana, chitta), and keep the English words the audience itself says in English (internet, hospital, meditation app).
+- Use the classical word only for a spiritual term he means as one (mukti, sadhana, chitta). Every other idea, in a spiritual talk too, gets the word people say aloud: being mortal, a doubt, a limit, a way of living are said as everyday speech says them, often as a short clause with a verb ("that we will die"), never as a classical abstract noun.
+- Keep the English words the audience itself says in English (internet, hospital, meditation app).
 
 5. MARKS FOR THE VOICE
 - "," between chunks of one sentence; "…" only for a real hesitation inside a thought, never inside a line he said in one breath.
@@ -100,7 +101,7 @@ export const QUICK_PROMPT_TAGS = [
   { label: 'Respectful tone', tag: '\n- Use the respectful form of "you" and its polite verb forms throughout, in everyday spoken words, never bookish or officialese ones.' },
   { label: 'Casual everyday slang', tag: '\n- Use modern, conversational colloquial phrasing popular with younger audiences.' },
   { label: 'Fit each line to its time', tag: '\n- Keep each line close to its syllable budget through word choice, never at the cost of meaning: a clear line a little long is better than one that leaves something out.' },
-  { label: 'Sanskrit/Spiritual vocabulary', tag: '\n- Use classical spiritual equivalents for philosophical concepts (Mukti, Divya, Chitta, Chetana).' },
+  { label: 'Sanskrit/Spiritual vocabulary', tag: '\n- Use the classical word for a spiritual term (Mukti, Divya, Chitta, Chetana); every other idea keeps its everyday spoken word.' },
 ];
 
 /**
@@ -137,7 +138,7 @@ export const promptFingerprint = (prompt: string) => {
  * whenever a style's text changes.
  */
 export const EARLIER_TEXTS: Record<string, string[]> = {
-  sadhguru_spoken: ['bec608bf', '4ed0d984'],
+  sadhguru_spoken: ['bec608bf', '4ed0d984', 'f4fc3dde'],
   natural_spoken: ['69f648d4'],
 };
 

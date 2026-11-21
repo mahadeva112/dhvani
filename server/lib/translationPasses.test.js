@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { lengthUnits, cueIssues, isOutlier, mergeTerms, termsBlock, termIssues, buildFixPrompt, unsaidMarks, dubSyllables, issueScore, MAX_TERMS } from './translationChecks.js';
-import { refineBatch, translateCueTexts, translationParallel } from '../providers/gemini/translation.js';
+import { lengthUnits, cueIssues, isOutlier, mergeTerms, termsBlock, termIssues, bookishIssues, buildFixPrompt, unsaidMarks, dubSyllables, issueScore, MAX_TERMS } from './translationChecks.js';
+import { refineBatch, translateCueTexts, translationParallel, BOOKISH_SLACK } from '../providers/gemini/translation.js';
+import { bookishWordsIn, bookishLine } from './spokenWords.js';
+import { examplesBlock } from './translationExamples.js';
 import { lineSyllables } from './syllables.js';
 import { ApiError } from '../errors.js';
 
@@ -277,6 +279,63 @@ test('refineBatch asks for the listed word where a key term was said another way
   assert.match(prompts[1], /- id 1: the key term "inertia" is said as "ਜੜਤਾ"/);
   assert.equal(out.termsFixed, 1);
   assert.equal(out.translations.get('1'), 'ਜੇ ਤੁਸੀਂ ਅੰਦਰ ਜੜਤਾ ਆਉਣ ਦਿਓ,');
+});
+
+test('bookish words are found as whole words, in any spelling listed, and only in their language', () => {
+  assert.deepEqual(bookishWordsIn('मुझे एक बात साफ़ हो गई - नश्वरता।', 'Hindi').map((w) => w.word), ['नश्वरता']);
+  assert.deepEqual(bookishWordsIn('यदि आप जानें, परन्तु…', 'Hindi').map((w) => [w.word, w.said]), [['यदि', 'यदि'], ['परंतु', 'परन्तु']]);
+  // Words a speaker does say aloud, and a word that only starts like a listed one, are not bookish.
+  assert.deepEqual(bookishWordsIn('बिल्कुल स्पष्ट, कि हम नश्वर हैं, कोई संदेह नहीं, तथ्य यही है।', 'Hindi'), []);
+  assert.deepEqual(bookishWordsIn('যদি', 'Bengali'), []);
+  assert.match(bookishLine('Hindi'), /नश्वरता → कि हम नश्वर हैं/);
+  assert.equal(bookishLine('Bengali'), '');
+});
+
+test("the Hindi examples tell the model the spoken words up front", () => {
+  const block = examplesBlock('Hindi');
+  assert.match(block, /not written or classical Hindi/);
+  assert.match(block, /संशय → शक/);
+  assert.match(block, /4\. Spoken words, not bookish ones/);
+});
+
+test('a bookish word is an issue, unless the talk chose it as a key term', () => {
+  const cues = [{ id: '1', text: 'I saw that we are mortal.' }, { id: '2', text: 'No doubt about it.' }];
+  const lines = new Map([['1', 'मुझे नश्वरता दिखी।'], ['2', 'इसमें कोई संशय नहीं।']]);
+  assert.deepEqual(bookishIssues(cues, lines, 'Hindi').map((i) => [i.id, i.kind, i.said]), [['1', 'bookish', 'नश्वरता'], ['2', 'bookish', 'संशय']]);
+  assert.deepEqual(bookishIssues(cues, lines, 'Hindi', [{ english: 'mortality', translated: 'नश्वरता' }]).map((i) => i.id), ['2']);
+  assert.deepEqual(bookishIssues(cues, lines, 'Bengali'), []);
+});
+
+test('refineBatch asks for the spoken word where a line says a bookish one, and keeps the fix', async () => {
+  const cues = [{ id: '1', text: 'It made one thing clear: we are mortal.' }];
+  const prompts = [];
+  const answers = [{ sentences: [] }, { translations: [{ id: '1', translatedText: 'एक बात साफ़ हो गई, कि हम नश्वर हैं।' }] }];
+  const ask = async (prompt) => {
+    prompts.push(prompt);
+    return answers.shift();
+  };
+  const out = await refineBatch(cues, new Map([['1', 'एक बात साफ़ हो गई - नश्वरता।']]), { targetLanguage: 'Hindi', ask });
+  assert.equal(prompts.length, 2);
+  assert.match(prompts[1], /- id 1: "नश्वरता" is a written, bookish word .* \(for example कि हम नश्वर हैं/);
+  assert.equal(out.bookishFixed, 1);
+  assert.equal(out.translations.get('1'), 'एक बात साफ़ हो गई, कि हम नश्वर हैं।');
+});
+
+test('a spoken-word fix is dropped when it keeps the word or runs more than a little longer', async () => {
+  const start = 'एक बात साफ़ हो गई - नश्वरता।';
+  const cues = [{ id: '1', text: 'It made one thing clear: we are mortal.', syllables: dubSyllables(start) }];
+  const run = async (fix) => {
+    const answers = [{ sentences: [] }, { translations: [{ id: '1', translatedText: fix }] }];
+    return refineBatch(cues, new Map([['1', start]]), { targetLanguage: 'Hindi', ask: async () => answers.shift() });
+  };
+  const same = await run('एक बात बिल्कुल साफ़ हो गई - नश्वरता।');
+  assert.equal(same.bookishFixed, 0);
+  assert.equal(same.translations.get('1'), start);
+  const longer = 'एक बात मुझे पूरी तरह से बिल्कुल साफ़ हो गई, कि हम सब के सब एक दिन मरने वाले हैं।';
+  assert.ok(dubSyllables(longer) - cues[0].syllables > BOOKISH_SLACK + 3);
+  const tooLong = await run(longer);
+  assert.equal(tooLong.bookishFixed, 0);
+  assert.equal(tooLong.translations.get('1'), start);
 });
 
 test('a batch that comes back as broken JSON is asked for once more', async () => {
