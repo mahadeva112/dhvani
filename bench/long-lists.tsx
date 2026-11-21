@@ -222,7 +222,6 @@ function Bench() {
             onClose={() => {}}
             segments={segments}
             targetLanguage="Hindi"
-            sourceLanguage="English"
             syncedSegments={segments}
             hasSynthAudio
             synthAudioDuration={SECONDS}

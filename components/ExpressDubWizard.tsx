@@ -92,7 +92,7 @@ import {
   buildSubtitleSegments,
   generateSrtContent,
 } from '../services/srtService';
-import { editedSrt, subtitleEditKey } from '../services/subtitleEdits';
+import { cuesForExport, editedSrt, subtitleEditKey } from '../services/subtitleEdits';
 import { reportError } from '../services/errorPopup';
 import { DavinciExportWindow } from './DavinciExportWindow';
 import { timelineMapper } from '../services/playbackTimeline';
@@ -1502,9 +1502,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   /** The subtitles timed to the synced dub, for the DaVinci export: the hand-edited list if there is one. */
   const buildDavinciSrt = useCallback((): string | null => {
     const edit = activeJob?.subtitleEdits?.[subtitleEditKey('target', 'synced')];
-    if (edit) return editedSrt(edit.cues) || null;
+    if (edit) return editedSrt(cuesForExport(edit.cues, srtOptions.includePunctuation !== false)) || null;
     if (!syncedCues?.length) return null;
-    const cues = buildSubtitleSegments({ segments, syncedSegments: syncedCues, timing: 'synced', track: 'target', options: srtOptions });
+    const cues = buildSubtitleSegments({ segments, syncedSegments: syncedCues, timing: 'synced', options: srtOptions });
     return cues.length ? generateSrtContent(cues, srtOptions) : null;
   }, [activeJob?.subtitleEdits, syncedCues, segments, srtOptions]);
   const scriptFollowsDub = scriptScope === 'heard' && Boolean(syncedCues);
@@ -2511,11 +2511,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     }
   };
 
-  const subtitleSourceLanguage = activeJob?.detectedLanguage || sourceLanguage;
   const hasSubtitleDub = Boolean(activeJob?.synthesizedAudioUrl);
   const subtitleTiming = resolveSubtitleTiming(subtitleChoice.timing, Boolean(syncedCues?.length), hasSubtitleDub);
-  const subtitleLanguage =
-    subtitleChoice.track === 'source' ? subtitleSourceLanguage || 'Original' : targetLanguage || 'Captions';
+  const subtitleLanguage = targetLanguage || 'Captions';
   const subtitleTimingLabel = { synced: 'the synced dub', dubbed: 'the dub', original: 'the original speech' }[subtitleTiming];
 
   /** A lane's header: the track's name, and its mute, solo, fader and meter when the player has a mixer. */
@@ -5461,7 +5459,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         onClose={() => setIsSrtModalOpen(false)}
         segments={segments}
         targetLanguage={targetLanguage}
-        sourceLanguage={subtitleSourceLanguage}
         fileStem={activeJob ? projectFileStem(activeJob) : undefined}
         initialOptions={srtOptions}
         onOptionsChange={(newOpts) => setSrtOptions(newOpts)}

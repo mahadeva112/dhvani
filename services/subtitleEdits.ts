@@ -1,5 +1,6 @@
 import type { AudioSegment, EditedSubtitle } from '../types';
 import { GAP_CLOSE_SECONDS, vlen, wrapBalanced } from './subtitleCues.ts';
+import { stripSubtitlePunctuation } from './subtitleText.ts';
 
 /*
  * Subtitles edited by hand in Export subtitles. Editing starts from the
@@ -52,6 +53,13 @@ const body = (text: string) =>
     .map((line) => line.trim())
     .filter(Boolean)
     .join('\n');
+
+/**
+ * The edited subtitles as they are written to a file. With "Keep punctuation"
+ * off, marks typed by hand go too: off means none in the file.
+ */
+export const cuesForExport = (cues: EditedSubtitle[], keepPunctuation: boolean): EditedSubtitle[] =>
+  keepPunctuation ? cues : cues.map((c) => ({ ...c, text: stripSubtitlePunctuation(c.text) }));
 
 export const editedSrt = (cues: EditedSubtitle[]): string =>
   kept(cues)

@@ -1,20 +1,21 @@
 import { AudioSegment, SubtitleConfiguration, WordTimestamp } from "../types";
 import { buildScriptFile } from "./scriptShare";
 import { buildCues, sanitizeCues, CueBudget, TimedCue, TimedWord } from "./subtitleCues";
+import { stripPunctuation } from "./subtitleText";
+
+export { stripPunctuation };
 
 /* ------------------------------------------------------------------ */
 /* Types & Defaults                                                    */
 /* ------------------------------------------------------------------ */
-
-export type SubtitleCasing = 'original' | 'uppercase' | 'capitalize';
 
 export interface SrtOptions {
   maxWordsPerLine: number;
   maxLinesPerCue: number;
   maxCharsPerLine: number;
   maxDurationSeconds: number;
+  /** Off means none: every mark in any script goes (subtitleText.ts). */
   includePunctuation: boolean;
-  casing?: SubtitleCasing;
   removeSpeakerLabel?: boolean;
 }
 
@@ -24,7 +25,6 @@ export const DEFAULT_SRT_OPTIONS: SrtOptions = {
   maxCharsPerLine: 25,
   maxDurationSeconds: 2.5,
   includePunctuation: true,
-  casing: 'original',
   removeSpeakerLabel: true,
 };
 
@@ -46,21 +46,6 @@ export const SRT_PRESETS: SrtPreset[] = [
       maxCharsPerLine: 22,
       maxDurationSeconds: 2.2,
       includePunctuation: true,
-      casing: 'original',
-      removeSpeakerLabel: true,
-    },
-  },
-  {
-    id: 'shorts_uppercase',
-    name: 'Shorts Viral (ALL CAPS)',
-    description: '1 line, max 3 words in uppercase for high engagement',
-    options: {
-      maxWordsPerLine: 3,
-      maxLinesPerCue: 1,
-      maxCharsPerLine: 22,
-      maxDurationSeconds: 2.2,
-      includePunctuation: false,
-      casing: 'uppercase',
       removeSpeakerLabel: true,
     },
   },
@@ -74,7 +59,6 @@ export const SRT_PRESETS: SrtPreset[] = [
       maxCharsPerLine: 32,
       maxDurationSeconds: 3.5,
       includePunctuation: true,
-      casing: 'original',
       removeSpeakerLabel: true,
     },
   },
@@ -88,7 +72,6 @@ export const SRT_PRESETS: SrtPreset[] = [
       maxCharsPerLine: 35,
       maxDurationSeconds: 4.5,
       includePunctuation: true,
-      casing: 'original',
       removeSpeakerLabel: true,
     },
   },
@@ -102,7 +85,6 @@ export const SRT_PRESETS: SrtPreset[] = [
       maxCharsPerLine: 37,
       maxDurationSeconds: 6.0,
       includePunctuation: true,
-      casing: 'original',
       removeSpeakerLabel: true,
     },
   },
@@ -136,12 +118,6 @@ export const formatSrtTime = (seconds: number): string => {
 };
 
 /**
- * Strips common punctuation characters.
- */
-export const stripPunctuation = (text: string): string =>
-  text.replace(/[.,!?;:"'()\[\]{}_~`<>«»/\\-]/g, ' ').replace(/\s+/g, ' ').trim();
-
-/**
  * Cleans speaker labels like "[Speaker 1]:", "(Presenter):", "Host:"
  */
 export const cleanSpeakerLabels = (text: string): string => {
@@ -153,7 +129,8 @@ export const cleanSpeakerLabels = (text: string): string => {
 };
 
 /**
- * Normalizes subtitle text based on casing and punctuation options.
+ * Subtitle text as shown: speaker label and punctuation taken off when asked.
+ * Letters are never re-cased: the subtitles are in the dub's language.
  */
 export const normalizeSubtitleText = (
   text: string,
@@ -165,11 +142,6 @@ export const normalizeSubtitleText = (
   }
   if (options.includePunctuation === false) {
     cleaned = stripPunctuation(cleaned);
-  }
-  if (options.casing === 'uppercase') {
-    cleaned = cleaned.toUpperCase();
-  } else if (options.casing === 'capitalize') {
-    cleaned = cleaned.replace(/\b\w/g, (c) => c.toUpperCase());
   }
   return cleaned.replace(/\s+/g, ' ').trim();
 };
@@ -278,7 +250,7 @@ export const generateSrtContent = (
     maxWordsPerLine: maxWords,
     maxSecs: maxDur,
   };
-  // Per-word display text: casing and punctuation, but the speaker label has
+  // Per-word display text: punctuation, but the speaker label has
   // already been taken off the segment as a whole.
   const wordDisplayOptions: Partial<SrtOptions> = { ...config, removeSpeakerLabel: false };
 
@@ -290,12 +262,13 @@ export const generateSrtContent = (
   };
 
   for (const segment of segments) {
-    const rawText = segment.textTarget || segment.targetText || segment.textSource || segment.text || '';
+    // The dub's language only: a cue with no translation stays out, never the original's words.
+    const rawText = segment.textTarget || segment.targetText || '';
 
     /*
      * Preferred path: this segment still carries the ElevenLabs word timings
      * for exactly this text, so every cue starts and ends on a measured word.
-     * The original-language SRT always takes this path.
+     * Only the dub's own aligned words (buildSubtitleSegments) are kept for this.
      */
     const measured: WordTimestamp[] = segment.words || [];
     const spoken = config.removeSpeakerLabel !== false ? cleanSpeakerLabels(rawText) : rawText.trim();
@@ -409,7 +382,7 @@ export const measuredSubtitleWords = (segments: AudioSegment[], options: Partial
   const display: Partial<SrtOptions> = { ...config, removeSpeakerLabel: false };
   const out: WordTimestamp[] = [];
   for (const segment of segments) {
-    const rawText = segment.textTarget || segment.targetText || segment.textSource || segment.text || '';
+    const rawText = segment.textTarget || segment.targetText || '';
     const spoken = config.removeSpeakerLabel !== false ? cleanSpeakerLabels(rawText) : rawText.trim();
     const words = spoken.split(/\s+/).filter(Boolean);
     const measured = segment.words || [];
@@ -525,14 +498,16 @@ export const generateTargetLanguageScript = (
 
     case 'csv': {
       const escapeCsv = (str: string) => `"${(str || '').replace(/"/g, '""')}"`;
-      const headers = ['Cue #', 'Start Time (s)', 'End Time (s)', 'Duration (s)', 'Speaker', 'Original Text', `Target Text (${targetLanguage})`];
+      // Subtitles carry the dub's language only: no empty "Original Text" column for them.
+      const hasOriginal = segments.some((seg) => (seg.textSource || seg.text || '').trim());
+      const headers = ['Cue #', 'Start Time (s)', 'End Time (s)', 'Duration (s)', 'Speaker', ...(hasOriginal ? ['Original Text'] : []), `Target Text (${targetLanguage})`];
       const rows = segments.map((seg, idx) => [
         idx + 1,
         seg.startTime.toFixed(2),
         seg.endTime.toFixed(2),
         (seg.endTime - seg.startTime).toFixed(2),
         escapeCsv(seg.speaker || 'Speaker'),
-        escapeCsv(seg.textSource || seg.text || ''),
+        ...(hasOriginal ? [escapeCsv(seg.textSource || seg.text || '')] : []),
         escapeCsv(seg.textTarget || seg.targetText || ''),
       ]);
       return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
@@ -582,7 +557,7 @@ export const adjustSegmentsForDubbedTimeline = (
 
   // Filter and normalize text for each segment
   const segmentsWithText = segments.map((seg) => {
-    const rawText = seg.textTarget || seg.targetText || seg.textSource || seg.text || '';
+    const rawText = seg.textTarget || seg.targetText || '';
     const text = normalizeSubtitleText(rawText, options);
     return {
       segment: seg,
@@ -634,8 +609,8 @@ export const adjustSegmentsForDubbedTimeline = (
 
 /** What the cues are timed to: Sync's placement, the whole dub stretched, or the original speech. */
 export type SubtitleTiming = 'synced' | 'dubbed' | 'original';
-/** Which text the cues carry: the dub's language or the transcribed source. */
-export type SubtitleTrack = 'target' | 'source';
+/** Which text the cues carry: always the dub's language (no original-language subtitles). */
+export type SubtitleTrack = 'target';
 
 export interface SubtitleExportChoice {
   track: SubtitleTrack;
@@ -649,8 +624,9 @@ const EXPORT_CHOICE_KEY = 'dhvani_srt_export_choice';
 export const loadSubtitleExportChoice = (): SubtitleExportChoice => {
   try {
     const saved = JSON.parse(localStorage.getItem(EXPORT_CHOICE_KEY) || 'null');
-    if (saved && ['target', 'source'].includes(saved.track) && ['synced', 'dubbed', 'original'].includes(saved.timing)) {
-      return { track: saved.track, timing: saved.timing };
+    // An old saved "source" track reads as the dub's language: there is no other.
+    if (saved && ['synced', 'dubbed', 'original'].includes(saved.timing)) {
+      return { track: 'target', timing: saved.timing };
     }
   } catch {}
   return DEFAULT_SUBTITLE_EXPORT_CHOICE;
@@ -721,7 +697,6 @@ export const buildSubtitleSegments = ({
   segments,
   syncedSegments,
   timing,
-  track,
   synthAudioDuration = 0,
   options,
   dubWordTimings,
@@ -729,14 +704,20 @@ export const buildSubtitleSegments = ({
   segments: AudioSegment[];
   syncedSegments?: AudioSegment[];
   timing: SubtitleTiming;
-  track: SubtitleTrack;
+  /** Always the dub's language; kept so callers can say so. */
+  track?: SubtitleTrack;
   synthAudioDuration?: number;
   options: SrtOptions;
   dubWordTimings?: Map<string, WordTimestamp[]> | null;
 }): AudioSegment[] => {
-  // The synced cues carry every cue's own fields, source text included, at their placed times.
-  let base = timing === 'synced' && syncedSegments ? syncedSegments : segments;
-  const keepWords = track === 'target';
+  /*
+   * The synced cues carry every cue's own fields at their placed times. The
+   * original's measured words are taken off: they time the original's words,
+   * not the dub's, and a line whose word count happened to match would be cut
+   * on the wrong words. Only the dub's own aligned words go back on.
+   */
+  let base = (timing === 'synced' && syncedSegments ? syncedSegments : segments).map(({ words: _sourceWords, ...segment }) => segment);
+  const keepWords = true;
   if (timing === 'synced' && syncedSegments && dubWordTimings) {
     base = applyDubWordTimings(base, dubWordTimings, { keepWords, tolerance: SYNCED_ALIGN_TOLERANCE });
   } else if (timing === 'dubbed' && dubWordTimings && everyLineTimed(base, dubWordTimings)) {
@@ -746,9 +727,7 @@ export const buildSubtitleSegments = ({
   } else if (timing === 'dubbed' && synthAudioDuration > 0) {
     base = adjustSegmentsForDubbedTimeline(base, synthAudioDuration, options);
   }
-  return track === 'target'
-    ? base
-    : base.map((segment) => ({ ...segment, textTarget: segment.textSource || '', targetText: segment.textSource || '' }));
+  return base;
 };
 
 /** "hindi_synced": names the file after the language and timing actually exported. */

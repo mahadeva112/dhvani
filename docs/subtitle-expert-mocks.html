@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Expert Subtitles Mocks</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#06080d; color:#e2e8f0; font-family: Inter, system-ui, "Noto Sans Bengali", "Noto Sans Devanagari", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .note { font-size:13px; color:#94a3b8; line-height:1.7; }
+  .note b { color:#e2e8f0; font-weight:600; }
+  .badge { font-size:10.5px; font-weight:600; letter-spacing:.06em; color:#a5b4fc; background:rgba(99,102,241,.15); border:1px solid rgba(99,102,241,.4); border-radius:999px; padding:2px 9px; }
+  .new { font-size:9.5px; font-weight:700; letter-spacing:.05em; color:#6ee7b7; background:rgba(16,185,129,.12); border:1px solid rgba(16,185,129,.35); border-radius:999px; padding:0 6px; margin-left:6px; vertical-align:2px; }
+  .dlg { background:#0f1420; border:1px solid rgba(51,65,85,.8); border-radius:18px; overflow:hidden; box-shadow:0 30px 80px rgba(0,0,0,.5); }
+  .edge { border-color:#1f2633; }
+  .seg { display:flex; padding:3px; gap:2px; border-radius:10px; background:rgba(2,6,23,.6); border:1px solid #334155; }
+  .seg button { flex:1; padding:6px 8px; border-radius:7px; font-size:12px; font-weight:500; color:#94a3b8; white-space:nowrap; cursor:default; }
+  .seg button.on { background:#1e293b; color:#f1f5f9; }
+  .lbl { font-size:12px; color:#94a3b8; }
+  .h { font-size:13px; font-weight:600; color:#f1f5f9; }
+  .hint { font-size:11.5px; color:#94a3b8; }
+  .sec { font-size:10.5px; text-transform:uppercase; letter-spacing:.09em; font-weight:600; color:#64748b; }
+  .sw { position:relative; width:34px; height:20px; border-radius:999px; background:#334155; flex-shrink:0; transition:background .15s; }
+  .sw::after { content:""; position:absolute; top:3px; left:3px; width:14px; height:14px; border-radius:999px; background:#fff; transition:left .15s; }
+  .sw.on { background:#6366f1; } .sw.on::after { left:17px; }
+  input[type=range] { width:100%; accent-color:#6366f1; }
+  .stepper { display:flex; align-items:center; height:34px; border-radius:10px; border:1px solid #334155; background:rgba(2,6,23,.6); overflow:hidden; }
+  .stepper button { width:32px; height:100%; color:#94a3b8; cursor:default; } .stepper span { flex:1; text-align:center; }
+  .chip { display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 9px; border-radius:999px; border:1px solid #2a3140; font-size:11.5px; color:#cbd5e1; cursor:default; white-space:nowrap; }
+  .chip.on { border-color:rgba(99,102,241,.6); background:rgba(99,102,241,.15); color:#c7d2fe; }
+  .chip .n { font-family: ui-monospace, Consolas, monospace; font-size:11px; }
+  .dot { width:7px; height:7px; border-radius:999px; }
+  .row { display:grid; grid-template-columns:2.2rem 11rem minmax(0,1fr) auto; gap:10px; align-items:baseline; padding:7px 12px; border-top:1px solid #1f2633; font-size:14px; }
+  .row:first-child { border-top:0; }
+  .row .i { font-family: ui-monospace, Consolas, monospace; font-size:11px; color:#64748b; }
+  .row .t { font-family: ui-monospace, Consolas, monospace; font-size:11px; color:#94a3b8; }
+  .row.warn { background:rgba(245,158,11,.06); }
+  .row.bad { background:rgba(244,63,94,.07); }
+  .tag { font-size:10.5px; border-radius:6px; padding:1px 6px; white-space:nowrap; }
+  .tag.amber { color:#fcd34d; background:rgba(245,158,11,.12); }
+  .tag.red { color:#fda4af; background:rgba(244,63,94,.12); }
+  .tag.sky { color:#7dd3fc; background:rgba(14,165,233,.12); }
+  .ghost { height:36px; padding:0 12px; display:inline-flex; align-items:center; gap:6px; border-radius:10px; border:1px solid #1f2633; background:rgba(2,6,23,.6); font-size:12.5px; color:#e2e8f0; cursor:default; }
+  .primary { height:42px; padding:0 18px; display:inline-flex; align-items:center; gap:8px; border-radius:10px; background:#4f46e5; color:#fff; font-size:14px; font-weight:600; cursor:default; }
+  .tabs { display:flex; gap:2px; border-bottom:1px solid #1f2633; }
+  .tabs button { padding:9px 12px; font-size:12.5px; color:#94a3b8; border-bottom:2px solid transparent; margin-bottom:-1px; cursor:default; }
+  .tabs button.on { color:#f1f5f9; border-color:#6366f1; }
+  .tabs .cnt { font-family: ui-monospace, Consolas, monospace; font-size:10.5px; color:#fcd34d; margin-left:4px; }
+  .frame { background:radial-gradient(120% 90% at 30% 20%,#3a4660 0%,#1c2333 45%,#0d1119 100%); }
+  .brk { color:#f472b6; font-weight:700; }
+  .del { text-decoration:line-through; color:#64748b; }
+  select { background:rgba(2,6,23,.6); border:1px solid #334155; border-radius:10px; height:34px; padding:0 10px; font-size:12.5px; color:#e2e8f0; width:100%; }
+  .card { border:1px solid #1f2633; border-radius:12px; background:rgba(2,6,23,.45); }
+</style>
+</head>
+<body class="px-4 py-8 md:px-8">
+<div class="max-w-[1100px] mx-auto">
+  <h1 class="text-xl font-semibold text-white">Export subtitles · expert mocks</h1>
+  <p class="note mt-1 max-w-3xl">
+    আগের তালিকার ১০টা জিনিস কোথায় বসবে, তার দুটো রকম। <b>Mock A</b>: বাঁদিকের কলামেই সব, চারটে ভাগে (Cut · Timing · Text · File),
+    আর সমস্যাগুলো তালিকার উপরে chip হয়ে। <b>Mock B</b>: বাঁদিকে তিনটে tab, ডানদিকে <b>Check</b> নামে আলাদা tab-এ সমস্যার তালিকা।
+    নিচে <b>Mock C</b>: সমস্যা থাকলে Download চাপলে যে ছোট জানলা আসে — দুটো মকের সঙ্গেই চলবে।
+    সবুজ <span class="new">NEW</span> দাগ মানে নতুন জিনিস।
+  </p>
+
+  <!-- ============================== MOCK A ============================== -->
+  <div class="mt-10 flex items-center gap-3">
+    <span class="badge">MOCK A</span>
+    <h2 class="text-[15px] font-semibold text-white">এক কলামে চার ভাগ · সমস্যা chip-এ</h2>
+  </div>
+  <p class="note mt-1 max-w-3xl">
+    বাঁদিকের কলাম লম্বা হয় কিন্তু সব একবারে চোখে পড়ে। <b>Reading speed</b> এখন সত্যিই কাটে (খুব দ্রুত হলে ভাগ করে বা পরের ফাঁকে সময় বাড়ায়)।
+    তালিকার উপরে chip-এ ক্লিক করলে শুধু সেই সমস্যার সারিগুলো দেখায়।
+  </p>
+
+  <section class="dlg mt-4">
+    <div class="flex items-center gap-3.5 px-6 py-4 border-b edge">
+      <div class="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center">
+        <svg class="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M15 15h2M7 11h2M13 11h4"/></svg>
+      </div>
+      <div class="flex-1">
+        <div class="text-lg font-semibold text-white leading-tight">Export subtitles</div>
+        <div class="text-[12.5px] text-slate-400">How the Hindi breaks into subtitles. Cuts land between measured words.</div>
+      </div>
+    </div>
+
+    <div class="grid md:grid-cols-[21rem_minmax(0,1fr)]">
+      <!-- Controls -->
+      <div class="px-5 py-4 border-b md:border-b-0 md:border-r edge flex flex-col gap-4 md:max-h-[44rem] md:overflow-y-auto">
+        <div class="flex flex-col gap-1.5">
+          <span class="lbl">Start from</span>
+          <div class="flex flex-wrap gap-1.5">
+            <span class="chip">Short-form</span><span class="chip">One line</span><span class="chip">YouTube</span><span class="chip on">Broadcast</span>
+          </div>
+        </div>
+
+        <div class="sec mt-1">Cut</div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="flex flex-col gap-1.5">
+            <span class="lbl">Lines per subtitle</span>
+            <div class="seg"><button>1</button><button class="on">2</button></div>
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <span class="lbl">Words per line</span>
+            <div class="stepper"><button>−</button><span class="mono text-[13px]">8</span><button>+</button></div>
+          </div>
+        </div>
+        <div>
+          <div class="flex justify-between"><span class="h">Characters per line</span><span class="mono text-xs">37</span></div>
+          <input type="range" min="15" max="50" value="37" class="mt-2" />
+        </div>
+        <div>
+          <div class="flex justify-between"><span class="h">Reading speed limit <span class="new">CUTS NOW</span></span><span class="mono text-xs">17 cps</span></div>
+          <p class="hint mt-0.5">Faster subtitles are split, or held into the next pause.</p>
+          <input type="range" min="5" max="40" value="17" class="mt-2" />
+        </div>
+        <label class="flex items-center gap-3">
+          <span class="flex-1"><span class="block h">Keep Hindi phrases together <span class="new">NEW</span></span>
+          <span class="block hint">No line ends just before का की के में से को ने पर</span></span>
+          <span class="sw on"></span>
+        </label>
+
+        <div class="sec mt-1">Timing</div>
+        <div>
+          <div class="flex justify-between"><span class="h">Longest time on screen</span><span class="mono text-xs">6.0 s</span></div>
+          <input type="range" min="1" max="7" step=".1" value="6" class="mt-2" />
+        </div>
+        <div>
+          <div class="flex justify-between"><span class="h">Shortest time on screen <span class="new">NEW</span></span><span class="mono text-xs">0.83 s</span></div>
+          <p class="hint mt-0.5">A shorter subtitle is held longer, never over the next one.</p>
+          <input type="range" min="0.3" max="2" step=".01" value="0.83" class="mt-2" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="flex flex-col gap-1.5">
+            <span class="lbl">Gap between <span class="new">NEW</span></span>
+            <div class="stepper"><button>−</button><span class="mono text-[13px]">2 frames</span><button>+</button></div>
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <span class="lbl">Frame rate <span class="new">NEW</span></span>
+            <select><option>Off</option><option>23.976</option><option>24</option><option selected>25</option><option>29.97</option><option>30</option></select>
+          </div>
+        </div>
+        <p class="hint -mt-2">Times snap to whole frames, for DaVinci and broadcast.</p>
+        <div class="flex flex-col gap-1.5">
+          <span class="lbl">Timed to</span>
+          <div class="seg"><button>Original speech</button><button class="on">Synced dub</button><button>The dub</button></div>
+        </div>
+
+        <div class="sec mt-1">Text</div>
+        <label class="flex items-center gap-3">
+          <span class="flex-1"><span class="block h">Keep punctuation</span><span class="block hint">Off: no mark at all, । ॥ , ? ! “ ” … — included</span></span>
+          <span class="sw"></span>
+        </label>
+        <label class="flex items-center gap-3">
+          <span class="flex-1"><span class="block h">Hide speaker names <span class="new">FIXED</span></span>
+          <span class="block hint">Drops “वक्ता 1:” or “[Host]:” only when it is a speaker’s name</span></span>
+          <span class="sw on"></span>
+        </label>
+        <div class="flex flex-col gap-1.5">
+          <span class="lbl">Numbers <span class="new">NEW</span></span>
+          <div class="seg"><button class="on">As written</button><button>123</button><button>१२३</button></div>
+        </div>
+
+        <div class="sec mt-1">File</div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="flex flex-col gap-1.5">
+            <span class="lbl">Encoding <span class="new">NEW</span></span>
+            <div class="seg"><button class="on" title="Premiere and old Windows players need it">UTF-8 BOM</button><button>UTF-8</button></div>
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <span class="lbl">Line ends <span class="new">NEW</span></span>
+            <div class="seg"><button class="on">Windows</button><button>Mac/Linux</button></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Preview -->
+      <div class="px-5 py-4 flex flex-col gap-3 bg-slate-950/40 min-w-0">
+        <div class="flex gap-3">
+          <div class="relative w-[13.5rem] aspect-video rounded-lg overflow-hidden frame shrink-0">
+            <span class="absolute top-1.5 left-2 mono text-[9.5px] text-white/75">00:00:12:08</span>
+            <span class="absolute left-1/2 bottom-0 -translate-x-1/2 w-[34%] h-[78%] rounded-t-[50%] bg-gradient-to-b from-[#5b4a3c] to-[#2b2622]"></span>
+            <span class="absolute left-1/2 top-[8%] -translate-x-1/2 w-[15%] aspect-square rounded-full bg-[#7a5f4a]"></span>
+            <span class="absolute left-1/2 bottom-[7%] -translate-x-1/2 w-max max-w-[92%] text-center text-[10.5px] leading-tight text-white bg-black/60 px-1.5 py-0.5 rounded"><span class="block">जब आप ध्यान करते हैं</span><span class="block">तो मन शांत होता है</span></span>
+          </div>
+          <div class="flex-1 flex flex-col justify-center gap-2">
+            <div class="flex items-center gap-2.5">
+              <span class="w-9 h-9 rounded-full bg-slate-100 text-slate-950 flex items-center justify-center"><svg class="w-4 h-4 ml-0.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
+              <input type="range" value="20" class="flex-1" />
+              <span class="mono text-[11px] text-slate-400">00:12 / 04:31</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-400">
+          <span><b class="text-slate-100">186</b> subtitles</span>
+          <span>longest <b class="text-slate-100">5.8 s</b></span>
+          <span>widest <b class="text-slate-100">36</b> chars</span>
+          <span class="text-emerald-300">✓ Exact timing</span>
+          <span class="ml-auto ghost !h-7 !text-[11.5px]">Edit</span>
+        </div>
+
+        <!-- QC chips -->
+        <div class="flex flex-wrap items-center gap-1.5">
+          <span class="text-[11.5px] text-slate-400 mr-1">Check <span class="new">NEW</span></span>
+          <span class="chip on">All <span class="n">186</span></span>
+          <span class="chip"><span class="dot bg-rose-400"></span>No translation <span class="n">3</span></span>
+          <span class="chip"><span class="dot bg-amber-400"></span>Too fast <span class="n">5</span></span>
+          <span class="chip"><span class="dot bg-amber-400"></span>Flashes by <span class="n">2</span></span>
+          <span class="chip"><span class="dot bg-sky-400"></span>Line too long <span class="n">1</span></span>
+          <span class="chip text-emerald-300 border-emerald-500/30">✓ No overlaps</span>
+        </div>
+
+        <div class="card overflow-hidden">
+          <div class="row"><span class="i">41</span><span class="t">00:00:12:08 → 00:00:15:02</span><span>जब आप ध्यान करते हैं<br>तो मन शांत होता है</span><span></span></div>
+          <div class="row warn"><span class="i">42</span><span class="t">00:00:15:04 → 00:00:16:01</span><span>और यह शांति धीरे धीरे पूरे जीवन में फैलती है</span><span class="tag amber">24 cps</span></div>
+          <div class="row bad"><span class="i">43</span><span class="t">00:00:16:03 → 00:00:18:10</span><span class="text-slate-500 italic">No Hindi for this line: it is left out</span><span class="tag red">No translation</span></div>
+          <div class="row warn"><span class="i">44</span><span class="t">00:00:18:12 → 00:00:18:20</span><span>हाँ</span><span class="tag amber">0.32 s</span></div>
+          <div class="row"><span class="i">45</span><span class="t">00:00:19:00 → 00:00:22:14</span><span>राम <span class="del">|</span> के घर में<br>सब लोग <span class="brk">↵</span> खुश थे</span><span class="tag sky" title="Hindi phrase kept together">phrase kept</span></div>
+          <div class="row"><span class="i">46</span><span class="t">00:00:22:16 → 00:00:25:00</span><span>इसलिए हर दिन<br>थोड़ा समय अपने लिए रखिए</span><span></span></div>
+        </div>
+        <p class="hint">টাইমকোড এখন ফ্রেমে (<span class="mono">:08</span> = ৮ নম্বর ফ্রেম) যখন Frame rate বেছে নেওয়া থাকে; Off থাকলে আগের মতো মিলিসেকেন্ড।</p>
+      </div>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-2.5 px-6 py-3.5 border-t edge">
+      <span class="text-[12.5px] text-slate-400">Reset to defaults</span>
+      <span class="flex-1"></span>
+      <span class="text-[11.5px] text-slate-500">Saved for every project · batch export uses these too <span class="new">NEW</span></span>
+      <span class="ghost">Script ▾</span><span class="ghost">Copy</span><span class="ghost">.vtt</span>
+      <span class="primary">Download Hindi .srt</span>
+    </div>
+  </section>
+
+  <!-- ============================== MOCK B ============================== -->
+  <div class="mt-14 flex items-center gap-3">
+    <span class="badge">MOCK B</span>
+    <h2 class="text-[15px] font-semibold text-white">বাঁদিকে tab · ডানদিকে Check tab</h2>
+  </div>
+  <p class="note mt-1 max-w-3xl">
+    বাঁদিকের কলাম ছোট থাকে: একবারে একটা tab (<b>Cut</b>, <b>Timing</b>, <b>Text &amp; file</b>)। ডানদিকে <b>Subtitles</b> আর <b>Check</b> দুটো tab;
+    Check-এ প্রতিটা সমস্যা এক সারিতে, পাশে <b>Fix</b> বোতাম (যেটা নিজে ঠিক করা যায়)। নিচের মকে Timing tab খোলা দেখানো হয়েছে, ডানদিকে Check।
+  </p>
+
+  <section class="dlg mt-4">
+    <div class="flex items-center gap-3.5 px-6 py-4 border-b edge">
+      <div class="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center">
+        <svg class="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M15 15h2M7 11h2M13 11h4"/></svg>
+      </div>
+      <div class="flex-1">
+        <div class="text-lg font-semibold text-white leading-tight">Export subtitles</div>
+        <div class="text-[12.5px] text-slate-400">How the Hindi breaks into subtitles. Cuts land between measured words.</div>
+      </div>
+    </div>
+
+    <div class="grid md:grid-cols-[19.5rem_minmax(0,1fr)]">
+      <div class="border-b md:border-b-0 md:border-r edge">
+        <div class="px-5 pt-3">
+          <div class="flex flex-wrap gap-1.5 mb-3">
+            <span class="chip">Short-form</span><span class="chip">One line</span><span class="chip">YouTube</span><span class="chip on">Broadcast</span>
+          </div>
+          <div class="tabs" data-tabs="b-left">
+            <button data-t="cut">Cut</button>
+            <button data-t="timing" class="on">Timing</button>
+            <button data-t="text">Text &amp; file</button>
+          </div>
+        </div>
+        <div class="px-5 py-4 flex flex-col gap-4">
+          <div data-pane="b-left:cut" class="hidden flex-col gap-4">
+            <div class="grid grid-cols-2 gap-3">
+              <div class="flex flex-col gap-1.5"><span class="lbl">Lines</span><div class="seg"><button>1</button><button class="on">2</button></div></div>
+              <div class="flex flex-col gap-1.5"><span class="lbl">Words per line</span><div class="stepper"><button>−</button><span class="mono text-[13px]">8</span><button>+</button></div></div>
+            </div>
+            <div><div class="flex justify-between"><span class="h">Characters per line</span><span class="mono text-xs">37</span></div><input type="range" value="60" class="mt-2" /></div>
+            <div><div class="flex justify-between"><span class="h">Reading speed limit <span class="new">CUTS NOW</span></span><span class="mono text-xs">17 cps</span></div><input type="range" value="35" class="mt-2" /></div>
+            <label class="flex items-center gap-3"><span class="flex-1"><span class="block h">Keep Hindi phrases together <span class="new">NEW</span></span><span class="block hint">No line ends just before का की के में से को ने पर</span></span><span class="sw on"></span></label>
+          </div>
+          <div data-pane="b-left:timing" class="flex flex-col gap-4">
+            <div class="flex flex-col gap-1.5"><span class="lbl">Timed to</span><div class="seg"><button>Original</button><button class="on">Synced dub</button><button>The dub</button></div></div>
+            <div><div class="flex justify-between"><span class="h">Longest time on screen</span><span class="mono text-xs">6.0 s</span></div><input type="range" value="80" class="mt-2" /></div>
+            <div><div class="flex justify-between"><span class="h">Shortest time on screen <span class="new">NEW</span></span><span class="mono text-xs">0.83 s</span></div><input type="range" value="30" class="mt-2" /></div>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="flex flex-col gap-1.5"><span class="lbl">Gap between <span class="new">NEW</span></span><div class="stepper"><button>−</button><span class="mono text-[13px]">2 fr</span><button>+</button></div></div>
+              <div class="flex flex-col gap-1.5"><span class="lbl">Frame rate <span class="new">NEW</span></span><select><option>Off</option><option selected>25</option></select></div>
+            </div>
+            <p class="hint">Times snap to whole frames, for DaVinci and broadcast.</p>
+          </div>
+          <div data-pane="b-left:text" class="hidden flex-col gap-4">
+            <label class="flex items-center gap-3"><span class="flex-1"><span class="block h">Keep punctuation</span><span class="block hint">Off: no mark at all</span></span><span class="sw"></span></label>
+            <label class="flex items-center gap-3"><span class="flex-1"><span class="block h">Hide speaker names <span class="new">FIXED</span></span><span class="block hint">“वक्ता 1:” or “[Host]:”</span></span><span class="sw on"></span></label>
+            <div class="flex flex-col gap-1.5"><span class="lbl">Numbers <span class="new">NEW</span></span><div class="seg"><button class="on">As written</button><button>123</button><button>१२३</button></div></div>
+            <div class="flex flex-col gap-1.5"><span class="lbl">Encoding <span class="new">NEW</span></span><div class="seg"><button class="on">UTF-8 BOM</button><button>UTF-8</button></div></div>
+            <div class="flex flex-col gap-1.5"><span class="lbl">Line ends <span class="new">NEW</span></span><div class="seg"><button class="on">Windows</button><button>Mac/Linux</button></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="px-5 py-4 flex flex-col gap-3 bg-slate-950/40 min-w-0">
+        <div class="flex gap-3 items-center">
+          <div class="relative w-[11rem] aspect-video rounded-lg overflow-hidden frame shrink-0">
+            <span class="absolute left-1/2 bottom-0 -translate-x-1/2 w-[34%] h-[78%] rounded-t-[50%] bg-gradient-to-b from-[#5b4a3c] to-[#2b2622]"></span>
+            <span class="absolute left-1/2 top-[8%] -translate-x-1/2 w-[15%] aspect-square rounded-full bg-[#7a5f4a]"></span>
+            <span class="absolute left-1/2 bottom-[7%] -translate-x-1/2 w-max max-w-[92%] text-center text-[9.5px] leading-tight text-white bg-black/60 px-1.5 py-0.5 rounded">और यह शांति धीरे धीरे</span>
+          </div>
+          <div class="flex-1 flex items-center gap-2.5">
+            <span class="w-9 h-9 rounded-full bg-slate-100 text-slate-950 flex items-center justify-center"><svg class="w-4 h-4 ml-0.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
+            <input type="range" value="20" class="flex-1" />
+          </div>
+        </div>
+        <div class="tabs" data-tabs="b-right">
+          <button data-t="subs">Subtitles <span class="mono text-[10.5px] text-slate-500">186</span></button>
+          <button data-t="check" class="on">Check <span class="cnt">11</span></button>
+        </div>
+        <div data-pane="b-right:subs" class="hidden card overflow-hidden">
+          <div class="row"><span class="i">41</span><span class="t">00:00:12:08 → 00:00:15:02</span><span>जब आप ध्यान करते हैं<br>तो मन शांत होता है</span><span></span></div>
+          <div class="row"><span class="i">42</span><span class="t">00:00:15:04 → 00:00:16:01</span><span>और यह शांति धीरे धीरे पूरे जीवन में फैलती है</span><span></span></div>
+        </div>
+        <div data-pane="b-right:check" class="flex flex-col gap-2">
+          <div class="card">
+            <div class="flex items-center gap-2 px-3 py-2 border-b edge"><span class="dot bg-rose-400"></span><span class="h">No translation</span><span class="mono text-xs text-slate-400">3</span><span class="hint ml-auto">Left out of the file. Translate them in Review.</span></div>
+            <div class="row"><span class="i">43</span><span class="t">00:00:16:03 → 00:00:18:10</span><span class="text-slate-500 italic">“And that peace slowly spreads…” has no Hindi</span><span class="ghost !h-7 !text-[11.5px]">Open in Review</span></div>
+          </div>
+          <div class="card">
+            <div class="flex items-center gap-2 px-3 py-2 border-b edge"><span class="dot bg-amber-400"></span><span class="h">Too fast to read</span><span class="mono text-xs text-slate-400">5</span><span class="ghost !h-7 !text-[11.5px] ml-auto">Fix all 5</span></div>
+            <div class="row"><span class="i">42</span><span class="t">00:00:15:04 → 00:00:16:01</span><span>और यह शांति धीरे धीरे पूरे जीवन में फैलती है <span class="tag amber">24 cps</span></span><span class="ghost !h-7 !text-[11.5px]">Fix</span></div>
+            <div class="row"><span class="i">88</span><span class="t">00:01:41:10 → 00:01:42:05</span><span>लेकिन यह आसान नहीं है <span class="tag amber">21 cps</span></span><span class="ghost !h-7 !text-[11.5px]">Fix</span></div>
+          </div>
+          <div class="card">
+            <div class="flex items-center gap-2 px-3 py-2 border-b edge"><span class="dot bg-amber-400"></span><span class="h">Flashes by</span><span class="mono text-xs text-slate-400">2</span><span class="ghost !h-7 !text-[11.5px] ml-auto">Fix all 2</span></div>
+            <div class="row"><span class="i">44</span><span class="t">00:00:18:12 → 00:00:18:20</span><span>हाँ <span class="tag amber">0.32 s</span></span><span class="ghost !h-7 !text-[11.5px]">Fix</span></div>
+          </div>
+          <div class="card">
+            <div class="flex items-center gap-2 px-3 py-2"><span class="dot bg-sky-400"></span><span class="h">Line too long</span><span class="mono text-xs text-slate-400">1</span><span class="ghost !h-7 !text-[11.5px] ml-auto">Show</span></div>
+          </div>
+          <p class="hint text-emerald-300">✓ No overlaps · ✓ every time on a frame · ✓ no punctuation left</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-2.5 px-6 py-3.5 border-t edge">
+      <span class="text-[12.5px] text-slate-400">Reset to defaults</span>
+      <span class="flex-1"></span>
+      <span class="text-[11.5px] text-slate-500">Batch export uses these too <span class="new">NEW</span></span>
+      <span class="ghost">Script ▾</span><span class="ghost">Copy</span><span class="ghost">.vtt</span>
+      <span class="primary">Download Hindi .srt</span>
+    </div>
+  </section>
+
+  <!-- ============================== MOCK C ============================== -->
+  <div class="mt-14 flex items-center gap-3">
+    <span class="badge">MOCK C</span>
+    <h2 class="text-[15px] font-semibold text-white">Download-এর আগে ছোট check (A বা B, দুটোর সঙ্গেই)</h2>
+  </div>
+  <p class="note mt-1 max-w-3xl">
+    সমস্যা না থাকলে Download সরাসরি ফাইল দেয়, এই জানলা আসেই না। থাকলে মাঝখানে এটা খোলে।
+    <b>Fix and download</b> শুধু নিজে ঠিক করা যায় এমনগুলো ঠিক করে (দ্রুত আর ক্ষণিক সাবটাইটেল); অনুবাদ নেই এমন লাইন কখনো নিজে লেখে না।
+  </p>
+
+  <div class="mt-4 relative rounded-[18px] overflow-hidden border edge bg-slate-950/80 py-14 px-4 flex justify-center">
+    <div class="w-full max-w-[27rem] dlg p-5">
+      <div class="flex items-start gap-3">
+        <span class="w-9 h-9 rounded-[10px] bg-amber-500/15 text-amber-300 flex items-center justify-center shrink-0">
+          <svg class="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+        </span>
+        <div class="flex-1">
+          <div class="text-[15px] font-semibold text-white">11 subtitles need a look</div>
+          <div class="hint mt-0.5">The file is ready. These are what a reviewer would flag.</div>
+        </div>
+      </div>
+      <div class="mt-4 flex flex-col gap-2 text-[13px]">
+        <div class="flex items-center gap-2"><span class="dot bg-rose-400"></span><span class="flex-1">3 lines have no Hindi</span><span class="hint">left out</span></div>
+        <div class="flex items-center gap-2"><span class="dot bg-amber-400"></span><span class="flex-1">5 too fast to read</span><span class="hint">can fix</span></div>
+        <div class="flex items-center gap-2"><span class="dot bg-amber-400"></span><span class="flex-1">2 flash by in under 0.83 s</span><span class="hint">can fix</span></div>
+        <div class="flex items-center gap-2"><span class="dot bg-sky-400"></span><span class="flex-1">1 line over 37 characters</span><span class="hint">edit by hand</span></div>
+      </div>
+      <div class="mt-5 flex flex-wrap items-center gap-2">
+        <span class="text-[12.5px] text-slate-400 mr-auto cursor-default">Show them</span>
+        <span class="ghost">Download anyway</span>
+        <span class="primary !h-9 !text-[13px]">Fix 7 and download</span>
+      </div>
+    </div>
+  </div>
+
+  <p class="note mt-10 max-w-3xl">
+    দুই মকেই একই: <b>Lines per subtitle</b>-এ ৩ নেই (মানদণ্ড ২), batch export এই সেটিংসই নেয়, আর পুরোনো ব্যবহার-না-হওয়া "master SRT" কোড মুছে যাবে।
+    কোনটা ভালো লাগল বলুন — A, B, নাকি দুটো মিলিয়ে (যেমন A-র এক কলাম + B-র Check tab)।
+  </p>
+</div>
+
+<script>
+  document.querySelectorAll('[data-tabs]').forEach((bar) => {
+    const name = bar.dataset.tabs;
+    bar.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+      bar.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+      document.querySelectorAll(`[data-pane^="${name}:"]`).forEach((p) => {
+        const show = p.dataset.pane === `${name}:${b.dataset.t}`;
+        p.classList.toggle('hidden', !show);
+        p.classList.toggle('flex', show);
+      });
+    }));
+  });
+  document.querySelectorAll('.seg').forEach((s) => s.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => s.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)))));
+  document.querySelectorAll('.sw').forEach((s) => s.closest('label')?.addEventListener('click', () => s.classList.toggle('on')));
+</script>
+</body>
+</html>

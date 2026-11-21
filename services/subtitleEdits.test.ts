@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { editedSrt, editedVtt, fingerprint, parseStampInput, stamp, subtitlesAsScript } from './subtitleEdits.ts';
+import { cuesForExport, editedSrt, editedVtt, fingerprint, parseStampInput, stamp, subtitlesAsScript } from './subtitleEdits.ts';
 
 test('reads hand-typed times', () => {
   assert.equal(parseStampInput('00:01:02,500'), 62.5);
@@ -119,4 +119,11 @@ test('stats flag fast, tall and wide subtitles', () => {
   assert.equal(subtitleStats({ start: 0, end: 0.5, text: 'a fairly long line of words' }, limits).overCps, true);
   assert.equal(subtitleStats({ start: 0, end: 9, text: 'x'.repeat(43) }, limits).longLine, true);
   assert.equal(isEditedSubtitle({ start: 0, end: 1, text: 'a', auto: 'a' }), false);
+});
+
+test('with Keep punctuation off, marks typed by hand are left out of the file', () => {
+  const cues = [{ start: 0, end: 1, text: 'पहली पंक्ति,\nदूसरी पंक्ति।' }];
+  assert.deepEqual(cuesForExport(cues, true), cues);
+  assert.equal(cuesForExport(cues, false)[0].text, 'पहली पंक्ति\nदूसरी पंक्ति');
+  assert.equal(editedSrt(cuesForExport([{ start: 0, end: 1, text: '।' }], false)), '');
 });

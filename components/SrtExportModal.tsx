@@ -8,10 +8,8 @@ import {
   generateSrtContent,
   generateVttContent,
   downloadFile,
-  SubtitleCasing,
   SubtitleExportChoice,
   SubtitleTiming,
-  SubtitleTrack,
   DEFAULT_SUBTITLE_EXPORT_CHOICE,
   resolveSubtitleTiming,
   buildSubtitleSegments,
@@ -20,7 +18,8 @@ import {
   generateTargetLanguageScript,
   TargetScriptFormat,
 } from '../services/srtService';
-import { DEFAULT_MAX_CPS, editedSrt, editedVtt, fingerprint, subtitleEditKey, subtitlesAsScript } from '../services/subtitleEdits';
+import { DEFAULT_MAX_CPS, cuesForExport, editedSrt, editedVtt, fingerprint, subtitleEditKey, subtitlesAsScript } from '../services/subtitleEdits';
+import { hasPunctuation } from '../services/subtitleText';
 import { SubtitleEditor, loadMaxCps, saveMaxCps } from './SubtitleEditor';
 import { DUB_TIMING_LIMIT_MS, useDubWordTimings } from '../services/dubSubtitleTiming';
 import { PageScrollLock } from './usePageScrollLock';
@@ -29,7 +28,6 @@ import { useWindowRows, type WindowRows } from './useWindowRows';
 /** Short names for the presets, which carry long ones for elsewhere. */
 const PRESET_LABELS: Record<string, string> = {
   shorts_viral: 'Short-form',
-  shorts_uppercase: 'Short-form, CAPS',
   dynamic_5words: 'One line',
   youtube_standard: 'YouTube',
   broadcast_netflix: 'Broadcast',
@@ -70,8 +68,6 @@ interface SrtExportModalProps {
   onClose: () => void;
   segments: AudioSegment[];
   targetLanguage: string;
-  /** Source language ElevenLabs transcribed, used to label the original track. */
-  sourceLanguage?: string;
   /** The project's name, which saved files start with: "talk - Hindi synced.srt". */
   fileStem?: string;
   initialOptions?: SrtOptions;
@@ -104,7 +100,6 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   onClose,
   segments,
   targetLanguage,
-  sourceLanguage = '',
   fileStem,
   initialOptions,
   onOptionsChange,
@@ -131,14 +126,14 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   const [previewIndex, setPreviewIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<'srt' | 'vtt'>('srt');
   /*
-   * Which language track to export and what it is timed to. Both are saved, so
-   * the Export subtitles button shows what this modal last used. A saved
-   * timing this project lacks falls back to the most exact one it has.
+   * What the subtitles are timed to. Saved, so the Export subtitles button
+   * shows what this modal last used. A saved timing this project lacks falls
+   * back to the most exact one it has. The text is always the dub's language:
+   * there are no original-language subtitles.
    */
   const hasSynced = Boolean(syncedSegments && syncedSegments.length > 0);
-  const scriptTrack = exportChoice.track;
+  const scriptTrack = 'target' as const;
   const syncMode = resolveSubtitleTiming(exportChoice.timing, hasSynced, hasSynthAudio);
-  const setScriptTrack = (track: SubtitleTrack) => onExportChoiceChange?.({ track, timing: exportChoice.timing });
   const setSyncMode = (timing: SubtitleTiming) => onExportChoiceChange?.({ track: scriptTrack, timing });
 
   /*
@@ -280,12 +275,11 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
         segments,
         syncedSegments,
         timing: syncMode,
-        track: scriptTrack,
         synthAudioDuration: hasSynthAudio ? synthAudioDuration : 0,
         options,
         dubWordTimings,
       }),
-    [segments, syncedSegments, syncMode, scriptTrack, hasSynthAudio, synthAudioDuration, options, dubWordTimings]
+    [segments, syncedSegments, syncMode, hasSynthAudio, synthAudioDuration, options, dubWordTimings]
   );
 
   /** True when every exported cue boundary is a measured ElevenLabs word. */
@@ -349,8 +343,12 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewIndex]);
   const editedSince = Boolean(edit && edit.basis !== fingerprint(previewSrt));
-  const outSrt = edit ? editedSrt(edit.cues) : previewSrt;
-  const outVtt = edit ? editedVtt(edit.cues) : previewVtt;
+  /** Punctuation off means none in the file, marks typed by hand included. */
+  const keepPunctuation = options.includePunctuation !== false;
+  const exportCues = useMemo(() => (edit ? cuesForExport(edit.cues, keepPunctuation) : null), [edit, keepPunctuation]);
+  const outSrt = exportCues ? editedSrt(exportCues) : previewSrt;
+  const outVtt = exportCues ? editedVtt(exportCues) : previewVtt;
+  const editHasPunctuation = Boolean(edit && !keepPunctuation && edit.cues.some((c) => hasPunctuation(c.text)));
   /** Undo and redo for this session's hand edits, one list per track and timing. */
   const [undoStack, setUndoStack] = useState<{ key: string; cues: EditedSubtitle[] }[]>([]);
   const [redoStack, setRedoStack] = useState<{ key: string; cues: EditedSubtitle[] }[]>([]);
@@ -400,9 +398,9 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   }, [scriptMenuOpen]);
   const saveScript = (format: TargetScriptFormat) => {
     setScriptMenuOpen(false);
-    const lines = subtitlesAsScript(edit ? edit.cues : autoCues.map((c) => ({ start: c.start, end: c.end, text: c.lines.join('\n') })));
+    const lines = subtitlesAsScript(exportCues ?? autoCues.map((c) => ({ start: c.start, end: c.end, text: c.lines.join('\n') })));
     if (lines.length === 0) return;
-    const language = scriptTrack === 'source' ? sourceLanguage || 'Original' : targetLanguage;
+    const language = targetLanguage;
     const content = generateTargetLanguageScript(lines, language, format, `${language} subtitles`);
     const ext = format === 'csv' ? 'csv' : 'txt';
     downloadFile(content, `${filePrefix} script ${format}.${ext}`, format === 'csv' ? 'text/csv' : 'text/plain;charset=utf-8');
@@ -421,7 +419,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   };
 
   /** Names the file after the track actually being exported. */
-  const exportLabel = subtitleFileLabel(scriptTrack === 'source' ? sourceLanguage || 'original' : targetLanguage, syncMode);
+  const exportLabel = subtitleFileLabel(targetLanguage, syncMode);
   /** "talk - hindi_synced": the project's name, then the track; "dhvani_hindi_synced_subtitles" when there is no project. */
   const filePrefix = fileStem ? `${fileStem} - ${exportLabel}` : `dhvani_${exportLabel}_subtitles`;
 
@@ -451,7 +449,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
 
   const longest = cues.reduce((m, c) => Math.max(m, c.end - c.start), 0);
   const widest = cues.reduce((m, c) => Math.max(m, ...c.lines.map((l) => l.length)), 0);
-  const trackName = scriptTrack === 'source' ? sourceLanguage || 'Original' : targetLanguage;
+  const trackName = targetLanguage;
 
   const seg = (on: boolean) =>
     `flex-1 px-2.5 py-1.5 rounded-[7px] text-[12.5px] font-medium whitespace-nowrap transition-colors cursor-default disabled:opacity-40 disabled:cursor-not-allowed ${
@@ -520,18 +518,6 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
                     {PRESET_LABELS[p.id] || p.name}
                   </button>
                 ))}
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs text-slate-400">Language</span>
-              <div className={segWrap} role="group" aria-label="Language">
-                <button type="button" aria-pressed={scriptTrack === 'target'} onClick={() => setScriptTrack('target')} className={seg(scriptTrack === 'target')}>
-                  {targetLanguage}
-                </button>
-                <button type="button" aria-pressed={scriptTrack === 'source'} onClick={() => setScriptTrack('source')} className={seg(scriptTrack === 'source')}>
-                  {sourceLanguage || 'Original'}
-                </button>
               </div>
             </div>
 
@@ -662,25 +648,10 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
               </div>
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs text-slate-400">Letters</span>
-              <div className={segWrap} role="group" aria-label="Letters">
-                {([
-                  ['original', 'As written'],
-                  ['capitalize', 'Capitalised'],
-                  ['uppercase', 'UPPERCASE'],
-                ] as [SubtitleCasing, string][]).map(([value, label]) => (
-                  <button key={value} type="button" aria-pressed={(options.casing || 'original') === value} onClick={() => setOpt({ casing: value })} className={seg((options.casing || 'original') === value)}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {[
               {
                 label: 'Keep punctuation',
-                hint: '। , ? and ! stay in the subtitle',
+                hint: options.includePunctuation ? '। , ? ! and the rest stay in the subtitle' : 'Off: no mark at all, । ॥ , ? ! “ ” … — included',
                 on: options.includePunctuation,
                 toggle: () => setOpt({ includePunctuation: !options.includePunctuation }),
               },
@@ -873,13 +844,19 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
               </p>
             )}
 
+            {editHasPunctuation && (
+              <p className="text-[11.5px] text-amber-300">
+                Keep punctuation is off: the marks typed here are left out of the file.
+              </p>
+            )}
+
             {edit ? (
               <SubtitleEditor
                 cues={edit.cues}
                 maxChars={Math.max(10, options.maxCharsPerLine || 25)}
                 maxLines={Math.max(1, options.maxLinesPerCue || 1)}
                 maxCps={maxCps}
-                language={scriptTrack === 'source' ? sourceLanguage : targetLanguage}
+                language={targetLanguage}
                 words={subtitleWords}
                 activeRow={activeRow}
                 onPick={(i, seek) => {
