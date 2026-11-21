@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.4',
+    changes: [
+      'Hindi translation says things the way people speak: no bookish words like नश्वरता or संशय. A line that still has one is asked once more in spoken words.',
+      'The Sadhguru style keeps classical words only for spiritual terms like mukti and sadhana.',
+    ],
+  },
+  {
     version: '1.5.3',
     changes: [
       'Export subtitles is always in the dub language. The original-language track and the CAPS style are gone.',
