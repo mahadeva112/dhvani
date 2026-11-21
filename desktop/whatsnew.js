@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.3',
+    changes: [
+      'Export subtitles is always in the dub language. The original-language track and the CAPS style are gone.',
+      'With Keep punctuation off, every mark is left out in any script, in subtitles you edited by hand too. Numbers like 2.5 and 10:30 stay as they are.',
+    ],
+  },
+  {
     version: '1.5.2',
     changes: [
       'Export for DaVinci, beta: with DaVinci Resolve Studio, "Export and open in Studio" makes a new Resolve project, imports the timeline and subtitles, and opens the Edit page. The free version keeps File › Import › Timeline.',
