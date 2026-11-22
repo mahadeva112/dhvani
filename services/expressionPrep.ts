@@ -2,6 +2,7 @@ import type { AudioSegment } from '../types';
 import { apiUpload } from './apiClient';
 import { audioBufferToWav, readRange } from './audioService';
 import type { WaveAudio } from './waveform';
+import { speakerOf } from './speakers';
 import { SECTION_PAD_SECONDS } from '../server/lib/sourceSections.js';
 import { expressionOf, lineText, planExpression, wordsOf, type ExpressionSection, type ExpressionTags } from './expressionTags';
 
@@ -56,6 +57,9 @@ export const hearExpression = async (
     const form = new FormData();
     form.append('file', await sectionClip(audio, section), 'section.wav');
     form.append('lines', JSON.stringify(lines));
+    // Who says each line, when more than one person speaks in the section: each is tagged from their own delivery.
+    const speakers = section.indexes.map((i) => speakerOf(segments[i]));
+    if (new Set(speakers).size > 1) form.append('speakers', JSON.stringify(speakers));
     if (language) form.append('language', language);
     const result = await apiUpload<{ lines: string[] }>('/delivery/source-cues/section', form, { signal });
     const entries: ExpressionTags = {};

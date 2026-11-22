@@ -301,6 +301,7 @@ import { setDubLanguage } from './services/dubLanguage';
 import {
   BatchJob,
   SpeakerProfile,
+  SpeakerVoice,
   ProcessingStatus,
   AudioSegment,
   AudioTrackMode,
@@ -2954,9 +2955,21 @@ export default function App() {
    * what it says and how it was voiced, so Sync again reuses it until that
    * changes; lines reworded since are voiced on their own.
    */
-  /** Whether the dub's voice can take Natural or Expressive: an Eleven v3/v4 model, or a Cartesia sonic-3 one. */
-  const expressionTakesTags = (voice: Pick<DubVoice, 'voiceId' | 'modelId' | 'cartesia'> = { voiceId: elVoiceId, modelId: elModelId, cartesia: cartesiaVoice }) =>
-    isCartesiaVoice(voice.voiceId) ? cartesiaTakesControls(voice.cartesia.modelId) : performsAudioTags(voice.modelId);
+  /**
+   * Whether the dub's voices can take Natural or Expressive: an Eleven v3/v4
+   * model, or a Cartesia sonic-3 one. With several speakers, `cast` is theirs:
+   * every voice of its own has to take them too (a Cartesia voice in an
+   * ElevenLabs cast is read on the Cartesia model, and the other way round).
+   */
+  const expressionTakesTags = (
+    voice: Pick<DubVoice, 'voiceId' | 'modelId' | 'cartesia'> = { voiceId: elVoiceId, modelId: elModelId, cartesia: cartesiaVoice },
+    cast?: Record<string, SpeakerVoice>
+  ) =>
+    [voice.voiceId, ...Object.values(cast || {}).map((each) => each?.voiceId)]
+      .filter((id): id is string => Boolean(id))
+      .every((id) => (isCartesiaVoice(id) ? cartesiaTakesControls(voice.cartesia.modelId) : performsAudioTags(voice.modelId)));
+  /** The cast Sync voices a job with: only when its cues name more than one speaker. */
+  const voicingCast = (job: BatchJob) => (isMultiSpeaker(job.segments) ? job.cast : undefined);
 
   /** The voice as it is set now, for a dub pressed now. */
   const currentDubVoice = (): DubVoice => ({
@@ -2983,11 +2996,10 @@ export default function App() {
   const expressionWanted = Boolean(
     activeJob &&
       voiceExpression === 'natural' &&
-      expressionTakesTags() &&
+      expressionTakesTags(undefined, voicingCast(activeJob)) &&
       !awaitingScript &&
       activeStep >= 2 &&
-      activeJob.segments.length > 0 &&
-      !isMultiSpeaker(activeJob.segments)
+      activeJob.segments.length > 0
   );
   const expressionPlan = useMemo(
     () => (expressionWanted && activeJob ? planExpression(activeJob.segments, expressionLanguage, activeJob.expressionTags) : null),
@@ -3265,8 +3277,8 @@ export default function App() {
     try {
       const several = isMultiSpeaker(activeJob.segments);
       const language = activeJob.language || voice.language;
-      // Tags need one voice on a model that performs them; otherwise the dub is voiced as Neutral (or Off).
-      const tags = !several && expressionTakesTags(voice);
+      // Tags need every voice on a model that performs them; otherwise the dub is voiced as Neutral (or Off).
+      const tags = expressionTakesTags(voice, several ? activeJob.cast : undefined);
       const expression: VoiceExpression = tags || voice.expression === 'off' ? voice.expression : 'neutral';
       const cartesiaDub = cartesiaForExpression(voice.cartesia, expression);
       let voiceTexts: Record<string, string> | undefined;
@@ -3631,7 +3643,7 @@ export default function App() {
       // The voice the dub was synced with, as Sync voices it.
       const several = isMultiSpeaker(job.segments);
       const language = job.language || selectedLanguage;
-      const tags = !several && expressionTakesTags();
+      const tags = expressionTakesTags(undefined, several ? job.cast : undefined);
       const expression: VoiceExpression = tags || voiceExpression === 'off' ? voiceExpression : 'neutral';
       let voiceText: string | undefined;
       if (expression === 'natural' && !phrase && !spoken) {

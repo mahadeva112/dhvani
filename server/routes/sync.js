@@ -173,8 +173,15 @@ const castVoices = (cast, main, { requested, seed, steady, tuneStability }) => {
       { status: 400, code: 'cast_sample_rates' }
     );
   }
-  return (speaker) => voices.get(speaker) || main;
+  const voiceOf = (speaker) => voices.get(speaker) || main;
+  // Every voice a speaker has of their own, for what applies to all of them (tags).
+  voiceOf.voices = [...voices.values()];
+  return voiceOf;
 };
+
+/** Whether a voice performs tags: an Eleven v3/v4 model (ElevenLabs) or sonic-3 (Cartesia). */
+const voiceTakesTags = (voice) =>
+  voice.cartesia ? /^sonic-3/.test(voice.modelId || config.cartesia.ttsModel) : performsTags(voice.modelId || config.elevenlabs.ttsModel);
 
 /**
  * Delivery cues already added to a set of lines, by language and text. The
@@ -560,12 +567,10 @@ syncRouter.post(
       : { ...makeVoice({ voiceId, modelId, voiceSettings }, voiceOptions), modelId, outputFormat: format };
     const several = multiSpeaker === true;
     const voiceFor = several ? castVoices(cast, voice, voiceOptions) : undefined;
-    // Emotion follows the dub: one voice on a model that performs tags (ElevenLabs) or takes an emotion (Cartesia sonic-3).
-    const tags =
-      !several &&
-      (cartesia ? /^sonic-3/.test(voice.modelId || config.cartesia.ttsModel) : performsTags(voice.modelId || config.elevenlabs.ttsModel));
+    // Emotion follows the dub: every voice on a model that performs tags (ElevenLabs) or takes an emotion (Cartesia sonic-3).
+    const tags = [voice, ...(voiceFor?.voices || [])].every(voiceTakesTags);
     const sourceTagged = tags && performanceTags === true;
-    if (sourceTagged) voice.performanceTags = true;
+    if (sourceTagged) for (const each of [voice, ...(voiceFor?.voices || [])]) each.performanceTags = true;
     const lineSegments = sourceTagged ? segments : segments.map((segment) => (segment && typeof segment === 'object' ? { ...segment, voiceText: undefined } : segment));
     // Expressive on Cartesia needs no cues: with no emotion set, sonic-3 takes it from the words.
     const cueLines = tags && !cartesia && !sourceTagged && expressive === true ? cueLinesWith({ language, apiKey: textModelKey }) : undefined;
@@ -944,13 +949,13 @@ syncRouter.post(
     const several = multiSpeaker === true;
     let voice = several ? castVoices(cast, main, voiceOptions)(textOf(line?.speaker, 128)) : main;
     const readCount = Number.isInteger(line?.readCount) && line.readCount > 0 ? Math.min(line.readCount, 20000) : 1;
-    const tags =
-      !several && (cartesia ? /^sonic-3/.test(main.modelId || config.cartesia.ttsModel) : performsTags(main.modelId || config.elevenlabs.ttsModel));
+    // The line's own voice: with several speakers, its speaker's.
+    const tags = voiceTakesTags(voice);
     const voiceText = textOf(line?.voiceText);
     const sourceTagged = tags && !phrase && performanceTags === true && Boolean(voiceText);
     if (sourceTagged) voice = { ...voice, performanceTags: true };
     // Tags the user typed into the line's words, or into the words said in place of the picked ones, are read as they are, and none are added to them.
-    const typedTags = tags && !cartesia && (!phrase || picked.reworded) && ownTags === true;
+    const typedTags = tags && !voice.cartesia && (!phrase || picked.reworded) && ownTags === true;
     if (typedTags) voice = { ...voice, ownTags: true };
 
     // A direction changes how the voice is asked to read, starting from the settings the line was read with.

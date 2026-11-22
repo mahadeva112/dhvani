@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { acceptSourceCues, performanceTag, groupSections, buildSourceCuePrompt, SECTION_SECONDS } from './sourceCues.js';
+import { acceptSourceCues, performanceTag, groupSections, buildSourceCuePrompt, SECTION_SECONDS, speakerLabels, dropSpeakerLabel } from './sourceCues.js';
 import { cleanTextForNaturalSpeech, readSettings, NEUTRAL_VOICE } from '../providers/elevenlabs/speech.js';
 import { splitPassages } from './ttsText.js';
 
@@ -51,6 +51,20 @@ test('the prompt carries the framework, the line count and the script', () => {
   assert.match(prompt, /Hindi dub script/);
   assert.ok(prompt.endsWith('पहली पंक्ति।\nदूसरी पंक्ति।'));
   assert.doesNotMatch(prompt, /English Output Only/);
+});
+
+test('with several speakers each line is labelled with who says it, and labels never come back', () => {
+  const lines = ['सवाल क्या है?', 'जवाब यह है।', 'और फिर?'];
+  assert.deepEqual(speakerLabels(['Asker', 'Sadhguru', 'Asker'], 3), ['A', 'B', 'A']);
+  assert.equal(speakerLabels(['Sadhguru', 'Sadhguru', 'Sadhguru'], 3), null);
+  assert.equal(speakerLabels(['Asker', 'Sadhguru'], 3), null);
+  const prompt = buildSourceCuePrompt(lines, 'Hindi', ['Asker', 'Sadhguru', 'Asker']);
+  assert.match(prompt, /2 people speak in the audio/);
+  assert.ok(prompt.endsWith('A: सवाल क्या है?\nB: जवाब यह है।\nA: और फिर?'));
+  // One speaker: the prompt is as it always was.
+  assert.equal(buildSourceCuePrompt(lines, 'Hindi', ['S', 'S', 'S']), buildSourceCuePrompt(lines, 'Hindi'));
+  assert.equal(dropSpeakerLabel('B: [explaining, calm] जवाब यह है।', 'जवाब यह है।'), '[explaining, calm] जवाब यह है।');
+  assert.equal(dropSpeakerLabel('A: सही', 'A: सही'), 'A: सही');
 });
 
 test('performance tags reach the voice only when asked for', () => {

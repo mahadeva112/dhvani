@@ -71,7 +71,7 @@ import {
   MAX_VOICE_SPEED,
   type VoiceExpression,
 } from '../services/elevenLabsService';
-import { cartesiaTakesControls, MIN_CARTESIA_SPEED, MAX_CARTESIA_SPEED, type CartesiaVoicePrefs } from '../services/cartesiaService';
+import { cartesiaTakesControls, isCartesiaVoice, MIN_CARTESIA_SPEED, MAX_CARTESIA_SPEED, type CartesiaVoicePrefs } from '../services/cartesiaService';
 import { SpeakerCastCard, SavedCastMenu, genderShort, type OwnSettingControl, type HeardState } from './SpeakerCastCard';
 import { hearSpeakerVoice, suggestSpeakerVoices } from '../services/speakerVoice';
 import { samplePassage } from '../services/samplePassages';
@@ -1198,6 +1198,20 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   // Several speakers: who they are, labels that look like slips, and where two talk at once.
   const speakers = useMemo(() => listSpeakers(segments), [segments]);
   const multiSpeaker = useMemo(() => isMultiSpeaker(segments), [segments]);
+  /*
+   * Natural and Expressive need every voice that speaks on a model that takes
+   * tags: the main voice's engine, and with several speakers each voice of
+   * their own (a Cartesia voice reads on the Cartesia model, any other on the
+   * ElevenLabs one).
+   */
+  const takesTagsOn = (cartesia: boolean) => (cartesia ? cartesiaTakesControls(cartesiaModelId) : Boolean(elModelId && performsAudioTags(elModelId)));
+  const castVoiceIds = multiSpeaker ? Object.values(activeJob?.cast || {}).map((each) => each?.voiceId).filter((id): id is string => Boolean(id)) : [];
+  const takesCues = takesTagsOn(voiceEngine === 'cartesia') && castVoiceIds.every((id) => takesTagsOn(isCartesiaVoice(id)));
+  const notTagged = multiSpeaker
+    ? "Natural and Expressive need every speaker's voice on Eleven v3 or v4 (or Sonic 3 for a Cartesia voice)."
+    : voiceEngine === 'cartesia'
+      ? 'Natural and Expressive need a Sonic 3 model.'
+      : 'Natural and Expressive need Eleven v3 or v4.';
   const speakerColorOf = useMemo(() => new Map(speakers.map((sp) => [sp.name, sp.color])), [speakers]);
   // Sync settings from the header's menu: the Dub step's rail opens its own window, with Fit and Sync; any other step opens it on its own.
   const onDubStep = activeStep === 3 && Boolean(activeJob);
@@ -4550,8 +4564,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           ? presetSuggestion(linePreview.units.map((u) => ({ speech: u.read, srcStart: u.srcStart, srcEnd: u.srcEnd })))
           : null;
         const cartesiaVoice = voiceEngine === 'cartesia';
-        const takesCues =
-          (cartesiaVoice ? cartesiaTakesControls(cartesiaModelId) : Boolean(elModelId && performsAudioTags(elModelId))) && !multiSpeaker;
         const dubSettingsCard = (
           <DubSettingsCard
             disabled={isSyncing}
@@ -4594,11 +4606,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 takesCues,
                 cartesia: cartesiaVoice,
                 prep: expressionPrep && voiceExpression === 'natural' ? <ExpressionPrepNote view={expressionPrep} onSeeTags={seeExpressionTags} /> : null,
-                notTagged: multiSpeaker
-                  ? 'Natural and Expressive are for a dub in one voice.'
-                  : cartesiaVoice
-                    ? 'Natural and Expressive need a Sonic 3 model.'
-                    : 'Natural and Expressive need Eleven v3 or v4.',
+                notTagged,
               }
             }
             voiceSettings={
@@ -5263,14 +5271,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   {onVoiceExpressionChange && (() => {
                     // Tags are written for one continuous read on a model that performs them; anything else is Neutral (or Off).
                     const cartesia = voiceEngine === 'cartesia';
-                    const takesCues =
-                      (cartesia ? cartesiaTakesControls(cartesiaModelId) : Boolean(elModelId && performsAudioTags(elModelId))) && !multiSpeaker;
                     const current: VoiceExpression = takesCues || voiceExpression === 'off' ? voiceExpression : 'neutral';
-                    const notTagged = multiSpeaker
-                      ? 'Natural and Expressive are for a dub in one voice.'
-                      : cartesia
-                        ? 'Natural and Expressive need a Sonic 3 model.'
-                        : 'Natural and Expressive need Eleven v3 or v4.';
                     return (
                       <VoiceRow
                         label="Expression"

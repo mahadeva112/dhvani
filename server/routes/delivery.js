@@ -62,8 +62,9 @@ const SECTION_CLIP_SECONDS = 120;
  *
  * Multipart: `file` is that stretch of the source audio alone (the app cuts
  * it, see groupSections in sourceSections.js), `lines` a JSON list of the
- * section's dub lines in spoken order and `language` their language.
- * Responds `{ lines, tagged }`, each line with tags or as written.
+ * section's dub lines in spoken order, `language` their language and
+ * `speakers` (optional) a JSON list of who says each line, sent when more
+ * than one person speaks. Responds `{ lines, tagged }`, each line with tags or as written.
  */
 deliveryRouter.post(
   '/delivery/source-cues/section',
@@ -86,12 +87,24 @@ deliveryRouter.post(
       if (!res.writableFinished) controller.abort();
     });
 
+    // Who says each line, when more than one person speaks (see buildSourceCuePrompt).
+    let speakers;
+    try {
+      speakers = JSON.parse(req.body?.speakers || 'null');
+    } catch {
+      speakers = null;
+    }
+    if (!Array.isArray(speakers) || speakers.length !== lines.length || speakers.some((name) => typeof name !== 'string' || name.length > 128)) {
+      speakers = undefined;
+    }
+
     const clip = await cutAudioClip(req.file.path, 0, SECTION_CLIP_SECONDS, { signal: controller.signal });
     if (controller.signal.aborted) throw cancelledError('Source cues');
     res.json(
       await tagClip(clip, lines.map((line) => line.trim()), {
         language: req.body?.language || undefined,
         apiKey: req.get('x-gemini-key') || undefined,
+        speakers,
       })
     );
   })
