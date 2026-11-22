@@ -176,8 +176,11 @@ pipelineRouter.post(
       ? translationFingerprint({ cues: sourceCues.map(({ id, text, startTime, endTime, speaker }) => ({ id, text, startTime, endTime, speaker })), sourceLanguage, targetLanguage, customPrompt, voiceRate, speakerRates, ...(speakerGenders && { speakerGenders }), fast: fast === true, ...(natural === true && { natural: true }) })
       : null;
     if (job) pruneCheckpoints();
-    // Natural translation keeps no checkpoints: it starts over after a restart.
-    const resumeFrom = job && natural !== true ? loadCheckpoint(jobId, fingerprint) : null;
+    // Fast translate writes like Natural, whole sentences first, only without
+    // its glossary and checks (quick); neither keeps checkpoints, so both start
+    // over after a restart.
+    const sentenceFirst = natural === true || fast === true;
+    const resumeFrom = job && !sentenceFirst ? loadCheckpoint(jobId, fingerprint) : null;
     if (resumeFrom) {
       const kept = Object.keys(resumeFrom.translations || {}).length;
       logger.info(`Resuming translation ${jobId}: ${kept} cue(s) were done before the restart.`);
@@ -186,7 +189,7 @@ pipelineRouter.post(
 
     try {
       // Natural translate: whole sentences first, cut onto the cues after (naturalTranslation.js).
-      const translate = natural === true ? translateNatural : translateCueTexts;
+      const translate = sentenceFirst ? translateNatural : translateCueTexts;
       const outcome = await translate(sourceCues, {
         sourceLanguage,
         targetLanguage,
@@ -195,8 +198,8 @@ pipelineRouter.post(
         speakerRates,
         // Who is a woman and who a man, as the user set it in the Cast (speakerGender.js).
         speakerGenders,
-        // Fast translate: translation only, no checks, batches in parallel.
-        fast: fast === true,
+        // Fast translate: Natural's writing, no glossary or meaning review, only the bookish-word fix.
+        quick: natural !== true && fast === true,
         apiKey: req.get('x-gemini-key') || undefined,
         onProgress: (event) => send({ type: 'progress', cueCount, ...event }),
         resumeFrom,

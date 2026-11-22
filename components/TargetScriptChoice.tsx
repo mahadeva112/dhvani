@@ -42,7 +42,7 @@ interface TargetScriptChoiceProps {
   onFitToVoiceChange?: (on: boolean) => void;
   /** Runs the existing translation on the transcript. Only called from the button here. */
   onTranslate: () => Promise<void>;
-  /** Fast translate: translation only, no meaning, length or term checks. */
+  /** Fast translate: written sentence by sentence like Natural, no meaning, length or term checks. */
   onFastTranslate?: () => Promise<void>;
   /** Natural: each sentence written whole in spoken language, then cut back onto its cues. */
   onNaturalTranslate?: () => Promise<void>;
@@ -556,7 +556,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
                           type="button"
                           onClick={() => void handleFastTranslate()}
                           disabled={translateDisabled}
-                          title={`Fast translate to ${targetLanguage}: translation only. Skips meaning, length and term checks.`}
+                          title={`Fast translate to ${targetLanguage}: whole sentences in everyday spoken words, quickly. Skips meaning, length and term checks.`}
                           className="flex-1 min-w-0 h-10 px-3 flex items-center justify-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm font-medium transition-colors disabled:text-slate-500 disabled:hover:bg-slate-900 disabled:cursor-not-allowed cursor-default active:translate-y-px"
                         >
                           <Zap className="w-4 h-4" aria-hidden="true" />

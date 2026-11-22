@@ -3251,7 +3251,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   }}
                   disabled={isTranslatingLanguage || segments.length === 0}
                   className={`${railButton} h-9 text-[13px]`}
-                  title="Translate every cue again, translation only: skips the meaning, length and term checks"
+                  title="Translate again sentence by sentence in everyday spoken words, quickly: skips the meaning, length and term checks"
                 >
                   {isTranslatingLanguage && retranslateWay === 'fast' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
                   {isTranslatingLanguage && retranslateWay === 'fast' ? 'Fast translating…' : 'Fast re-translate'}

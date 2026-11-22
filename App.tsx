@@ -1469,7 +1469,7 @@ export default function App() {
    * is sent to the translation engine, and only on the user's click. When the
    * transcript is already in the dub language it becomes the script as-is,
    * the same shortcut the pipeline takes, so no credits are spent on it.
-   * `fast` is Fast translate: translation only, no checks; `natural` is
+   * `fast` is Fast translate: Natural's writing without its checks; `natural` is
    * Natural: whole sentences first, cut back onto the cues.
    */
   const handleTranslateTranscript = useCallback(async ({ fast = false, natural = false }: { fast?: boolean; natural?: boolean } = {}) => {

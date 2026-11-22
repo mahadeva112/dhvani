@@ -195,3 +195,28 @@ test('the glossary keeps only terms the talk says more than once', async () => {
   );
   assert.deepEqual(kept.map((t) => t.english), ['ghost', 'Amavasya']);
 });
+
+test('quick (Fast translate) writes like Natural with no glossary or meaning review, and only fixes a bookish word', async () => {
+  // Twelve one-sentence cues: three batches, so the full mode would read a glossary first.
+  const cues = Array.from({ length: 12 }, (_, i) => cue(`q${i + 1}`, `Sentence number ${i + 1} is here.`, i * 3, i * 3 + 2));
+  const prompts = [];
+  const generate = async ({ contents }) => {
+    const prompt = contents.parts[0].text;
+    prompts.push(prompt);
+    if (prompt.includes('INPUT SENTENCES')) {
+      const ids = [...prompt.split('INPUT SENTENCES')[1].matchAll(/"id": "([^"]+)"/g)].map((m) => m[1]);
+      const sentences = ids.map((id) => ({ id, natural: id === 'n-1' ? 'তাহার কথা।' : 'ওর কথা।' }));
+      return { response: { text: JSON.stringify({ sentences }) }, modelUsed: 'fake' };
+    }
+    const ids = [...prompt.matchAll(/"id": "([^"]+)"/g)].map((m) => m[1]);
+    return { response: { text: JSON.stringify({ translations: ids.filter((id) => id === 'n-1').map((id) => ({ id, translatedText: 'তার কথা।' })) }) }, modelUsed: 'fake' };
+  };
+  const out = await translateNatural(cues, { targetLanguage: 'Bengali', generate, quick: true });
+  assert.ok(!prompts.some((p) => p.includes('preparing the glossary')), 'no glossary');
+  assert.ok(!prompts.some((p) => p.includes('strict reviewer')), 'no meaning review');
+  const fixes = prompts.filter((p) => !p.includes('INPUT SENTENCES'));
+  assert.equal(fixes.length, 1, 'one fix call, for the batch with the bookish word');
+  assert.match(fixes[0], /"তাহার" is a written, bookish word/);
+  assert.equal(out.translations.get('q1'), 'তার কথা।');
+  assert.equal(out.translations.size, 12);
+});

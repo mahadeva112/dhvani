@@ -434,20 +434,23 @@ const writeBatch = async (generate, prompt, ids, options) => {
  * same time, then one fix call for everything found. A fixed line is kept
  * when it scores no worse (a meaning fix may run up to a few syllables longer).
  */
-const translateUnitBatch = async (batch, { generate, sourceLanguage, targetLanguage, customPrompt, before, after, terms, brief, apiKey, models }) => {
+const translateUnitBatch = async (batch, { generate, sourceLanguage, targetLanguage, customPrompt, before, after, terms, brief, apiKey, models, quick = false }) => {
   const ids = batch.map((u) => u.id);
   const written = await writeBatch(generate, buildNaturalPrompt({ batch, sourceLanguage, targetLanguage, customPrompt, before, after, terms, brief }), ids, { apiKey, models });
   let lines = written.lines;
   const known = mergeTerms(terms, written.terms, lines);
 
   const plain = new Map([...lines].map(([id, line]) => [id, withoutSoft(line)]));
-  const review = askJson(generate, buildMeaningReviewPrompt({ cues: batch, translations: plain, targetLanguage, spoken: true }), { apiKey, models, temperature: 0, effort: CHECK_EFFORT })
+  // Quick (Fast translate): no meaning review, and only bookish words are sent back.
+  const review = quick ? Promise.resolve([]) : askJson(generate, buildMeaningReviewPrompt({ cues: batch, translations: plain, targetLanguage, spoken: true }), { apiKey, models, temperature: 0, effort: CHECK_EFFORT })
     .then(({ parsed }) => readMeaningIssues(parsed, ids))
     .catch((err) => {
       logger.warn(`Natural translation meaning check skipped: ${err?.message || err}`);
       return [];
     });
-  const counted = [...naturalIssues(batch, lines), ...termIssues(batch, lines, known), ...bookishIssues(batch, lines, targetLanguage, known)];
+  const counted = quick
+    ? bookishIssues(batch, lines, targetLanguage, known)
+    : [...naturalIssues(batch, lines), ...termIssues(batch, lines, known), ...bookishIssues(batch, lines, targetLanguage, known)];
   const meaning = (await review).flatMap((p) => p.ids.map((id) => ({ id, kind: 'meaning', problem: p.problem })));
   const issues = [...meaning, ...counted];
   let fixed = 0;
@@ -486,7 +489,7 @@ const translateUnitBatch = async (batch, { generate, sourceLanguage, targetLangu
  */
 export const translateNatural = async (
   cues,
-  { sourceLanguage = '', targetLanguage, customPrompt = '', apiKey, models, onProgress, voiceRate, speakerRates, speakerGenders, generate = generateText, batchSize = NATURAL_BATCH } = {}
+  { sourceLanguage = '', targetLanguage, customPrompt = '', apiKey, models, onProgress, voiceRate, speakerRates, speakerGenders, generate = generateText, batchSize = NATURAL_BATCH, quick = false } = {}
 ) => {
   if (!targetLanguage) throw new ApiError('No target language was selected for translation.', { status: 400, code: 'missing_target_language' });
   customPrompt = withoutThreeStepNotes(customPrompt);
@@ -512,7 +515,7 @@ export const translateNatural = async (
 
   let terms = [];
   let brief = null;
-  if (batches.length > 1) {
+  if (batches.length > 1 && !quick) {
     say('Reading the whole talk for its key terms and tone...', { batch: 1 });
     ({ terms, brief } = await readGlossary(sized, { sourceLanguage, targetLanguage, customPrompt, apiKey, models, generate, effort: CHECK_EFFORT }));
   }
@@ -534,7 +537,7 @@ export const translateNatural = async (
       const before = units.slice(Math.max(0, at - CONTEXT_UNITS), at).map((u) => ({ text: u.text, line: lines.get(u.id) }));
       const after = units.slice(at + batch.length, at + batch.length + CONTEXT_UNITS).map((u) => ({ text: u.text }));
       try {
-        const out = await translateUnitBatch(batch, { generate, sourceLanguage, targetLanguage, customPrompt, before, after, terms, brief, apiKey, models });
+        const out = await translateUnitBatch(batch, { generate, sourceLanguage, targetLanguage, customPrompt, before, after, terms, brief, apiKey, models, quick });
         modelUsed = out.modelUsed ?? modelUsed;
         terms = mergeTerms(terms, out.terms, out.lines);
         for (const [id, line] of out.lines) lines.set(id, line);

@@ -28,7 +28,7 @@ interface TranslationPromptModalProps {
   hasActiveSegments: boolean;
   hasAudioFile: boolean;
   onSavePrompt: (prompt: string, presetId: string) => void;
-  /** `fast` is Fast translate: translation only, no meaning, length or term checks. */
+  /** `fast` is Fast translate: written sentence by sentence like Natural, no meaning, length or term checks. */
   onRetranslateSegments?: (prompt: string, options?: { fast?: boolean }) => Promise<void>;
   onRetranscribeAudio?: (prompt: string) => Promise<void>;
   isTranslating?: boolean;
@@ -451,7 +451,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
                       {isTranslating && fastRunning ? 'Fast re-translating…' : `Fast re-translate the ${cueText}`}
                     </span>
                     <span className="block text-[11.5px] text-slate-400 mt-1 leading-snug">
-                      Translation only. Skips meaning, length and term checks.
+                      Whole sentences in everyday spoken words, quickly. Skips meaning, length and term checks.
                     </span>
                     <span className="block text-[10.5px] text-amber-300 mt-1.5">Uses your translation engine</span>
                   </button>
