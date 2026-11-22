@@ -364,8 +364,10 @@ HOW TO WRITE EACH SENTENCE
 1. Read the English sentence whole and understand what it says and why.
 2. "natural": say that the way a native ${targetLanguage} speaker says it out loud to people, in ${targetLanguage}'s own word order and sentence shape, with the everyday words people use when they talk (colloquial, not written, literary or bookish words; keep the English words a ${targetLanguage} speaker would say in English). Do not translate the English words one by one and do not keep the English order: rebuild the sentence the ${targetLanguage} way, by whole phrases. The verb, a "which / who / that" part, "only", "even", "just" and tag questions go where ${targetLanguage} puts them.
 3. Never change the meaning while doing it: every idea, example, condition, negation, number, name, who does what to whom, the tense and the certainty stay exactly as in the English. Add nothing the speaker did not say, and drop nothing.
-4. Follow the speaker's rhythm: short bursts stay short, a restart or a trailing thought stays. Punctuate for the ear: commas where the speaker breathes, "?" and "!" where the voice rises, "…" only for a real hesitation.
+4. Follow the speaker's rhythm: short bursts stay short, a trailing thought stays. Punctuate for the ear: commas where the speaker breathes, "?" and "!" where the voice rises. Leave out hesitation sounds ("uh", "um", "er") and words the speaker repeats while searching ("a sort of a hall sort of place" is one "a hall-like place"): the voice says what he means, once.
 5. Write out what a voice would stumble on: no digits, abbreviations, symbols or brackets (numbers as they are said). Sound notes in square brackets such as [laughs] are copied exactly, in English, where they stand.
+6. Where "it", "that" or "this" would leave a ${targetLanguage} listener unsure what is meant, say the thing itself (a letter that "never came" is "the letter never came"). That is not adding: it is what the speaker means.
+7. Pick each word for the picture it gives a ${targetLanguage} listener, not only for its dictionary meaning: a word tied to another religion, kind of place or kind of person is wrong (a village temple is not a church, a mosque, a dargah or a mazar; a monk is not a priest). Never hedge with "X or Y" when X is the wrong picture: pick the right word.
 ${examples ? `\n${examples}\n(These examples show cue lines; here you write the whole sentence, so the same idea applies to the whole sentence.)\n` : ''}${marked ? `
 MARKS IN THE ENGLISH
 - "${PAUSE_SPLIT}" is where the speaker stops for over a second; the dub voice stops at the same moments, so before each stop it should be saying what the speaker said before it.
@@ -439,7 +441,7 @@ const translateUnitBatch = async (batch, { generate, sourceLanguage, targetLangu
   const known = mergeTerms(terms, written.terms, lines);
 
   const plain = new Map([...lines].map(([id, line]) => [id, withoutSoft(line)]));
-  const review = askJson(generate, buildMeaningReviewPrompt({ cues: batch, translations: plain, targetLanguage }), { apiKey, models, temperature: 0, effort: CHECK_EFFORT })
+  const review = askJson(generate, buildMeaningReviewPrompt({ cues: batch, translations: plain, targetLanguage, spoken: true }), { apiKey, models, temperature: 0, effort: CHECK_EFFORT })
     .then(({ parsed }) => readMeaningIssues(parsed, ids))
     .catch((err) => {
       logger.warn(`Natural translation meaning check skipped: ${err?.message || err}`);

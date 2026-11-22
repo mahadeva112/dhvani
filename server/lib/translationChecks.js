@@ -286,7 +286,19 @@ Respond with ONLY this JSON:
  * Asks a strict reviewer whether the translation, sentence by sentence, still
  * says what the English says. Only meaning is judged, never style or length.
  */
-export const buildMeaningReviewPrompt = ({ cues, translations, targetLanguage }) => `You are a strict reviewer checking a ${targetLanguage} dubbing translation against the English it was translated from.
+/**
+ * Natural translation's own review asks for more (`spoken`): a word that paints another picture, a
+ * kept "uh" or search-repeat, an unclear "it", and a sentence that follows the English clause by
+ * clause. Full and Fast keep the review as it was.
+ */
+const spokenReviewRules = (targetLanguage) => `
+Also report as a problem, because a listener hears the wrong thing:
+- a word that gives a different picture than the English: another religion, kind of place, person or thing, even if a dictionary allows it (a village temple said as a church, a mosque, a dargah or a mazar, also inside an "X or Y"; a monk said as a priest);
+- an "it", "that" or "this" left so the listener cannot tell what it means, where the English makes it clear;
+- a hesitation sound ("uh", "um", "er" or the ${targetLanguage} sound for it) or a word the speaker repeated while searching ("a sort of a hall sort of place") kept in the translation.
+`;
+
+export const buildMeaningReviewPrompt = ({ cues, translations, targetLanguage, spoken = false }) => `You are a strict reviewer checking a ${targetLanguage} dubbing translation against the English it was translated from.
 
 The translation is meant to be free, not word for word, and a word may sit one cue earlier or later than in the English. Judge each sentence as a whole, across its cues.
 
@@ -300,9 +312,9 @@ Report a problem only when the meaning changed:
 - a describing word or phrase now describes something else;
 - the tense or aspect changed (did, does, will do, has done, keeps doing), or how two clauses relate (because, if, although, but, so);
 - the translation says something the English does not;${speakerGenderReview(cues)}
-Do not report style, word choice, length or word order as a meaning problem, nor a small connective ("and", "so", "then") or a subject the language needs that the English left implicit.
+Do not report style, word choice, length or word order as a meaning problem, nor a small connective ("and", "so", "then") or a subject the language needs that the English left implicit.${spoken ? spokenReviewRules(targetLanguage) : ''}
 
-Separately, as "englishShaped", say where a sentence keeps the English sentence shape where a native ${targetLanguage} speaker would build it differently: a "which / who / that" part left trailing after its word, "that"-clauses, tag questions or words like "just" and "only" placed as in English, an English idiom said word for word. Report it only when a native speaker would clearly not say it that way. Leave it empty when the sentence sounds the way ${targetLanguage} is spoken, even if its order is close to the English, and never for formality or word choice.
+Separately, as "englishShaped", say where a sentence keeps the English sentence shape where a native ${targetLanguage} speaker would build it differently: a "which / who / that" part left trailing after its word, "that"-clauses, tag questions or words like "just" and "only" placed as in English, an English idiom said word for word. Report it only when a native speaker would clearly not say it that way. Leave it empty when the sentence sounds the way ${targetLanguage} is spoken, even if its order is close to the English, and never for formality or word choice.${spoken ? ` Also report a sentence that follows the English clause by clause so it sounds translated ("I went there simply because somewhere, what they do, it pulled me" kept in that order), where a ${targetLanguage} speaker would first say what it is about and then the rest.` : ''}
 
 HOW TO CHECK
 For every English sentence:

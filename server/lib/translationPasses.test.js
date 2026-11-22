@@ -147,7 +147,8 @@ test('a batch far too long after its checks is translated once more, and the bet
 });
 
 test('every batch is told the key terms read from the whole talk first, and batches run as many at a time as the setting allows', async () => {
-  const cues = Array.from({ length: 30 }, (_, i) => ({ id: String(i + 1), startTime: i * 2, endTime: i * 2 + 2, text: i === 27 ? 'Inertia is settled.' : 'line' }));
+  // A key term is one the talk says more than once.
+  const cues = Array.from({ length: 30 }, (_, i) => ({ id: String(i + 1), startTime: i * 2, endTime: i * 2 + 2, text: i === 3 || i === 27 ? 'Inertia is settled.' : 'line' }));
   const prompts = [];
   let running = 0;
   let most = 0;
@@ -163,7 +164,7 @@ test('every batch is told the key terms read from the whole talk first, and batc
       await new Promise((resolve) => setTimeout(resolve, 10));
       running -= 1;
       const ids = [...prompt.split('CUES (JSON)')[1].matchAll(/"id": "(\d+)"/g)].map((m) => m[1]);
-      answer = { translations: ids.map((id) => ({ id, translatedText: id === '28' ? 'জড়তা বসে।' : say(10) })) };
+      answer = { translations: ids.map((id) => ({ id, translatedText: id === '4' || id === '28' ? 'জড়তা বসে।' : say(10) })) };
     }
     return { response: { text: JSON.stringify(answer) }, modelUsed: 'fake' };
   };

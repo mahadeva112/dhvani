@@ -593,12 +593,24 @@ Read the whole transcript below.
 - "tone": the speaker's manner in a few words (warm and conversational, playful, intense, formal...).
 - "address": how the ${targetLanguage} translation addresses the listener and how the speaker refers to themself: the one form of "you" (respectful, familiar or intimate) and its matching verb forms that every part uses, naming the ${targetLanguage} pronoun itself. Choose what a native ${targetLanguage} speaker would use for this speaker and this audience.
 
-2. List up to ${MAX_TERMS} key terms that come back more than once in it: concepts, names and technical words, not everyday words. For each, give the one ${targetLanguage} word or phrase every part will use for it: the word a native speaker would say out loud, not a bookish one. Keep a name, or a term a ${targetLanguage} speaker says in English, as they would say it.${script ? ` Write every term in the ${script} script only.` : ''}
+2. List up to ${MAX_TERMS} key terms that come back more than once in it: concepts, names and technical words, not everyday words. For each, give the one ${targetLanguage} word or phrase every part will use for it: the word a native speaker would say out loud, not a bookish one. Keep a name, or a term a ${targetLanguage} speaker says in English, as they would say it. Give one word, never "X or Y", and one that gives the same picture as the English: never a word tied to another religion, kind of place or kind of person (a village temple or shrine is not a mosque, a dargah or a mazar).${script ? ` Write every term in the ${script} script only.` : ''}
 
 TRANSCRIPT:
 ${text}
 Respond with ONLY this JSON:
 {"brief":{"about":"<what the talk is about>","tone":"<the speaker's manner>","address":"<the form of you and I every part uses>"},"terms":[{"english":"<key term>","translated":"<the ${targetLanguage} word>"}]}`;
+};
+
+/**
+ * Only the glossary terms the talk says more than once, as its prompt asks.
+ * A term said once binds nothing across batches, and the model sometimes
+ * lists one anyway with a wrong word ("shrine" as মাজার) that the term check
+ * would then force back into a line the meaning review had fixed.
+ */
+export const termsThatComeBack = (terms, cues) => {
+  const talk = cues.map((cue) => String(cue.text ?? '')).join(' ').toLowerCase();
+  const times = (needle) => (needle ? talk.split(needle).length - 1 : 0);
+  return terms.filter((term) => times(String(term.english ?? '').trim().toLowerCase()) >= 2);
 };
 
 /**
@@ -611,7 +623,7 @@ Respond with ONLY this JSON:
 export const readGlossary = async (translatable, { sourceLanguage, targetLanguage, customPrompt, apiKey, models, generate, effort = writeEffort() }) => {
   try {
     const answer = await askJson(buildGlossaryPrompt({ translatable, sourceLanguage, targetLanguage, customPrompt }), { apiKey, models, temperature: 0.2, generate, effort });
-    return { terms: mergeTerms([], answer?.terms), brief: readBrief(answer?.brief) };
+    return { terms: termsThatComeBack(mergeTerms([], answer?.terms), translatable), brief: readBrief(answer?.brief) };
   } catch (err) {
     logger.warn(`Translation glossary skipped: ${err?.message || err}`);
     return { terms: [], brief: null };

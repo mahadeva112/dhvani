@@ -181,3 +181,17 @@ test('the checks think at low effort and the fix call reads only the sentences i
   assert.ok(fix.prompt.includes('never inside a pair joined by'));
   assert.equal(sent.find((row) => row.id === 'n-2').english, 'Another way is ¦ you know some mantra.');
 });
+
+test('the glossary keeps only terms the talk says more than once', async () => {
+  const { termsThatComeBack } = await import('./translation.js');
+  const cues = [{ text: 'He feeds the ghosts every amavasya.' }, { text: 'Not one ghost came out, in a shrine like place.' }, { text: 'Amavasya after amavasya.' }];
+  const kept = termsThatComeBack(
+    [
+      { english: 'ghost', translated: 'ভূত' },
+      { english: 'Amavasya', translated: 'অমাবস্যা' },
+      { english: 'shrine', translated: 'মাজার' },
+    ],
+    cues
+  );
+  assert.deepEqual(kept.map((t) => t.english), ['ghost', 'Amavasya']);
+});
