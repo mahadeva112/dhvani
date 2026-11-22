@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.8',
+    changes: [
+      'Natural translation no longer cuts words out of short sentences to fit the time ("the god you believe in" keeps "you believe in"), and Indian-English phrases like "simply because, somewhere" are said by what they mean.',
+      'Subtitle lines no longer break in the middle of a pair like "fear and resistance", in Malayalam, Tamil, Kannada and Telugu too.',
+    ],
+  },
+  {
     version: '1.5.7',
     changes: [
       'Fast translation now writes each sentence whole, the way the language is spoken, then fits it to the lines: no more English word order, at about the same speed.',
