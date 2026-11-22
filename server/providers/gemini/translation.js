@@ -188,6 +188,7 @@ ${examples ? `\n${examples}` : ''}
 SPOKEN, NOT WRITTEN
 These lines will be spoken aloud by a voice as a dub, and must sound like a person talking, not someone reading a text.
 - Write the ${targetLanguage} people actually speak: everyday words and sentence shapes, not bookish, literary or officialese vocabulary. Where a common spoken word exists, prefer it over a rare formal one. Keep the English words a ${targetLanguage} speaker would naturally say in English.
+- Say an abstract English noun (mortality, helplessness, clarity of purpose) the way people say the idea aloud, often as a short clause with a verb ("that we will die one day"), not as a classical or Sanskrit-made abstract noun, unless it is a spiritual term the speaker means as one.
 - Follow the speaker's own rhythm: if they speak in short bursts, restart a sentence or trail off, keep that; do not smooth speech into polished prose.
 - Punctuate for the ear: commas where the speaker breathes, "?" and "!" where their voice rises, "…" only where a thought really trails off or the speaker hesitates.
 - Write out anything a voice would stumble on: no abbreviations, symbols, brackets or slashes; numbers as they are said.
@@ -302,6 +303,35 @@ const askJson = async (prompt, { apiKey, models, temperature, effort = writeEffo
 };
 
 /**
+ * Bookish words (spokenWords.js), found in code: the cues that say one go back
+ * once to say it the spoken way. Kept when fewer are left, no key term is lost
+ * and the length grows by at most BOOKISH_SLACK syllables a changed cue. A
+ * batch without a listed word costs nothing; a failed call keeps the lines.
+ * Used by the checked translation (refineBatch) and by Fast, whose only
+ * check it is.
+ */
+export const fixBookishWords = async (batch, translations, { targetLanguage, customPrompt = '', terms = [], brief = null, apiKey, models, ask = askJson } = {}) => {
+  const bookish = bookishIssues(batch, translations, targetLanguage, terms);
+  if (!bookish.length) return { translations, bookishFixed: 0 };
+  try {
+    const answer = await ask(buildFixPrompt({ cues: batch, translations, issues: bookish, targetLanguage, customPrompt, brief }), { apiKey, models, temperature: 0.2 });
+    const changes = readFix(answer, [...new Set(bookish.map((issue) => issue.id))]);
+    const fixed = new Map([...translations, ...changes]);
+    if (
+      changes.size &&
+      bookishIssues(batch, fixed, targetLanguage, terms).length < bookish.length &&
+      termIssues(batch, fixed, terms).length <= termIssues(batch, translations, terms).length &&
+      issueScore(batch, fixed) <= issueScore(batch, translations) + BOOKISH_SLACK * changes.size
+    ) {
+      return { translations: fixed, bookishFixed: changes.size };
+    }
+  } catch (err) {
+    logger.warn(`Translation bookish-word check skipped: ${err?.message || err}`);
+  }
+  return { translations, bookishFixed: 0 };
+};
+
+/**
  * Checks a translated batch and fixes what it can, once each:
  * 1. Meaning: a separate strict review, sentence by sentence and key word by
  *    key word, against the English. Cues it flags get one correction, in
@@ -405,26 +435,9 @@ export const refineBatch = async (batch, translated, { targetLanguage, customPro
   // Bookish words last of all: a spoken clause is often a syllable or two
   // longer than the written noun it replaces, so a little more length is let
   // through for it, never more.
-  let bookishFixed = 0;
-  const bookish = bookishIssues(batch, translations, targetLanguage, terms);
-  if (bookish.length) {
-    try {
-      const answer = await ask(buildFixPrompt({ cues: batch, translations, issues: bookish, targetLanguage, customPrompt, brief }), { apiKey, models, temperature: 0.2 });
-      const changes = readFix(answer, [...new Set(bookish.map((issue) => issue.id))]);
-      const fixed = new Map([...translations, ...changes]);
-      if (
-        changes.size &&
-        bookishIssues(batch, fixed, targetLanguage, terms).length < bookish.length &&
-        termIssues(batch, fixed, terms).length <= termIssues(batch, translations, terms).length &&
-        issueScore(batch, fixed) <= issueScore(batch, translations) + BOOKISH_SLACK * changes.size
-      ) {
-        translations = fixed;
-        bookishFixed = changes.size;
-      }
-    } catch (err) {
-      logger.warn(`Translation bookish-word check skipped: ${err?.message || err}`);
-    }
-  }
+  const spokenWay = await fixBookishWords(batch, translations, { targetLanguage, customPrompt, terms, brief, apiKey, models, ask });
+  translations = spokenWay.translations;
+  const { bookishFixed } = spokenWay;
 
   return { translations, lengthFixed, lengthUndone, meaningFixed, termsFixed, bookishFixed };
 };
@@ -460,14 +473,16 @@ const resumeState = (resumeFrom, translatable) => {
 };
 
 /**
- * Fast translation: one model call a batch, no checks, translationParallel() batches
- * at a time. A batch sees the source text around it, and the key terms of
+ * Fast translation: one model call a batch, translationParallel() batches
+ * at a time. Its only check is the bookish-word one (fixBookishWords), which
+ * calls the model again only for a batch that says a listed word. A batch sees the source text around it, and the key terms of
  * the batches already done; a batch that times out is sent again in halves.
  */
 const translateBatchesFast = async (batches, translatable, { sourceLanguage, targetLanguage, customPrompt, apiKey, models, onProgress, generate, resumeFrom, onBatchDone }) => {
   const { translations, terms: resumedTerms, modelUsed: resumedModel } = resumeState(resumeFrom, translatable);
   let modelUsed = resumedModel;
   let failedBatches = 0;
+  let bookishFixed = 0;
   let terms = resumedTerms;
   let finished = 0;
   let cuesDone = 0;
@@ -482,7 +497,11 @@ const translateBatchesFast = async (batches, translatable, { sourceLanguage, tar
       const outcome = await translateBatch({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount: batches.length, before, after, terms, apiKey, models, generate });
       modelUsed = outcome.modelUsed;
       terms = mergeTerms(terms, outcome.terms, outcome.result);
-      for (const [id, text] of outcome.result) translations.set(id, text);
+      // Fast's one check: a batch that says a bookish word goes back once to
+      // say it the spoken way; a batch without one costs no extra call.
+      const spokenWay = await fixBookishWords(batch, outcome.result, { targetLanguage, customPrompt, terms, apiKey, models, ask: (prompt, options) => askJson(prompt, { ...options, generate }) });
+      bookishFixed += spokenWay.bookishFixed;
+      for (const [id, text] of spokenWay.translations) translations.set(id, text);
       onBatchDone?.({ translations, terms, modelUsed });
     } catch (err) {
       if (isTimeoutError(err) && batch.length > MIN_BATCH) {
@@ -536,6 +555,7 @@ const translateBatchesFast = async (batches, translatable, { sourceLanguage, tar
   if (missingIds.length > 0) {
     logger.warn(`${missingIds.length} cue(s) came back untranslated; keeping their source text.`);
   }
+  if (bookishFixed) logger.info(`Fast translation said ${bookishFixed} bookish word(s) the spoken way.`);
 
   return {
     translations,
@@ -548,6 +568,7 @@ const translateBatchesFast = async (batches, translatable, { sourceLanguage, tar
     meaningFixed: 0,
     retriedBatches: 0,
     termsFixed: 0,
+    bookishFixed,
     seamsFixed: 0,
     terms,
   };

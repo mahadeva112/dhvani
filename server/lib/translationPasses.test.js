@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { lengthUnits, cueIssues, isOutlier, mergeTerms, termsBlock, termIssues, bookishIssues, buildFixPrompt, unsaidMarks, dubSyllables, issueScore, MAX_TERMS } from './translationChecks.js';
 import { refineBatch, translateCueTexts, translationParallel, BOOKISH_SLACK } from '../providers/gemini/translation.js';
 import { bookishWordsIn, bookishLine } from './spokenWords.js';
-import { examplesBlock } from './translationExamples.js';
+import { examplesBlock, EXAMPLE_LANGUAGES } from './translationExamples.js';
 import { lineSyllables } from './syllables.js';
 import { ApiError } from '../errors.js';
 
@@ -287,8 +287,10 @@ test('bookish words are found as whole words, in any spelling listed, and only i
   // Words a speaker does say aloud, and a word that only starts like a listed one, are not bookish.
   assert.deepEqual(bookishWordsIn('बिल्कुल स्पष्ट, कि हम नश्वर हैं, कोई संदेह नहीं, तथ्य यही है।', 'Hindi'), []);
   assert.deepEqual(bookishWordsIn('যদি', 'Bengali'), []);
+  assert.deepEqual(bookishWordsIn('যদি', 'Hindi'), []);
+  assert.deepEqual(bookishWordsIn('তাহার কথা শুনিয়া', 'Bengali').map((w) => w.word), ['তাহার']);
   assert.match(bookishLine('Hindi'), /नश्वरता → कि हम नश्वर हैं/);
-  assert.equal(bookishLine('Bengali'), '');
+  assert.equal(bookishLine('French'), '');
 });
 
 test("the Hindi examples tell the model the spoken words up front", () => {
@@ -304,6 +306,35 @@ test('a bookish word is an issue, unless the talk chose it as a key term', () =>
   assert.deepEqual(bookishIssues(cues, lines, 'Hindi').map((i) => [i.id, i.kind, i.said]), [['1', 'bookish', 'नश्वरता'], ['2', 'bookish', 'संशय']]);
   assert.deepEqual(bookishIssues(cues, lines, 'Hindi', [{ english: 'mortality', translated: 'नश्वरता' }]).map((i) => i.id), ['2']);
   assert.deepEqual(bookishIssues(cues, lines, 'Bengali'), []);
+});
+
+test('every dub language has a bookish-word list, shown up front, and its own examples never say a listed word', () => {
+  for (const language of EXAMPLE_LANGUAGES) {
+    assert.ok(bookishLine(language), `${language} has a list`);
+    const block = examplesBlock(language);
+    assert.match(block, /Say these the spoken way: /, language);
+    const right = block.split('\n').filter((line) => line.startsWith('This: ')).join(' ');
+    assert.deepEqual(bookishWordsIn(right, language), [], `${language}: a listed word in a right example`);
+  }
+});
+
+test('fast translation sends back only a batch that says a bookish word, and keeps the spoken fix', async () => {
+  const cues = Array.from({ length: 10 }, (_, i) => ({ id: String(i + 1), text: `Line ${i + 1}.` }));
+  const prompts = [];
+  const generate = async ({ contents }) => {
+    const prompt = contents.parts[0].text;
+    prompts.push(prompt);
+    if (prompt.includes('professional dubbing translator')) {
+      const ids = [...prompt.split('CUES (JSON)')[1].matchAll(/"id": "(\d+)"/g)].map((m) => m[1]);
+      return { response: { text: JSON.stringify({ translations: ids.map((id) => ({ id, translatedText: id === '2' ? 'তাহার কথা।' : 'ওর কথা।' })) }) }, modelUsed: 'fake' };
+    }
+    return { response: { text: JSON.stringify({ translations: [{ id: '2', translatedText: 'তার কথা।' }] }) }, modelUsed: 'fake' };
+  };
+  const out = await translateCueTexts(cues, { targetLanguage: 'Bengali', batchSize: 5, fast: true, generate });
+  assert.equal(prompts.length, 3, 'two batches and one fix, for the batch with the bookish word');
+  assert.match(prompts.find((p) => !p.includes('professional dubbing translator')), /"তাহার" is a written, bookish word/);
+  assert.equal(out.bookishFixed, 1);
+  assert.equal(out.translations.get('2'), 'তার কথা।');
 });
 
 test('refineBatch asks for the spoken word where a line says a bookish one, and keeps the fix', async () => {
@@ -414,7 +445,7 @@ test('a batch that times out is cut in half, and later batches keep the smaller 
   assert.equal(broken.prompts.length, 1);
 });
 
-test('fast translation makes one call a batch, no checks, as many batches at a time as the setting allows', async () => {
+test('fast translation makes one call a batch, no other checks, as many batches at a time as the setting allows', async () => {
   const cues = Array.from({ length: 20 }, (_, i) => ({ id: String(i + 1), text: `Line number ${i + 1} is long enough to be checked.`, startTime: i, endTime: i + 0.5 }));
   const prompts = [];
   let running = 0;

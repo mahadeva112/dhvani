@@ -38,7 +38,7 @@ const LANGUAGE_EXAMPLES = {
   Hindi: {
     // The app's Hindi kept every idea but still sounded written: नश्वरता for "that we are mortal",
     // संशय for a doubt, समयबद्ध for "limited". spokenWords.js lists the words a dub voice should not say.
-    note: `Write the Hindi a speaker says aloud, not written or classical Hindi, unless the style above asks for it or the word is a spiritual term the speaker means as one (mukti, sadhana). An abstract English noun usually becomes a short spoken clause with a verb ("I saw our mortality" → मुझे साफ़ दिख गया कि हम नश्वर हैं, not नश्वरता). Say these the spoken way: ${bookishLine('Hindi')}.`,
+    note: `Write the Hindi a speaker says aloud, not written or classical Hindi, unless the style above asks for it or the word is a spiritual term the speaker means as one (mukti, sadhana). An abstract English noun usually becomes a short spoken clause with a verb ("I saw our mortality" → मुझे साफ़ दिख गया कि हम नश्वर हैं, not नश्वरता).`,
     pairs: [
       [
         ['आज, यदि आप कहते हैं कि आप एक आध्यात्मिक व्यक्ति हैं, लोग सोचते हैं कि आपको एक जाँच की ज़रूरत है।'],
@@ -67,6 +67,7 @@ const LANGUAGE_EXAMPLES = {
     ],
   },
   Bengali: {
+    note: 'Use spoken Bengali (cholito), the way people talk in a talk or a film, never sadhu bhasha (তাহার, করিয়া, হইল) or heavy Sanskrit words (অতএব, অত্যন্ত, পুনরায়) where an everyday word exists, unless the style above asks for them or the word is a spiritual term the speaker means as one.',
     pairs: [
       [
         ['আজ, যদি আপনি বলেন যে আপনি একজন আধ্যাত্মিক ব্যক্তি, লোকেরা মনে করে যে আপনার একটি তদন্তের প্রয়োজন।'],
@@ -89,6 +90,7 @@ const LANGUAGE_EXAMPLES = {
     ],
   },
   Assamese: {
+    note: 'Use everyday spoken Assamese, as people say it aloud, not the formal written register or heavy Sanskrit words where an everyday word exists, unless the style above asks for them.',
     pairs: [
       [
         ['আজি, যদি আপুনি কয় যে আপুনি এজন আধ্যাত্মিক ব্যক্তি, মানুহে ভাবে যে আপোনাক এটা তদন্তৰ প্ৰয়োজন।'],
@@ -105,6 +107,7 @@ const LANGUAGE_EXAMPLES = {
     ],
   },
   Gujarati: {
+    note: 'Use everyday spoken Gujarati, as people say it aloud (પણ, ફક્ત, હંમેશા), not formal written Gujarati or Sanskrit connectives (પરંતુ, કેવળ, સદૈવ), unless the style above asks for them.',
     pairs: [
       [
         ['આજે, જો તમે કહો છો કે તમે એક આધ્યાત્મિક વ્યક્તિ છો, લોકો વિચારે છે કે તમને એક તપાસની જરૂર છે.'],
@@ -147,6 +150,7 @@ const LANGUAGE_EXAMPLES = {
     ],
   },
   Malayalam: {
+    note: 'Use everyday spoken Malayalam, as people say it aloud (പറഞ്ഞാൽ, അതുകൊണ്ട്, പക്ഷേ), not written or literary Malayalam (പറയുകയാണെങ്കിൽ, അതിനാൽ, എന്നാൽ), unless the style above asks for it.',
     pairs: [
       [
         ['ഇന്ന്, നിങ്ങൾ ഒരു ആത്മീയ വ്യക്തിയാണെന്ന് നിങ്ങൾ പറയുകയാണെങ്കിൽ, നിങ്ങൾക്ക് ഒരു അന്വേഷണം ആവശ്യമാണെന്ന് ആളുകൾ ചിന്തിക്കുന്നു.'],
@@ -163,6 +167,7 @@ const LANGUAGE_EXAMPLES = {
     ],
   },
   Marathi: {
+    note: 'Use everyday spoken Marathi, as people say it aloud (वाटतं, आयुष्य, पण, फक्त), not formal written Marathi or Sanskrit connectives (परंतु, केवळ, अतः), unless the style above asks for them.',
     pairs: [
       [
         ['आज, जर तुम्ही म्हणता की तुम्ही एक आध्यात्मिक व्यक्ती आहात, लोक विचार करतात की तुम्हाला एका चौकशीची गरज आहे.'],
@@ -179,6 +184,7 @@ const LANGUAGE_EXAMPLES = {
     ],
   },
   Nepali: {
+    note: 'Use everyday spoken Nepali, as people say it aloud (मान्छे, भने, तर, सधैं), not formal written Nepali (मानिसहरू, यदि, परन्तु, सदैव), unless the style above asks for it.',
     pairs: [
       [
         ['आज, यदि तपाईं भन्नुहुन्छ कि तपाईं एक आध्यात्मिक व्यक्ति हुनुहुन्छ, मानिसहरू सोच्छन् कि तपाईंलाई एउटा अनुसन्धानको आवश्यकता छ।'],
@@ -195,6 +201,7 @@ const LANGUAGE_EXAMPLES = {
     ],
   },
   Odia: {
+    note: 'Use everyday spoken Odia, as people say it aloud (ଲୋକେ, ଦରକାର, ପୁଣି), not formal written Odia or heavy Sanskrit words (ଆବଶ୍ୟକତା, ପୁନର୍ବାର, ଅତଏବ), unless the style above asks for them.',
     pairs: [
       [
         ['ଆଜି, ଯଦି ଆପଣ କୁହନ୍ତି ଯେ ଆପଣ ଜଣେ ଆଧ୍ୟାତ୍ମିକ ବ୍ୟକ୍ତି, ଲୋକମାନେ ଚିନ୍ତା କରନ୍ତି ଯେ ଆପଣଙ୍କୁ ଗୋଟିଏ ତଦନ୍ତର ଆବଶ୍ୟକତା ଅଛି।'],
@@ -211,6 +218,7 @@ const LANGUAGE_EXAMPLES = {
     ],
   },
   Punjabi: {
+    note: 'Use everyday spoken Punjabi, as people say it aloud (ਸੋਚਦੇ ਨੇ, ਇਨਸਾਨ, ਪਰ, ਸਿਰਫ਼), not formal written Punjabi or Sanskrit words (ਵਿਅਕਤੀ, ਪਰੰਤੂ, ਕੇਵਲ), unless the style above asks for them.',
     pairs: [
       [
         ['ਅੱਜ, ਜੇ ਤੁਸੀਂ ਕਹਿੰਦੇ ਹੋ ਕਿ ਤੁਸੀਂ ਇੱਕ ਅਧਿਆਤਮਿਕ ਵਿਅਕਤੀ ਹੋ, ਲੋਕ ਸੋਚਦੇ ਹਨ ਕਿ ਤੁਹਾਨੂੰ ਇੱਕ ਜਾਂਚ ਦੀ ਲੋੜ ਹੈ।'],
@@ -245,6 +253,7 @@ const LANGUAGE_EXAMPLES = {
     ],
   },
   Telugu: {
+    note: 'Use everyday spoken Telugu (vyavaharika), as people say it aloud (జనం, అంటే, కాబట్టి), not bookish or formal Telugu (ప్రజలు for ordinary people, మరియు, అనగా, కావున), unless the style above asks for it.',
     pairs: [
       [
         ['ఈ రోజు, మీరు ఒక ఆధ్యాత్మిక వ్యక్తి అని మీరు చెబితే, ప్రజలు మీకు ఒక దర్యాప్తు అవసరం అని ఆలోచిస్తారు.'],
@@ -280,6 +289,7 @@ export const examplesBlock = (targetLanguage) => {
     `EXAMPLES IN ${targetLanguage.toUpperCase()}`,
     `How the approach above sounds in ${targetLanguage}. "|" separates cues. "Not this" keeps the English word order cue by cue, or makes the mistake its lesson names; "This" says the whole sentence the way a ${targetLanguage} speaker would, then splits it over the same cues by their length. Learn the approach from them; never copy their words into the translation.`,
     ...(set.note ? [set.note] : []),
+    ...(bookishLine(targetLanguage.trim()) ? [`Say these the spoken way: ${bookishLine(targetLanguage.trim())}.`] : []),
   ];
   set.pairs.forEach(([wrong, right], index) => {
     lines.push('', `${index + 1}. ${LESSONS[index]}`, `English: ${cueLine(SOURCES[index])}`, `Not this: ${cueLine(wrong)}`, `This: ${cueLine(right)}`);
