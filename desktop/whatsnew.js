@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.5',
+    changes: [
+      'New "Natural" translation, beside Fast: each sentence is written whole, the way people speak, then placed back on its lines. In Review (Script & translation) and on the Translate card.',
+      'Voice expression Natural now listens to the original in Review, ahead of Dub, so Dub starts at once. The tags of each line show as chips you can remove or add.',
+    ],
+  },
+  {
     version: '1.5.4',
     changes: [
       'Hindi translation says things the way people speak: no bookish words like नश्वरता or संशय. A line that still has one is asked once more in spoken words.',
