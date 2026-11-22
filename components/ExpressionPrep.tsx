@@ -23,6 +23,14 @@ export interface ExpressionPrepView {
   toHear: number;
   /** Some line was heard already: what is left to hear is lines changed since. */
   someHeard: boolean;
+  /** Lines of the script, and how many of them are not heard yet. */
+  lines: number;
+  linesLeft: number;
+  /** When the run hearing now began (listening only), for its seconds. */
+  startedAt?: number;
+  /** A run just finished: "Tags ready" shows for a moment, then `onDoneSeen`. */
+  justDone: boolean;
+  onDoneSeen: () => void;
   error?: string;
   onStart: () => void;
   onCancel: () => void;
@@ -30,44 +38,74 @@ export interface ExpressionPrepView {
 
 const parts = (n: number) => `${n} part${n === 1 ? '' : 's'}`;
 
+/** Seconds since `since`, counting while shown. */
+const useSecondsSince = (since: number | undefined) => {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (since === undefined) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [since]);
+  return since === undefined ? 0 : Math.max(0, Math.round((now - since) / 1000));
+};
+
+/** How long "Tags ready" stays after a run finishes. */
+const DONE_SHOWN_MS = 5000;
+
 /**
- * Review's app bar: one small round icon (no pill), only while there is
- * something to know. Ready shows nothing (the dub settings say so); hearing is
- * a ring that fills around the ear, a click stops it; changed lines, a stop or
- * a failure are an icon to click. Every word is in its tooltip.
+ * Review's list footer (the app bar has no room on a laptop), only while there
+ * is something to know. Hearing is a pill that says so: a turning ring,
+ * "Hearing tags", lines heard of all and seconds so far, × to stop. When it finishes, "Tags ready" shows for a moment and
+ * goes; once ready nothing shows (the dub settings say so). Changed lines, a
+ * stop or a failure are a round icon to click. Every detail is in the tooltip.
  */
 export const ExpressionPrepChip: React.FC<{ view: ExpressionPrepView }> = ({ view }) => {
   const dot = 'relative w-7 h-7 shrink-0 rounded-full flex items-center justify-center';
-  if (view.state === 'ready') return null;
-  if (view.state === 'listening') {
-    const share = view.total > 0 ? view.heard / view.total : 0;
-    // A ring of radius 12 in a 28 px box: its length, and how much of it is drawn.
-    const ring = 2 * Math.PI * 12;
+  const seconds = useSecondsSince(view.state === 'listening' ? view.startedAt : undefined);
+  const { justDone, onDoneSeen } = view;
+  useEffect(() => {
+    if (!justDone) return;
+    const timer = window.setTimeout(onDoneSeen, DONE_SHOWN_MS);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [justDone]);
+  if (view.state === 'ready') {
+    if (!view.justDone) return null;
     return (
-      <button
-        type="button"
-        onClick={view.onCancel}
-        className={`${dot} group hover:bg-slate-800`}
-        title={`Hearing the original for Expression: ${view.heard} of ${view.total} parts. Click to stop; what is heard is kept and Dub hears the rest.`}
-        aria-label={`Hearing the original, ${view.heard} of ${view.total}. Stop`}
+      <span
+        className="h-7 pl-2 pr-2.5 shrink-0 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 text-[12px] flex items-center gap-1.5 whitespace-nowrap"
+        role="status"
+        title="Expression is heard for every line and saved in the project. Dub starts voicing at once."
       >
-        <svg className="absolute inset-0 -rotate-90" viewBox="0 0 28 28" aria-hidden="true">
-          <circle cx="14" cy="14" r="12" fill="none" strokeWidth="2" className="stroke-slate-700" />
-          <circle
-            cx="14"
-            cy="14"
-            r="12"
-            fill="none"
-            strokeWidth="2"
-            strokeLinecap="round"
-            className="stroke-indigo-400 transition-[stroke-dashoffset] duration-300"
-            strokeDasharray={ring}
-            strokeDashoffset={ring * (1 - Math.max(0.06, share))}
-          />
-        </svg>
-        <Ear className="w-3.5 h-3.5 text-indigo-300 animate-pulse group-hover:hidden" />
-        <X className="w-3.5 h-3.5 text-slate-300 hidden group-hover:block" />
-      </button>
+        <Check className="w-3.5 h-3.5" /> Tags ready
+      </span>
+    );
+  }
+  if (view.state === 'listening') {
+    const linesHeard = view.lines - view.linesLeft;
+    return (
+      <span
+        className="h-7 pl-2 pr-0.5 shrink-0 rounded-full border border-indigo-500/40 bg-indigo-500/10 text-indigo-100 text-[12px] flex items-center gap-1.5 whitespace-nowrap"
+        role="status"
+        title={`Expression: hearing the original speaker to tag ${view.linesLeft} ${view.linesLeft === 1 ? 'line' : 'lines'} (${view.heard} of ${view.total} parts done, ${seconds} s so far). Words never change; Dub can voice at once after.`}
+      >
+        <span className="w-3.5 h-3.5 rounded-full border-2 border-indigo-400/30 border-t-indigo-300 animate-spin" aria-hidden="true" />
+        <span>Hearing tags</span>
+        <span className="font-mono tabular-nums text-[11px] text-indigo-200/80">
+          {linesHeard}/{view.lines} lines
+        </span>
+        <span className="font-mono tabular-nums text-[11px] text-slate-400">{seconds}s</span>
+        <button
+          type="button"
+          onClick={view.onCancel}
+          className="w-6 h-6 rounded-full hover:bg-slate-800 text-slate-400 hover:text-slate-200 flex items-center justify-center"
+          title="Stop hearing the original. What is heard so far is kept; Dub hears the rest."
+          aria-label="Stop tagging"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </span>
     );
   }
   if (view.state === 'waiting') {
@@ -130,8 +168,9 @@ export const ExpressionPrepNote: React.FC<{ view: ExpressionPrepView; onSeeTags?
     );
   if (view.state === 'listening')
     return (
-      <span className="text-indigo-300">
-        Hearing the original · <span className="font-mono tabular-nums">{view.heard}/{view.total}</span> parts
+      <span className="inline-flex items-center gap-1.5 text-indigo-300">
+        <span className="w-3 h-3 rounded-full border-2 border-indigo-400/30 border-t-indigo-300 animate-spin" aria-hidden="true" />
+        Hearing tags from the original · <span className="font-mono tabular-nums">{view.lines - view.linesLeft}/{view.lines}</span> lines
         {seeTags}
       </span>
     );
@@ -144,6 +183,14 @@ export const ExpressionPrepNote: React.FC<{ view: ExpressionPrepView; onSeeTags?
     );
   return <span className="text-slate-400">Not heard yet · heard when you press Dub, or now from Review</span>;
 };
+
+/** On a Review line not heard yet while its tags are being heard. */
+export const ExpressionLineHearing: React.FC = () => (
+  <span className="inline-flex items-center gap-1.5 text-[11px] text-indigo-300" title="The original speaker is being heard for this line's tags. Words never change.">
+    <span className="w-3 h-3 rounded-full border-2 border-indigo-400/30 border-t-indigo-300 animate-spin" aria-hidden="true" />
+    Hearing tags…
+  </span>
+);
 
 /** The open line's tags on Review: each as a chip with ×, and + tag. */
 export const ExpressionTagChips: React.FC<{
@@ -189,7 +236,12 @@ export const ExpressionTagChips: React.FC<{
           </button>
         </span>
       ))}
-      {!entry && <span className="text-slate-500">{listening ? 'Expression: being heard…' : 'Expression: not heard yet'}</span>}
+      {!entry &&
+        (listening ? (
+          <ExpressionLineHearing />
+        ) : (
+          <span className="text-slate-500">Expression: not heard yet</span>
+        ))}
       {entry && tags.length === 0 && <span className="text-slate-500">Expression: said as written, no tags</span>}
       <div className="relative" ref={menu}>
         <button

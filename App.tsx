@@ -625,8 +625,10 @@ export default function App() {
    * pressed mid-run uses them at once.
    */
   const expressionRunRef = useRef<{ jobId: string; controller: AbortController; done: Promise<void> } | null>(null);
-  const [expressionRun, setExpressionRun] = useState<{ jobId: string; heard: number; total: number } | null>(null);
+  const [expressionRun, setExpressionRun] = useState<{ jobId: string; heard: number; total: number; startedAt: number } | null>(null);
   const [expressionHeld, setExpressionHeld] = useState<Record<string, string>>({});
+  // The project whose background run just finished, shown as "Tags ready" for a moment.
+  const [expressionDone, setExpressionDone] = useState<string | null>(null);
   const expressionLiveRef = useRef<Record<string, ExpressionTags>>({});
   // What Expression did for the Dub & sync running now, for its progress page.
   const [syncExpressionNote, setSyncExpressionNote] = useState<string | null>(null);
@@ -2719,14 +2721,19 @@ export default function App() {
     const tags = expressionTagsOf(job);
     const plan = planExpression(job.segments, language, tags);
     if (plan.toHear.length === 0) return;
-    setExpressionRun({ jobId: job.id, heard: plan.sections.length - plan.toHear.length, total: plan.sections.length });
+    const startedAt = Date.now();
+    setExpressionDone(null);
+    setExpressionRun({ jobId: job.id, heard: plan.sections.length - plan.toHear.length, total: plan.sections.length, startedAt });
     const done = hearExpression(job.audioBuffer, job.segments, language, tags, {
       signal: controller.signal,
       onSection: (entries, heard, total) => {
         saveExpressionTags(job.id, entries, language);
-        if (expressionRunRef.current?.controller === controller) setExpressionRun({ jobId: job.id, heard, total });
+        if (expressionRunRef.current?.controller === controller) setExpressionRun({ jobId: job.id, heard, total, startedAt });
       },
     })
+      .then(() => {
+        if (!controller.signal.aborted) setExpressionDone(job.id);
+      })
       .catch((err) => {
         if (!controller.signal.aborted) setExpressionHeld((held) => ({ ...held, [job.id]: err instanceof Error ? err.message : String(err) }));
       })
@@ -3010,11 +3017,18 @@ export default function App() {
           const toHear = expressionPlan.toHear.length;
           const held = expressionHeld[activeJob.id];
           const jobId = activeJob.id;
+          const lineCount = expressionPlan.sections.reduce((n, section) => n + section.indexes.length, 0);
+          const linesLeft = expressionPlan.toHear.reduce((n, section) => n + section.indexes.filter((i) => !expressionOf(activeJob.expressionTags, expressionLanguage, activeJob.segments[i])).length, 0);
           return {
             state: expressionRunning ? 'listening' : toHear === 0 ? 'ready' : held === 'cancelled' ? 'stopped' : held ? 'failed' : !activeJob.audioBuffer ? 'no-audio' : 'waiting',
             heard: expressionRunning && expressionRun ? expressionRun.heard : total - toHear,
             total,
             toHear,
+            lines: lineCount,
+            linesLeft,
+            startedAt: expressionRunning && expressionRun ? expressionRun.startedAt : undefined,
+            justDone: expressionDone === jobId && toHear === 0,
+            onDoneSeen: () => setExpressionDone((id) => (id === jobId ? null : id)),
             someHeard: expressionPlan.keys.some((key) => activeJob.expressionTags?.[key]),
             error: held && held !== 'cancelled' ? held : undefined,
             onStart: () => {

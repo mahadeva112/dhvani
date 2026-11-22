@@ -156,7 +156,7 @@ import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
 import { learnedPace, learnPaceFromSync, voicePaceKey, type LearnedPace } from '../services/voicePace';
 import { useSyncPreview, useLineFixes, LineFixControls, WordingButtons, isShort, EstimateSwitch, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, SourceLineLane, LaneViewSwitch, useLaneView, PauseTicksLane, WordingSuggestRow, LineFitRow, LineFitWordings, type PlaceDrag, type StretchDraft } from './SyncPreviewPanel';
 import { SyncFitStrip } from './SyncFitStrip';
-import { ExpressionPrepChip, ExpressionPrepNote, ExpressionTagChips, type ExpressionPrepView } from './ExpressionPrep';
+import { ExpressionLineHearing, ExpressionPrepChip, ExpressionPrepNote, ExpressionTagChips, type ExpressionPrepView } from './ExpressionPrep';
 import { tagsInLine, type ExpressionLine } from '../services/expressionPrep';
 import { placeOf, withCut, withLinePlaces, withLineRate, withLineRates, withPartStart, withPauseSkip } from '../services/linePlaces';
 import type { WordingRequest } from './TakesPanel';
@@ -3139,7 +3139,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       </>
                     )}
                   </button>
-                  {expressionPrep && <ExpressionPrepChip view={expressionPrep} />}
                   {inBar && <span className="w-px h-6 bg-slate-800 mx-0.5" aria-hidden="true" />}
                 </>
               );
@@ -4101,6 +4100,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           onChange={(tagged) => onExpressionLineChange(seg, tagged)}
                         />
                       )}
+                      {/* Every other line still being heard says so while its tags come. */}
+                      {!isOpen && expressionPrep?.state === 'listening' && expressionOfLine && tgtText.trim() && !expressionOfLine(seg) && (
+                        <div className="mt-1">
+                          <ExpressionLineHearing />
+                        </div>
+                      )}
                       {(() => {
                         if (linePreview) {
                           // A sync line can span several cues: its fit and rewording sit once, under its last cue.
@@ -4218,6 +4223,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <ChevronsDown className="w-3.5 h-3.5" /> Bottom
                   </button>
                 </span>
+                {/* Expression's tags being heard, or just ready: here, not in the app bar, which has no room on a laptop. */}
+                {expressionPrep && <ExpressionPrepChip view={expressionPrep} />}
                 <span className="ml-auto flex items-center gap-3">
                   <span className={`text-right leading-tight ${qaBlockingCount > 0 ? 'text-rose-300' : 'text-slate-400'}`}>
                     {qaBlockingCount > 0
