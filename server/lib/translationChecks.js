@@ -213,6 +213,12 @@ const describeIssue = (issue) => {
   if (issue.kind === 'bookish') {
     return `- id ${issue.id}: "${issue.said}" is a written, bookish word that people rarely say aloud. Say that part the way a ${issue.language} speaker says it (for example ${issue.say}), as a natural line with the same meaning and about the same length.`;
   }
+  if (issue.kind === 'meaning') {
+    return `- id ${issue.id}: a reviewer found: ${issue.problem}. Say exactly what the English says, no more and no less, in natural spoken words and the language's own sentence shape, never the English word order.`;
+  }
+  if (issue.kind === 'pauses') {
+    return `- id ${issue.id}: the English has ${issue.want} "${PAUSE_SPLIT}" (where the speaker stops for over a second) and the line has ${issue.have}. Put exactly ${issue.want} "${PAUSE_SPLIT}" in the line, each between the same ideas as in the English, as near as the language's word order allows.`;
+  }
   if (issue.kind === 'end') return `- id ${issue.id}: the English sentence ends in this cue; end the sentence here too.`;
   if (issue.kind === 'open') return `- id ${issue.id}: the English sentence carries on into the next cue; do not end the sentence here.`;
   return `- id ${issue.id}: the translation is empty.`;
@@ -236,11 +242,20 @@ const keepPausesRule = (cues) =>
     ? `\n- A "${PAUSE_SPLIT}" is where the speaker paused, and the voice pauses there too. Keep every "${PAUSE_SPLIT}" a translation has, in the same place between the same ideas.`
     : '';
 
+/** Natural translation's mark where one subtitle line ends and the next begins while the speaker runs on. */
+const LINE_SPLIT = '¦';
+
+const keepLineSplitsRule = (cues, translations) =>
+  cues.some((cue) => String(translations.get(cue.id) ?? '').includes(LINE_SPLIT))
+    ? `
+- A "${LINE_SPLIT}" is where one subtitle line ends and the next begins; the English shows the same marks. Keep as many "${LINE_SPLIT}" as the line has, each at the matching place, between whole phrases: never between a word and its postposition, case ending or helper verb, and never inside a pair joined by "and" or "or" ("fear and resistance").`
+    : '';
+
 export const buildFixPrompt = ({ cues, translations, issues, targetLanguage, customPrompt = '', brief = null }) => {
   const rows = cues.map((cue) => ({
     id: cue.id,
     ...speakerField(cue),
-    english: cue.pausedText ?? cue.text,
+    english: cue.markedText ?? cue.pausedText ?? cue.text,
     translation: translations.get(cue.id) ?? '',
     ...(cue.syllables && { syllables: cue.syllables, now: dubSyllables(translations.get(cue.id)) }),
   }));
@@ -257,7 +272,7 @@ RULES
 - Keep the language's normal word order; never invert it or turn poetic to save syllables. If a line cannot fit without becoming unclear or unnatural, keep a clear natural line that runs a little long.
 - Never fill a cue with a word the speaker did not say. Copy sound notes in square brackets ([laughs]) exactly as they are.
 - Natural spoken ${targetLanguage}, never word for word from the English.
-- A word may move only to the next or previous cue of the same sentence, and only into a cue that has room.${keepPausesRule(cues)}
+- A word may move only to the next or previous cue of the same sentence, and only into a cue that has room.${keepPausesRule(cues)}${keepLineSplitsRule(cues, translations)}
 - Return only the cues you change, each with its id copied verbatim. Never return an empty cue.
 ${speakerGenderRule(cues, targetLanguage)}
 CUES (JSON):

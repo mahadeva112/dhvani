@@ -123,7 +123,7 @@ pipelineRouter.post(
 pipelineRouter.post(
   '/pipeline/retranslate',
   asyncHandler(async (req, res) => {
-    const { cues, sourceLanguage = '', targetLanguage, customPrompt = '', voiceRate = null, speakerRates = null, speakerGenders = null, fast = false, jobId } = req.body || {};
+    const { cues, sourceLanguage = '', targetLanguage, customPrompt = '', voiceRate = null, speakerRates = null, speakerGenders = null, fast = false, natural = false, jobId } = req.body || {};
 
     if (!Array.isArray(cues) || cues.length === 0) {
       throw new ApiError('No cues were supplied to translate.', { status: 400, code: 'no_cues' });
@@ -136,6 +136,7 @@ pipelineRouter.post(
     }
 
     const { translateCueTexts } = await import('../providers/gemini/translation.js');
+    const { translateNatural } = await import('../providers/gemini/naturalTranslation.js');
     const { generateText } = await import('../providers/textModel.js');
     const { serializeSrt, retextCues, assertTimingsPreserved } = await import('../lib/srt.js');
 
@@ -172,10 +173,11 @@ pipelineRouter.post(
     // The same translation sent again under the same id, after a backend
     // restart, carries on from the batches it had finished.
     const fingerprint = job
-      ? translationFingerprint({ cues: sourceCues.map(({ id, text, startTime, endTime, speaker }) => ({ id, text, startTime, endTime, speaker })), sourceLanguage, targetLanguage, customPrompt, voiceRate, speakerRates, ...(speakerGenders && { speakerGenders }), fast: fast === true })
+      ? translationFingerprint({ cues: sourceCues.map(({ id, text, startTime, endTime, speaker }) => ({ id, text, startTime, endTime, speaker })), sourceLanguage, targetLanguage, customPrompt, voiceRate, speakerRates, ...(speakerGenders && { speakerGenders }), fast: fast === true, ...(natural === true && { natural: true }) })
       : null;
     if (job) pruneCheckpoints();
-    const resumeFrom = job ? loadCheckpoint(jobId, fingerprint) : null;
+    // Natural translation keeps no checkpoints: it starts over after a restart.
+    const resumeFrom = job && natural !== true ? loadCheckpoint(jobId, fingerprint) : null;
     if (resumeFrom) {
       const kept = Object.keys(resumeFrom.translations || {}).length;
       logger.info(`Resuming translation ${jobId}: ${kept} cue(s) were done before the restart.`);
@@ -183,7 +185,9 @@ pipelineRouter.post(
     }
 
     try {
-      const outcome = await translateCueTexts(sourceCues, {
+      // Natural translate: whole sentences first, cut onto the cues after (naturalTranslation.js).
+      const translate = natural === true ? translateNatural : translateCueTexts;
+      const outcome = await translate(sourceCues, {
         sourceLanguage,
         targetLanguage,
         customPrompt,

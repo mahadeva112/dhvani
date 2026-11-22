@@ -44,6 +44,8 @@ interface TargetScriptChoiceProps {
   onTranslate: () => Promise<void>;
   /** Fast translate: translation only, no meaning, length or term checks. */
   onFastTranslate?: () => Promise<void>;
+  /** Natural: each sentence written whole in spoken language, then cut back onto its cues. */
+  onNaturalTranslate?: () => Promise<void>;
   /** Opens the paste-and-align dialog, with any text pasted or file dropped here. Never translates. */
   onUseOwnScript: (script?: { text?: string; file?: File }) => void;
   onSeek?: (time: number) => void;
@@ -103,6 +105,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
   onFitToVoiceChange,
   onTranslate,
   onFastTranslate,
+  onNaturalTranslate,
   onUseOwnScript,
   onSeek,
   activeSegmentId = null,
@@ -115,6 +118,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
   const [editing, setEditing] = useState(false);
   /** Which button the running translation came from, for its spinner. */
   const [fastRunning, setFastRunning] = useState(false);
+  const [naturalRunning, setNaturalRunning] = useState(false);
   /** The playhead time S was pressed at, to split as the editor opens. */
   const [splitOnOpen, setSplitOnOpen] = useState<number | null>(null);
   const [exportResult, setExportResult] = useState<TranscriptExportResult | null>(null);
@@ -194,7 +198,9 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
   const percent = fraction === null ? null : Math.round(fraction * 100);
   const translatingLabel = fastRunning
     ? 'Fast translating'
-    : translationProgress?.step === 'check'
+    : naturalRunning
+      ? 'Natural translating'
+      : translationProgress?.step === 'check'
       ? 'Checking meaning and length'
       : 'Translating';
 
@@ -225,7 +231,23 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
       setFastRunning(false);
     }
   };
+  const handleNaturalTranslate = async () => {
+    if (!onNaturalTranslate) return;
+    setNaturalRunning(true);
+    try {
+      await onNaturalTranslate();
+    } catch (err: any) {
+      reportError(err, {
+        title: `Natural translation to ${targetLanguage} failed`,
+        safe: 'Your transcript and timestamps are intact. You can also use your own script instead.',
+        retry: handleNaturalTranslate,
+      });
+    } finally {
+      setNaturalRunning(false);
+    }
+  };
   const showFast = !sameLanguage && Boolean(onFastTranslate);
+  const showNatural = !sameLanguage && Boolean(onNaturalTranslate);
   const translateDisabled = busy || editing || !hasTranscript || translateBlocked;
   const pasteDisabled = !pasteReady;
 
@@ -517,27 +539,43 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
               </div>
             ) : (
               <>
-                <div className="flex gap-2">
+                <div className="flex flex-col gap-2">
                   <button
                     type="button"
                     onClick={() => void handleTranslate()}
                     disabled={translateDisabled}
-                    className="flex-1 min-w-0 h-10 px-3 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default active:translate-y-px"
+                    className="w-full min-w-0 h-10 px-3 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default active:translate-y-px"
                   >
                     <span className="truncate">{sameLanguage ? `Use the ${targetLanguage} transcript` : `Translate to ${targetLanguage}`}</span>
                     <ArrowRight className="w-4 h-4 shrink-0" />
                   </button>
-                  {showFast && (
-                    <button
-                      type="button"
-                      onClick={() => void handleFastTranslate()}
-                      disabled={translateDisabled}
-                      title={`Fast translate to ${targetLanguage}: translation only. Skips meaning, length and term checks.`}
-                      className="h-10 px-3 flex items-center justify-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm font-medium transition-colors disabled:text-slate-500 disabled:hover:bg-slate-900 disabled:cursor-not-allowed cursor-default active:translate-y-px"
-                    >
-                      <Zap className="w-4 h-4" aria-hidden="true" />
-                      Fast
-                    </button>
+                  {(showFast || showNatural) && (
+                    <div className="flex gap-2">
+                      {showFast && (
+                        <button
+                          type="button"
+                          onClick={() => void handleFastTranslate()}
+                          disabled={translateDisabled}
+                          title={`Fast translate to ${targetLanguage}: translation only. Skips meaning, length and term checks.`}
+                          className="flex-1 min-w-0 h-10 px-3 flex items-center justify-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm font-medium transition-colors disabled:text-slate-500 disabled:hover:bg-slate-900 disabled:cursor-not-allowed cursor-default active:translate-y-px"
+                        >
+                          <Zap className="w-4 h-4" aria-hidden="true" />
+                          Fast
+                        </button>
+                      )}
+                      {showNatural && (
+                        <button
+                          type="button"
+                          onClick={() => void handleNaturalTranslate()}
+                          disabled={translateDisabled}
+                          title={`Translate to ${targetLanguage} sentence by sentence, the way it is spoken, then cut each sentence back onto its cues.`}
+                          className="flex-1 min-w-0 h-10 px-3 flex items-center justify-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm font-medium transition-colors disabled:text-slate-500 disabled:hover:bg-slate-900 disabled:cursor-not-allowed cursor-default active:translate-y-px"
+                        >
+                          <Languages className="w-4 h-4" aria-hidden="true" />
+                          Natural
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
                 <p className="-mt-1 text-[11px] text-slate-500 leading-snug">

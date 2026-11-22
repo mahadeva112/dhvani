@@ -587,9 +587,9 @@ Respond with ONLY this JSON:
  * glossary that fails leaves both empty: the batches still report and share
  * their own terms, as before.
  */
-const readGlossary = async (translatable, { sourceLanguage, targetLanguage, customPrompt, apiKey, models, generate }) => {
+export const readGlossary = async (translatable, { sourceLanguage, targetLanguage, customPrompt, apiKey, models, generate, effort = writeEffort() }) => {
   try {
-    const answer = await askJson(buildGlossaryPrompt({ translatable, sourceLanguage, targetLanguage, customPrompt }), { apiKey, models, temperature: 0.2, generate });
+    const answer = await askJson(buildGlossaryPrompt({ translatable, sourceLanguage, targetLanguage, customPrompt }), { apiKey, models, temperature: 0.2, generate, effort });
     return { terms: mergeTerms([], answer?.terms), brief: readBrief(answer?.brief) };
   } catch (err) {
     logger.warn(`Translation glossary skipped: ${err?.message || err}`);

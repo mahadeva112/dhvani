@@ -235,6 +235,7 @@ export const retranslateCues = async (
     speakerRates,
     speakerGenders,
     fast = false,
+    natural = false,
     keys,
     signal,
     onProgress,
@@ -250,6 +251,8 @@ export const retranslateCues = async (
     speakerGenders?: Record<string, 'woman' | 'man'>;
     /** Translation only: no meaning, length or term checks, several batches at once. */
     fast?: boolean;
+    /** Natural: each sentence written whole in spoken language, then cut back onto its cues. */
+    natural?: boolean;
     onProgress?: (progress: RetranslateProgress) => void;
   }
 ): Promise<{ segments: AudioSegment[]; translatedSrt: string; untranslatedCueIds: string[] }> => {
@@ -268,7 +271,7 @@ export const retranslateCues = async (
   // drops halfway through a long script no longer loses the work.
   const jobId = `tr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
-  const body = { cues: segmentsToCues(segments), sourceLanguage, targetLanguage, customPrompt, ...(voiceRate && { voiceRate }), ...(speakerRates && Object.keys(speakerRates).length > 0 && { speakerRates }), ...(speakerGenders && { speakerGenders }), ...(fast && { fast }), jobId };
+  const body = { cues: segmentsToCues(segments), sourceLanguage, targetLanguage, customPrompt, ...(voiceRate && { voiceRate }), ...(speakerRates && Object.keys(speakerRates).length > 0 && { speakerRates }), ...(speakerGenders && { speakerGenders }), ...(fast && { fast }), ...(natural && { natural }), jobId };
 
   // Cancel stops the backend too: it outlives the request on purpose, so it is told to send no more batches.
   const stopBackend = () => {

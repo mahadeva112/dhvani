@@ -629,10 +629,10 @@ interface ExpressDubWizardProps {
   customPrompt?: string;
   promptPresetId?: string;
   onUpdateTranslationPrompt?: (prompt: string, presetId: string) => void;
-  onRetranslateSegments?: (prompt: string, options?: { fast?: boolean }) => Promise<void>;
+  onRetranslateSegments?: (prompt: string, options?: { fast?: boolean; natural?: boolean }) => Promise<void>;
   onRetranscribeAudio?: (prompt: string) => Promise<void>;
   /** The transcript's explicit "Translate" choice; the only path that translates a waiting transcript. */
-  onTranslateTranscript?: (options?: { fast?: boolean }) => Promise<void>;
+  onTranslateTranscript?: (options?: { fast?: boolean; natural?: boolean }) => Promise<void>;
   /** Saves the transcript as Dhvani JSON, paragraph text or subtitles; never transcribes or translates. */
   onExportTranscript?: (format: TranscriptFormat) => Promise<TranscriptExportResult>;
   /** Puts a cut made on the transcript screen on the project, keeping the cut as transcribed for Reset. */
@@ -828,7 +828,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
   const [isLocalPromptModalOpen, setIsLocalPromptModalOpen] = useState(false);
   /** Which Review button the running re-translation came from, for its spinner. */
-  const [fastRetranslating, setFastRetranslating] = useState(false);
+  const [retranslateWay, setRetranslateWay] = useState<'full' | 'fast' | 'natural'>('full');
 
   // Pro Review Suite Mode & Controls
   const [reviewMode, setReviewMode] = useState<ReviewMode>('table');
@@ -1338,8 +1338,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const awaitingScript = activeJob?.targetSource === 'pending';
   const scriptIsCustom = activeJob?.targetSource === 'custom';
 
-  /** Review's Re-translate and Fast re-translate; `fast` skips the meaning, length and term checks. */
-  const retranslateFromReview = ({ fast = false }: { fast?: boolean } = {}) => {
+  /**
+   * Review's Re-translate, Fast re-translate and Natural. `fast` skips the
+   * meaning, length and term checks; `natural` writes each sentence whole in
+   * spoken language and cuts it back onto its cues.
+   */
+  const retranslateFromReview = ({ fast = false, natural = false }: { fast?: boolean; natural?: boolean } = {}) => {
     if (!onRetranslateSegments) return;
     if (
       scriptIsCustom &&
@@ -1349,12 +1353,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     ) {
       return;
     }
-    setFastRetranslating(fast);
-    onRetranslateSegments(customPrompt || '', { fast })
+    setRetranslateWay(natural ? 'natural' : fast ? 'fast' : 'full');
+    onRetranslateSegments(customPrompt || '', { fast, natural })
       .catch(() => {
         // The failure is shown in the job's warning banner.
       })
-      .finally(() => setFastRetranslating(false));
+      .finally(() => setRetranslateWay('full'));
   };
 
   /*
@@ -3222,8 +3226,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   className={`${railButton} h-9 text-[13px]`}
                   title={scriptIsCustom ? 'Replace your script with an automatic translation of the transcript' : 'Translate every cue again with the current style'}
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isTranslatingLanguage && !fastRetranslating ? 'animate-spin' : ''}`} />
-                  {isTranslatingLanguage && !fastRetranslating ? 'Translating…' : 'Re-translate'}
+                  <RefreshCw className={`w-3.5 h-3.5 ${isTranslatingLanguage && retranslateWay === 'full' ? 'animate-spin' : ''}`} />
+                  {isTranslatingLanguage && retranslateWay === 'full' ? 'Translating…' : 'Re-translate'}
                 </button>
               )}
               <button
@@ -3247,11 +3251,26 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     retranslateFromReview({ fast: true });
                   }}
                   disabled={isTranslatingLanguage || segments.length === 0}
-                  className={`${railButton} h-9 text-[13px] col-span-2`}
+                  className={`${railButton} h-9 text-[13px]`}
                   title="Translate every cue again, translation only: skips the meaning, length and term checks"
                 >
-                  {isTranslatingLanguage && fastRetranslating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-                  {isTranslatingLanguage && fastRetranslating ? 'Fast translating…' : 'Fast re-translate'}
+                  {isTranslatingLanguage && retranslateWay === 'fast' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                  {isTranslatingLanguage && retranslateWay === 'fast' ? 'Fast translating…' : 'Fast re-translate'}
+                </button>
+              )}
+              {onRetranslateSegments && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReviewWindow(null);
+                    retranslateFromReview({ natural: true });
+                  }}
+                  disabled={isTranslatingLanguage || segments.length === 0}
+                  className={`${railButton} h-9 text-[13px]`}
+                  title={`Translate again sentence by sentence, the way ${targetLanguage} is spoken, then cut each sentence back onto its cues`}
+                >
+                  {isTranslatingLanguage && retranslateWay === 'natural' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Languages className="w-3.5 h-3.5" />}
+                  {isTranslatingLanguage && retranslateWay === 'natural' ? 'Natural translating…' : 'Natural'}
                 </button>
               )}
             </div>
@@ -3526,6 +3545,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 else if (onRetranslateSegments) await onRetranslateSegments(customPrompt || '');
               }}
               onFastTranslate={onTranslateTranscript ? () => onTranslateTranscript({ fast: true }) : undefined}
+              onNaturalTranslate={onTranslateTranscript ? () => onTranslateTranscript({ natural: true }) : undefined}
               onUseOwnScript={(script) => {
                 setAlignHandOff(script ? { ...script, n: Date.now() } : null);
                 setIsAlignModalOpen(true);
