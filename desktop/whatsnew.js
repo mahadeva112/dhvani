@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.9',
+    changes: [
+      'Expression Natural and Expressive now work when a project has several speakers, as long as every speaker\'s voice is on Eleven v3 or v4 (or Sonic 3 for a Cartesia voice). Each line is tagged from its own speaker\'s delivery.',
+    ],
+  },
+  {
     version: '1.5.8',
     changes: [
       'Natural translation no longer cuts words out of short sentences to fit the time ("the god you believe in" keeps "you believe in"), and Indian-English phrases like "simply because, somewhere" are said by what they mean.',
