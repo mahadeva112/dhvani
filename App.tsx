@@ -64,7 +64,8 @@ import {
   type StabilityAdjustment,
 } from './services/elevenLabsService';
 import { buildSpeechScript } from './services/speechScript';
-import { matchSourceDelivery } from './services/sourceCueService';
+import { expressionLineKey, expressionOf, hearExpression, keepCurrent, planExpression, taggedSegments, type ExpressionTags } from './services/expressionPrep';
+import type { ExpressionPrepView } from './components/ExpressionPrep';
 import { castForVoicing, isMultiSpeaker, renameCast, renameSpeaker, speakerGendersOf } from './services/speakers';
 import {
   getCartesiaVoices,
@@ -107,7 +108,10 @@ const OPEN_PROJECT_STORAGE_KEY = 'dhvani_open_project';
  * the step it is on. Changing these leaves when it was last worked on.
  */
 // Sync settings too: opening an older project saves them for the first time, and that isn't working on it. Nor is making a track taller in Edit timing.
-const VIEW_FIELDS = new Set<string>(['audioBuffer', 'synthAudioBuffer', 'syncedAudioBuffer', 'lastStep', 'syncOptions', 'syncTrackHeights']);
+/** Milliseconds after the last edit before Natural is heard in the background. */
+const EXPRESSION_WAIT_MS = 3000;
+
+const VIEW_FIELDS = new Set<string>(['audioBuffer', 'synthAudioBuffer', 'syncedAudioBuffer', 'lastStep', 'syncOptions', 'syncTrackHeights', 'expressionTags']);
 
 /** A new id for a Sync's bank (syncEpoch), or a bank the server is to be sent. */
 const newSyncId = () =>
@@ -613,8 +617,19 @@ export default function App() {
     } catch {}
   }, []);
 
-  // The last source-matched script per project, so a re-dub of an unchanged script doesn't listen again.
-  const sourceCueCacheRef = useRef<Record<string, { key: string; segments: AudioSegment[] }>>({});
+  /*
+   * Voice expression Natural heard ahead of Dub (services/expressionPrep.ts):
+   * the one run in the background, its count for the chip on Review, the
+   * projects whose run the user stopped or that failed (they wait for a
+   * press), and the tags heard so far ahead of the saved project, so a dub
+   * pressed mid-run uses them at once.
+   */
+  const expressionRunRef = useRef<{ jobId: string; controller: AbortController; done: Promise<void> } | null>(null);
+  const [expressionRun, setExpressionRun] = useState<{ jobId: string; heard: number; total: number } | null>(null);
+  const [expressionHeld, setExpressionHeld] = useState<Record<string, string>>({});
+  const expressionLiveRef = useRef<Record<string, ExpressionTags>>({});
+  // What Expression did for the Dub & sync running now, for its progress page.
+  const [syncExpressionNote, setSyncExpressionNote] = useState<string | null>(null);
 
   // Whether Roman-to-Indic conversion is on as you type across the app.
   const [isGlobalPhoneticEnabled, setIsGlobalPhoneticEnabled] = useState<boolean>(() => {
@@ -2678,23 +2693,76 @@ export default function App() {
     }
   };
 
+  /** A project's Natural tags: those saved with it and those heard since. */
+  const expressionTagsOf = (job: BatchJob): ExpressionTags => ({ ...job.expressionTags, ...expressionLiveRef.current[job.id] });
+
+  /** Saves lines' Natural tags with the project; tags of wordings no longer in the script are dropped. */
+  const saveExpressionTags = (jobId: string, entries: ExpressionTags, language: string) => {
+    expressionLiveRef.current[jobId] = { ...expressionLiveRef.current[jobId], ...entries };
+    updateJobWith(jobId, (job) => ({ expressionTags: keepCurrent({ ...job.expressionTags, ...entries }, job.segments, language) }));
+  };
+
+  /** Stops the background run, if any, once it has let go. */
+  const stopExpressionRun = async () => {
+    const run = expressionRunRef.current;
+    if (!run) return;
+    run.controller.abort();
+    await run.done.catch(() => {});
+  };
+
+  /** Hears, in the background, the sections of a project's script not heard yet. */
+  const startExpressionRun = (job: BatchJob, language: string) => {
+    if (expressionRunRef.current || !job.audioBuffer) return;
+    const controller = new AbortController();
+    const tags = expressionTagsOf(job);
+    const plan = planExpression(job.segments, language, tags);
+    if (plan.toHear.length === 0) return;
+    setExpressionRun({ jobId: job.id, heard: plan.sections.length - plan.toHear.length, total: plan.sections.length });
+    const done = hearExpression(job.audioBuffer, job.segments, language, tags, {
+      signal: controller.signal,
+      onSection: (entries, heard, total) => {
+        saveExpressionTags(job.id, entries, language);
+        if (expressionRunRef.current?.controller === controller) setExpressionRun({ jobId: job.id, heard, total });
+      },
+    })
+      .catch((err) => {
+        if (!controller.signal.aborted) setExpressionHeld((held) => ({ ...held, [job.id]: err instanceof Error ? err.message : String(err) }));
+      })
+      .finally(() => {
+        if (expressionRunRef.current?.controller !== controller) return;
+        expressionRunRef.current = null;
+        setExpressionRun(null);
+      });
+    expressionRunRef.current = { jobId: job.id, controller, done };
+  };
+
   /**
    * Voice expression Natural: the job's cues tagged from the original speaker's
-   * delivery. Heard once per wording and kept, so a dub and a sync of the same
-   * script share the same tags. `onListen` is called when the source must be heard.
+   * delivery. Lines heard ahead of Dub are used as they are; only sections with
+   * a line not heard yet are heard now, and saved with the project. `onListen`
+   * hears how many of those sections are done.
    */
-  const sourceTaggedSegments = async (job: BatchJob, language: string, signal: AbortSignal, onListen?: () => void) => {
-    if (!job.audioBuffer) {
-      throw new Error('The source audio is not loaded, so it cannot be matched. Reopen the project, or set Expression to Neutral.');
+  const sourceTaggedSegments = async (job: BatchJob, language: string, signal: AbortSignal, onListen?: (done: number, toHear: number) => void) => {
+    // A run in the background stops; what it heard is kept and not heard again.
+    await stopExpressionRun();
+    let tags = expressionTagsOf(job);
+    const plan = planExpression(job.segments, language, tags);
+    if (plan.toHear.length > 0) {
+      if (!job.audioBuffer) {
+        throw new Error('The source audio is not loaded, so it cannot be matched. Reopen the project, or set Expression to Neutral.');
+      }
+      const before = plan.sections.length - plan.toHear.length;
+      onListen?.(0, plan.toHear.length);
+      await hearExpression(job.audioBuffer, job.segments, language, tags, {
+        signal,
+        onSection: (entries, heard) => {
+          saveExpressionTags(job.id, entries, language);
+          tags = { ...tags, ...entries };
+          onListen?.(heard - before, plan.toHear.length);
+        },
+      });
     }
-    const key = JSON.stringify([language, job.segments.map((s) => [s.startTime, s.endTime, s.textTarget || s.targetText || ''])]);
-    const cached = sourceCueCacheRef.current[job.id];
-    if (cached?.key === key) return cached.segments;
-    onListen?.();
-    const result = await matchSourceDelivery(job.audioBuffer, job.segments, language, { signal });
-    if (result.taggedSections === 0) console.warn('Natural added no tags; the script is voiced as written.');
-    sourceCueCacheRef.current[job.id] = { key, segments: result.segments };
-    return result.segments;
+    return taggedSegments(job.segments, language, tags);
   };
 
   /**
@@ -2895,6 +2963,77 @@ export default function App() {
     language: selectedLanguage,
   });
 
+  /*
+   * Natural heard ahead of Dub (Mock A): once there is a script and Natural is
+   * picked for one voice that takes tags, the sections not heard yet are heard
+   * in the background a few seconds after the last edit, from Review on. The
+   * chip on Review shows it, with Cancel; a stopped or failed run waits for a
+   * press. A dub pressed meanwhile takes over (see sourceTaggedSegments).
+   */
+  const expressionLanguage = activeJob ? activeJob.language || selectedLanguage : '';
+  const expressionWanted = Boolean(
+    activeJob &&
+      voiceExpression === 'natural' &&
+      expressionTakesTags() &&
+      !awaitingScript &&
+      activeStep >= 2 &&
+      activeJob.segments.length > 0 &&
+      !isMultiSpeaker(activeJob.segments)
+  );
+  const expressionPlan = useMemo(
+    () => (expressionWanted && activeJob ? planExpression(activeJob.segments, expressionLanguage, activeJob.expressionTags) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [expressionWanted, activeJob?.segments, activeJob?.expressionTags, expressionLanguage]
+  );
+  const expressionRunning = Boolean(activeJob && expressionRun?.jobId === activeJob.id);
+
+  useEffect(() => {
+    if (!expressionWanted && expressionRunning) void stopExpressionRun();
+    if (!activeJob || !expressionPlan || expressionPlan.toHear.length === 0 || !activeJob.audioBuffer) return;
+    if (expressionRun || expressionHeld[activeJob.id] || syncingJobId) return;
+    const jobId = activeJob.id;
+    const language = expressionLanguage;
+    const timer = window.setTimeout(() => {
+      const job = queueRef.current.find((j) => j.id === jobId);
+      if (job) startExpressionRun(job, language);
+    }, EXPRESSION_WAIT_MS);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expressionWanted, expressionRunning, activeJob?.id, activeJob?.audioBuffer, expressionPlan, expressionRun, expressionHeld, syncingJobId, expressionLanguage]);
+
+  const expressionPrep: ExpressionPrepView | null =
+    activeJob && expressionPlan
+      ? (() => {
+          const total = expressionPlan.sections.length;
+          const toHear = expressionPlan.toHear.length;
+          const held = expressionHeld[activeJob.id];
+          const jobId = activeJob.id;
+          return {
+            state: expressionRunning ? 'listening' : toHear === 0 ? 'ready' : held === 'cancelled' ? 'stopped' : held ? 'failed' : !activeJob.audioBuffer ? 'no-audio' : 'waiting',
+            heard: expressionRunning && expressionRun ? expressionRun.heard : total - toHear,
+            total,
+            toHear,
+            someHeard: expressionPlan.keys.some((key) => activeJob.expressionTags?.[key]),
+            error: held && held !== 'cancelled' ? held : undefined,
+            onStart: () => {
+              setExpressionHeld(({ [jobId]: _dropped, ...rest }) => rest);
+              const job = queueRef.current.find((j) => j.id === jobId);
+              if (job) startExpressionRun(job, expressionLanguage);
+            },
+            onCancel: () => {
+              setExpressionHeld((held) => ({ ...held, [jobId]: 'cancelled' }));
+              void stopExpressionRun();
+            },
+          };
+        })()
+      : null;
+
+  /** A line's Natural tags changed by hand: kept as the user left them, even when its section is heard again. */
+  const handleExpressionLineChange = (segment: AudioSegment, text: string) => {
+    if (!activeJob) return;
+    saveExpressionTags(activeJob.id, { [expressionLineKey(expressionLanguage, segment)]: { text, mine: true } }, expressionLanguage);
+  };
+
   const readScript = async (job: BatchJob, voice: DubVoice, language: string, readKey: string, matchLoudness: boolean, outputFormat: string, signal: AbortSignal) => {
     const readJobId =
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -2917,8 +3056,8 @@ export default function App() {
       const matchSource = expression === 'natural';
       let script = buildSpeechScript(job.segments);
       if (matchSource) {
-        const tagged = await sourceTaggedSegments(job, language, signal, () =>
-          setReadProgress({ phase: 'listening', passageCount: 0, passagesDone: 0, totalChars: 0, charsDone: 0, secondsGenerated: 0, streaming: true })
+        const tagged = await sourceTaggedSegments(job, language, signal, (done, toHear) =>
+          setReadProgress({ phase: 'listening', passageCount: toHear, passagesDone: done, totalChars: 0, charsDone: 0, secondsGenerated: 0, streaming: true })
         );
         script = buildSpeechScript(tagged);
       }
@@ -3082,6 +3221,7 @@ export default function App() {
     const controller = new AbortController();
     syncRunRef.current = { jobId, projectId, controller };
     setSyncProgress(null);
+    setSyncExpressionNote(null);
     setIsCancellingSync(false);
     const poll = window.setInterval(() => {
       getSyncProgress(jobId)
@@ -3115,7 +3255,12 @@ export default function App() {
       const cartesiaDub = cartesiaForExpression(voice.cartesia, expression);
       let voiceTexts: Record<string, string> | undefined;
       if (expression === 'natural') {
-        const tagged = await sourceTaggedSegments(activeJob, language, controller.signal);
+        let listened = false;
+        const tagged = await sourceTaggedSegments(activeJob, language, controller.signal, (done, toHear) => {
+          listened = true;
+          setSyncExpressionNote(`Hearing the original for Expression: ${done} of ${toHear} part${toHear === 1 ? '' : 's'}`);
+        });
+        setSyncExpressionNote(listened ? 'Expression heard the parts that were left' : 'Expression was ready before Dub: no listening');
         voiceTexts = Object.fromEntries(tagged.map((segment) => [String(segment.id), segment.textTarget || segment.targetText || '']));
       }
       /*
@@ -5382,6 +5527,10 @@ export default function App() {
           getLiveTime={getLiveTime}
           voiceExpression={voiceExpression}
           onVoiceExpressionChange={handleVoiceExpressionChange}
+          expressionPrep={expressionPrep}
+          expressionOfLine={expressionPrep && activeJob ? (segment: AudioSegment) => expressionOf(expressionTagsOf(activeJob), expressionLanguage, segment) : undefined}
+          onExpressionLineChange={handleExpressionLineChange}
+          syncExpressionNote={dubbingHere ? syncExpressionNote : null}
           cartesiaModelId={cartesiaVoice.modelId}
           cartesiaVoice={cartesiaVoice}
           dubMatchLoudness={dubMatchLoudness}

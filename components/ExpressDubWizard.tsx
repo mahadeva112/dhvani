@@ -156,6 +156,8 @@ import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
 import { learnedPace, learnPaceFromSync, voicePaceKey, type LearnedPace } from '../services/voicePace';
 import { useSyncPreview, useLineFixes, LineFixControls, WordingButtons, isShort, EstimateSwitch, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, SourceLineLane, LaneViewSwitch, useLaneView, PauseTicksLane, WordingSuggestRow, LineFitRow, LineFitWordings, type PlaceDrag, type StretchDraft } from './SyncPreviewPanel';
 import { SyncFitStrip } from './SyncFitStrip';
+import { ExpressionPrepChip, ExpressionPrepNote, ExpressionTagChips, type ExpressionPrepView } from './ExpressionPrep';
+import { tagsInLine, type ExpressionLine } from '../services/expressionPrep';
 import { placeOf, withCut, withLinePlaces, withLineRate, withLineRates, withPartStart, withPauseSkip } from '../services/linePlaces';
 import type { WordingRequest } from './TakesPanel';
 import { stripPauses } from '../server/lib/linePauses.js';
@@ -505,6 +507,14 @@ interface ExpressDubWizardProps {
   /** How much expression the dub is voiced with: Neutral, Natural (from the source audio) or Expressive. */
   voiceExpression?: VoiceExpression;
   onVoiceExpressionChange?: (expression: VoiceExpression) => void;
+  /** Natural heard ahead of Dub: the chip on Review and the note under Expression; null when Natural isn't in use. */
+  expressionPrep?: ExpressionPrepView | null;
+  /** A line's Natural tags, if heard for it as it is now. */
+  expressionOfLine?: (segment: AudioSegment) => ExpressionLine | null;
+  /** A line's tags changed by hand on Review. */
+  onExpressionLineChange?: (segment: AudioSegment, tagged: string) => void;
+  /** What Expression did for the Dub & sync running now, for its progress page. */
+  syncExpressionNote?: string | null;
   /** The Cartesia model a Cartesia dub is voiced with: Natural and Expressive need a sonic-3 one. */
   cartesiaModelId?: string;
   /** How a Cartesia voice is voiced (model, speed, emotion), for the voice's read of a line on Source & voice. */
@@ -702,6 +712,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   elModelId,
   voiceExpression = 'off',
   onVoiceExpressionChange,
+  expressionPrep = null,
+  expressionOfLine,
+  onExpressionLineChange,
+  syncExpressionNote = null,
   cartesiaModelId,
   cartesiaVoice,
   dubMatchLoudness = false,
@@ -1475,7 +1489,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   }, [autoFit, activeJob?.id, activeJob?.syncReport, isSyncing]);
   const hasSyncReport = Boolean(activeJob?.syncedAudioUrl && activeJob?.syncReport);
   // Dub & sync on the Dub step: the progress page while it runs, then its result until Open the dub.
-  const syncRun = useSyncRun(isSyncing, syncProgress, syncWaitingFor ?? null);
+  const syncRun = useSyncRun(isSyncing, syncProgress, syncWaitingFor ?? null, syncExpressionNote);
   // Leaving the Dub step or the project drops the result: it is for the moment after.
   const syncPage = useSyncPageView(isSyncing, activeJob?.id ?? null, hasSyncReport ? activeJob?.syncReport ?? null : null, activeStep === 3);
   /*
@@ -2347,6 +2361,36 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     });
   };
 
+  /*
+   * "See tags" under Expression on the Dub page: Review opens on the first line
+   * Natural put a tag in (else the first heard line), its chips showing. The
+   * scroll waits for Review's list to be on screen.
+   */
+  const tagsCueToShow = useRef<string | null>(null);
+  const seeExpressionTags = () => {
+    const segs = activeJob?.segments ?? [];
+    const heard = expressionOfLine ? segs.filter((seg) => expressionOfLine(seg)) : [];
+    const first = heard.find((seg) => tagsInLine(expressionOfLine!(seg)!.text).length > 0) ?? heard[0] ?? segs[0];
+    setVoiceOpen(false);
+    setReviewMode('table');
+    setPacingFilter('all');
+    setStepOverride(2);
+    if (!first) return;
+    unfoldPassageOf(first.id);
+    setOpenCueId(String(first.id));
+    onSeek(first.startTime);
+    tagsCueToShow.current = String(first.id);
+  };
+  useEffect(() => {
+    const id = tagsCueToShow.current;
+    if (activeStep !== 2 || !id) return;
+    const timer = window.setTimeout(() => {
+      tagsCueToShow.current = null;
+      scrollWithin(document.getElementById(`cue-card-${id}`), 'center', true);
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [activeStep, openCueId]);
+
   /** Unwaived QA findings, blocking ones first, for the review panel. */
   const openFindings = useMemo(() => {
     const waived = qaSignoff?.overrides || {};
@@ -3091,6 +3135,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       </>
                     )}
                   </button>
+                  {expressionPrep && <ExpressionPrepChip view={expressionPrep} />}
                   {inBar && <span className="w-px h-6 bg-slate-800 mx-0.5" aria-hidden="true" />}
                 </>
               );
@@ -4028,6 +4073,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           <SyllableFitNote fit={syllableFitOf(seg)} />
                         </span>
                       )}
+                      {isOpen && expressionPrep && expressionOfLine && onExpressionLineChange && (
+                        <ExpressionTagChips
+                          text={tgtText}
+                          entry={expressionOfLine(seg)}
+                          listening={expressionPrep.state === 'listening'}
+                          onChange={(tagged) => onExpressionLineChange(seg, tagged)}
+                        />
+                      )}
                       {(() => {
                         if (linePreview) {
                           // A sync line can span several cues: its fit and rewording sit once, under its last cue.
@@ -4513,6 +4566,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 onChange: onVoiceExpressionChange,
                 takesCues,
                 cartesia: cartesiaVoice,
+                prep: expressionPrep && voiceExpression === 'natural' ? <ExpressionPrepNote view={expressionPrep} onSeeTags={seeExpressionTags} /> : null,
                 notTagged: multiSpeaker
                   ? 'Natural and Expressive are for a dub in one voice.'
                   : cartesiaVoice
@@ -5193,6 +5247,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     return (
                       <VoiceRow
                         label="Expression"
+                        warn={current === 'natural' && expressionPrep ? <span className="block text-[11px]"><ExpressionPrepNote view={expressionPrep} onSeeTags={seeExpressionTags} /></span> : undefined}
                         hint={
                           current === 'off'
                             ? "The script as written, in the voice's own settings. Nothing added."

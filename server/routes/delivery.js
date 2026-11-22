@@ -2,7 +2,9 @@ import { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { upload, cleanupUploads } from '../middleware/upload.js';
 import { ApiError } from '../errors.js';
-import { matchSourceDelivery } from '../lib/sourceCues.js';
+import { matchSourceDelivery, tagClip } from '../lib/sourceCues.js';
+import { cutAudioClip } from '../lib/media.js';
+import { cancelledError } from '../lib/http.js';
 
 export const deliveryRouter = Router();
 
@@ -46,6 +48,50 @@ deliveryRouter.post(
         language: req.body?.language || undefined,
         apiKey: req.get('x-gemini-key') || undefined,
         signal: controller.signal,
+      })
+    );
+  })
+);
+
+/** Longest clip one section request takes: a section is 90 s, with room for its padding. */
+const SECTION_CLIP_SECONDS = 120;
+
+/**
+ * POST /api/delivery/source-cues/section — tags one section of a dub script
+ * to match its stretch of the source, for Natural heard ahead of Dub.
+ *
+ * Multipart: `file` is that stretch of the source audio alone (the app cuts
+ * it, see groupSections in sourceSections.js), `lines` a JSON list of the
+ * section's dub lines in spoken order and `language` their language.
+ * Responds `{ lines, tagged }`, each line with tags or as written.
+ */
+deliveryRouter.post(
+  '/delivery/source-cues/section',
+  cleanupUploads,
+  upload.single('file'),
+  asyncHandler(async (req, res) => {
+    if (!req.file) throw new ApiError('No source audio was uploaded.', { status: 400, code: 'no_file' });
+    let lines;
+    try {
+      lines = JSON.parse(req.body?.lines || '[]');
+    } catch {
+      lines = null;
+    }
+    if (!Array.isArray(lines) || !lines.length || lines.some((line) => typeof line !== 'string')) {
+      throw new ApiError('No script lines were sent.', { status: 400, code: 'no_lines' });
+    }
+
+    const controller = new AbortController();
+    res.on('close', () => {
+      if (!res.writableFinished) controller.abort();
+    });
+
+    const clip = await cutAudioClip(req.file.path, 0, SECTION_CLIP_SECONDS, { signal: controller.signal });
+    if (controller.signal.aborted) throw cancelledError('Source cues');
+    res.json(
+      await tagClip(clip, lines.map((line) => line.trim()), {
+        language: req.body?.language || undefined,
+        apiKey: req.get('x-gemini-key') || undefined,
       })
     );
   })

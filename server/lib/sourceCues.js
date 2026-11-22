@@ -20,66 +20,9 @@ import { logger } from '../logger.js';
 import { generateText } from '../providers/textModel.js';
 import { cutAudioClip } from './media.js';
 import { cancelledError } from './http.js';
+import { PERFORMANCE_TAGS, acceptSourceCues, groupSections, SECTION_PAD_SECONDS } from './sourceSections.js';
 
-/**
- * The performance score's vocabulary, kept to a mild, natural delivery (voice
- * expression "Natural"). Theatrical tags the prompt warns against ([intense],
- * [authoritative]), its "[return to anchor]" placeholder, and the score's
- * own tags that push a read towards performance ([playful], [jovial],
- * [emphasize], [word-stretch], [dramatic pause]) are not in it, so they never
- * reach the voice.
- */
-export const PERFORMANCE_TAGS = [
-  // Thought function
-  'reasoning', 'explaining', 'narrating', 'questioning', 'concluding', 'contrasting', 'illustrating',
-  // Delivery
-  'calm', 'serious', 'meditative', 'focused', 'matter of fact', 'firm', 'clear',
-  // Pacing and prosody
-  'slow', 'fast', 'normal pace', 'accelerating', 'decelerating', 'rising pitch', 'falling pitch',
-  'clipped', 'rhythmic', 'flowing',
-  // Pauses
-  'sentence-build pause', 'audience-think pause', 'sharp pause',
-];
-
-const TAG = /\[([^\]\n]{1,120})\]/g;
-
-/**
- * A bracketed tag reduced to its allowed parts in canonical form
- * ("[Explaining,  calm, intense]" → "[explaining, calm]"), or null if none of
- * its parts are allowed.
- */
-export const performanceTag = (inner) => {
-  const kept = [
-    ...new Set(
-      String(inner)
-        .split(',')
-        .map((part) => part.trim().toLowerCase().replace(/\s+/g, ' ').replace(/_/g, ' '))
-        .filter((part) => PERFORMANCE_TAGS.includes(part))
-    ),
-  ];
-  return kept.length ? `[${kept.join(', ')}]` : null;
-};
-
-/** The words of a text, ignoring tags, punctuation, symbols and spacing. */
-const wordsOf = (text) =>
-  String(text || '')
-    .replace(TAG, ' ')
-    .normalize('NFC')
-    .replace(/[\p{P}\p{S}\s]+/gu, '')
-    .toLowerCase();
-
-/**
- * The tagged line if it keeps every word of `original` exactly; otherwise the
- * original. Unknown tags are dropped and spacing is tidied.
- */
-export const acceptSourceCues = (original, cued) => {
-  if (!cued || typeof cued !== 'string') return original;
-  const cleaned = cued
-    .replace(TAG, (_, inner) => performanceTag(inner) || '')
-    .replace(/[^\S\n]+/g, ' ')
-    .trim();
-  return wordsOf(cleaned) === wordsOf(original) ? cleaned : original;
-};
+export { PERFORMANCE_TAGS, performanceTag, acceptSourceCues, groupSections, SECTION_SECONDS, SECTION_CHARS } from './sourceSections.js';
 
 let framework = null;
 const loadFramework = () => {
@@ -101,44 +44,14 @@ Return exactly ${lines.length} line${lines.length === 1 ? '' : 's'}, one for eac
 DUB SCRIPT:
 ${lines.join('\n')}`;
 
-/** Longest stretch of source audio heard in one request, and most script in it. */
-export const SECTION_SECONDS = 90;
-export const SECTION_CHARS = 2500;
-
-/** Audio either side of a section, so its first and last words are not clipped. */
-const SECTION_PAD_SECONDS = 0.25;
-
 /** Sections tagged at once. */
 const CONCURRENCY = 3;
 
 /**
- * Groups cues (in spoken order) into sections of at most SECTION_SECONDS of
- * audio and SECTION_CHARS of script. Cues without text are left out.
+ * The tagged lines for one clip of the source (mp3), each falling back to its
+ * original if it doesn't match. `tagged` says whether any line got tags.
  */
-export const groupSections = (cues) => {
-  const sections = [];
-  cues.forEach((cue, index) => {
-    if (!String(cue.text || '').trim()) return;
-    const last = sections[sections.length - 1];
-    if (last && cue.end - last.start <= SECTION_SECONDS && last.chars + cue.text.length <= SECTION_CHARS) {
-      last.indexes.push(index);
-      last.end = Math.max(last.end, cue.end);
-      last.chars += cue.text.length;
-    } else {
-      sections.push({ indexes: [index], start: cue.start, end: cue.end, chars: cue.text.length });
-    }
-  });
-  return sections;
-};
-
-/** The tagged lines for one section, each falling back to its original if it doesn't match. */
-const tagSection = async (audioPath, section, lines, { language, apiKey, signal }) => {
-  const clip = await cutAudioClip(
-    audioPath,
-    Math.max(0, section.start - SECTION_PAD_SECONDS),
-    section.end + SECTION_PAD_SECONDS,
-    { signal }
-  );
+export const tagClip = async (clip, lines, { language, apiKey }) => {
   const { response } = await generateText({
     contents: {
       role: 'user',
@@ -158,6 +71,17 @@ const tagSection = async (audioPath, section, lines, { language, apiKey, signal 
   }
   const accepted = lines.map((line, i) => acceptSourceCues(line, reply[i]));
   return { lines: accepted, tagged: accepted.some((line, i) => line !== lines[i]) };
+};
+
+/** The tagged lines for one section of the source audio at `audioPath`. */
+const tagSection = async (audioPath, section, lines, { language, apiKey, signal }) => {
+  const clip = await cutAudioClip(
+    audioPath,
+    Math.max(0, section.start - SECTION_PAD_SECONDS),
+    section.end + SECTION_PAD_SECONDS,
+    { signal }
+  );
+  return tagClip(clip, lines, { language, apiKey });
 };
 
 /**

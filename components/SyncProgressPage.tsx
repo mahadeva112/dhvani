@@ -61,7 +61,13 @@ const push = (log: SyncRunEntry[], entry: SyncRunEntry) => {
  * happened, from the progress Sync reports. Kept by the step (not the page),
  * so leaving the Dub step and coming back keeps it.
  */
-export const useSyncRun = (isSyncing: boolean, progress: SyncProgress | null, waitingFor: string | null): SyncRun | null => {
+export const useSyncRun = (
+  isSyncing: boolean,
+  progress: SyncProgress | null,
+  waitingFor: string | null,
+  /** What voice expression Natural did before the lines were voiced: heard ahead of Dub, or how many parts it is hearing now. */
+  expressionNote: string | null = null
+): SyncRun | null => {
   const [run, setRun] = useState<SyncRun | null>(null);
   const last = useRef<SyncProgress | null>(null);
 
@@ -87,6 +93,11 @@ export const useSyncRun = (isSyncing: boolean, progress: SyncProgress | null, wa
     if (!isSyncing || !waitingFor) return;
     setRun((r) => (r ? { ...r, log: push(r.log, { at: Date.now(), text: `Waiting for “${waitingFor}” to finish dubbing`, kind: 'waiting' }) } : r));
   }, [isSyncing, waitingFor]);
+
+  useEffect(() => {
+    if (!isSyncing || !expressionNote) return;
+    setRun((r) => (r ? { ...r, log: push(r.log, { at: Date.now(), text: expressionNote, kind: 'expression' }) } : r));
+  }, [isSyncing, expressionNote]);
 
   useEffect(() => {
     if (!isSyncing || !progress || progress.step < 1) return;

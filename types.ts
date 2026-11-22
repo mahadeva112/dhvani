@@ -263,6 +263,13 @@ export interface BatchJob {
   detectedLanguage?: string;
   manualDuration: string;
   expression: string;
+  /**
+   * Voice expression Natural heard ahead of Dub: each line's dub text with the
+   * original speaker's delivery tags, by expressionLineKey (language, times
+   * and words), so only edited lines are heard again. Never part of the
+   * script or subtitles, and not an undo step. See services/expressionPrep.ts.
+   */
+  expressionTags?: Record<string, { text: string; mine?: boolean }>;
   pronunciations: PronunciationPair[];
   customPrompt?: string;
   promptPresetId?: string;

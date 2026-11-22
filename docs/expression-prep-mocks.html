@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Expression Prep</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<script>
+  // Graphite, as index.css swaps it.
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          slate: { 50:'#f6f6f7',100:'#ececef',200:'#dcdde1',300:'#c6c8ce',400:'#abadb5',500:'#8b8e98',600:'#5a5d66',700:'#34363c',800:'#232529',900:'#18191c',950:'#111214' },
+          indigo: { 300:'#a5adf5',400:'#7b86ec',500:'#5866e0',600:'#4c59d0',950:'#23253a' },
+          edge: '#27292d',
+        },
+      },
+    },
+  };
+</script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#111214; font-family: Inter, system-ui, "Noto Sans Devanagari", "Noto Sans Bengali", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .seg button { transition: background .12s, color .12s; }
+  .seg button.on { background:#34363c; color:#ececef; }
+  .seg button:not(.on) { color:#8b8e98; }
+  .seg button:not(.on):hover { background:#18191c; color:#c6c8ce; }
+  .tagmark { display:inline-flex; align-items:center; gap:2px; vertical-align:baseline; font-family: ui-monospace, Consolas, monospace; font-size:10.5px; line-height:16px; padding:0 5px; margin:0 3px; border-radius:5px; background:rgba(88,102,224,.13); color:#a5adf5; border:1px solid rgba(88,102,224,.28); }
+  .tagmark.mine { background:rgba(16,185,129,.10); color:#6ee7b7; border-color:rgba(16,185,129,.28); }
+  .tagmark .x { display:none; cursor:pointer; color:#8b8e98; padding-left:2px; }
+  .tagmark:hover .x { display:inline; }
+  .tagmark .x:hover { color:#fda4af; }
+  .chip .x { cursor:pointer; color:#8b8e98; }
+  .chip .x:hover { color:#fda4af; }
+  .bar { transition: width .25s linear; }
+  .pulse { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.35 } }
+  .pop { box-shadow: 0 18px 40px -12px rgba(0,0,0,.7); }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6">
+
+<div class="max-w-[72rem] mx-auto space-y-2 mb-4 text-[12.5px] text-slate-400">
+  <div class="flex flex-wrap items-center gap-2">
+    <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+    <span class="w-16 text-slate-500">শুরু</span>
+    <span id="startSeg" class="seg inline-flex rounded-lg border border-edge overflow-hidden">
+      <button data-v="A" class="px-3 py-1">Mock A · Natural বাছলেই নিজে থেকে</button>
+      <button data-v="B" class="px-3 py-1">Mock B · শুধু বোতামে</button>
+    </span>
+    <span id="startNote" class="ml-1"></span>
+  </div>
+  <div class="flex flex-wrap items-center gap-2">
+    <span class="px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 font-medium">Tags</span>
+    <span class="w-16 text-slate-500">দেখানো</span>
+    <span id="viewSeg" class="seg inline-flex rounded-lg border border-edge overflow-hidden">
+      <button data-v="1" class="px-3 py-1">1 · লাইনের ভিতরে চিহ্ন</button>
+      <button data-v="2" class="px-3 py-1">2 · লাইনের নিচে chip</button>
+    </span>
+    <span id="viewNote" class="ml-1"></span>
+  </div>
+  <div class="flex flex-wrap items-center gap-2">
+    <span class="px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-300 font-medium">State</span>
+    <span class="w-16 text-slate-500">অবস্থা</span>
+    <span id="stateSeg" class="seg inline-flex rounded-lg border border-edge overflow-hidden">
+      <button data-v="idle" class="px-3 py-1">শোনা হয়নি</button>
+      <button data-v="listening" class="px-3 py-1">শুনছে</button>
+      <button data-v="ready" class="px-3 py-1">তৈরি</button>
+      <button data-v="changed" class="px-3 py-1">একটা লাইন বদলানো</button>
+    </span>
+    <span class="ml-1 text-slate-500">চিহ্নের ওপর মাউস নিলে × দেখাবে, চাপলে মুছে যায় (আপনার বদল সবুজ, আবার শোনায় বদলায় না)।</span>
+  </div>
+</div>
+
+<div class="max-w-[72rem] mx-auto space-y-6">
+
+  <!-- 1. Review -->
+  <section>
+    <div class="text-[11px] uppercase tracking-wider text-slate-500 mb-2">১ · Review (Dub-এর আগে)</div>
+    <div class="rounded-2xl border border-edge bg-slate-950 overflow-hidden">
+      <!-- app bar -->
+      <div class="flex flex-wrap items-center gap-2 px-4 h-12 border-b border-edge bg-slate-900/60 text-[13px]">
+        <span class="text-slate-500">1 Source &amp; voice</span><span class="text-slate-600">›</span>
+        <span class="text-slate-100 font-semibold">2 Review</span><span class="text-slate-600">›</span>
+        <span class="text-slate-500">3 Dub</span>
+        <div class="flex-1"></div>
+        <span class="text-[12px] text-slate-500 hidden sm:inline">Hindi · Eleven v3 · Expression <b class="text-slate-300 font-medium">Natural</b></span>
+        <div id="barSlot"></div>
+      </div>
+      <!-- lines -->
+      <div id="lines" class="divide-y divide-edge"></div>
+      <div class="flex items-center justify-between px-4 h-11 border-t border-edge bg-slate-900/40 text-[12.5px]">
+        <span class="text-slate-500">4 of 212 lines</span>
+        <button class="h-8 px-3.5 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white font-medium">Continue to Dub</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. Dub settings Expression row -->
+  <section>
+    <div class="text-[11px] uppercase tracking-wider text-slate-500 mb-2">২ · Dub settings card · Expression সারি</div>
+    <div class="rounded-2xl border border-edge bg-slate-900 p-4 max-w-[34rem]">
+      <div class="flex items-center gap-3">
+        <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+        <span class="text-[13px] font-medium w-24">Expression</span>
+        <span class="seg inline-flex rounded-lg border border-edge overflow-hidden text-[12.5px]">
+          <button class="px-2.5 py-1">Off</button><button class="px-2.5 py-1">Neutral</button><button class="px-2.5 py-1 on">Natural</button><button class="px-2.5 py-1">Expressive</button>
+        </span>
+      </div>
+      <div class="pl-[7.25rem] mt-1.5 text-[11.5px] text-slate-500">Follows how the original speaker spoke: their pace and pauses, with calm tags only.</div>
+      <div id="cardSlot" class="pl-[7.25rem] mt-2"></div>
+    </div>
+  </section>
+
+  <!-- 3. Dub progress -->
+  <section>
+    <div class="text-[11px] uppercase tracking-wider text-slate-500 mb-2">৩ · Dub &amp; sync চলার সময় (progress page)</div>
+    <div class="grid sm:grid-cols-2 gap-4">
+      <div class="rounded-2xl border border-edge bg-slate-900 p-4">
+        <div class="text-[12px] text-slate-500 mb-3">এখন</div>
+        <ol class="space-y-2.5 text-[13px]">
+          <li class="flex items-center gap-2.5"><span class="w-4 h-4 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin"></span><span>Listening to the original</span><span class="ml-auto mono text-[11.5px] text-slate-500">7 / 20 parts</span></li>
+          <li class="flex items-center gap-2.5 text-slate-500"><span class="w-4 h-4 rounded-full border border-slate-600"></span><span>Voicing lines</span><span class="ml-auto text-[11.5px]">waits for listening</span></li>
+          <li class="flex items-center gap-2.5 text-slate-500"><span class="w-4 h-4 rounded-full border border-slate-600"></span><span>Placing on the timeline</span></li>
+        </ol>
+      </div>
+      <div class="rounded-2xl border border-edge bg-slate-900 p-4">
+        <div class="text-[12px] text-slate-500 mb-3">প্ল্যানের পরে</div>
+        <ol class="space-y-2.5 text-[13px]" id="afterSteps"></ol>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+  const LINES = [
+    { t:'00:12.4', sp:'Speaker 1', words:'जब आप किसी चीज़ को समझना चाहते हैं', tags:[{ at:0, tag:'explaining, calm' }] },
+    { t:'00:16.8', sp:'Speaker 1', words:'तो पहले आपको उसे ध्यान से देखना होगा', tags:[{ at:4, tag:'sentence-build pause' }] },
+    { t:'00:21.0', sp:'Speaker 1', words:'यह कोई विचार नहीं है, यह अनुभव है', tags:[{ at:0, tag:'contrasting, firm' }, { at:5, tag:'slow' }] },
+    { t:'00:26.2', sp:'Speaker 1', words:'क्या आपने कभी इस पर ध्यान दिया है?', tags:[{ at:0, tag:'questioning, rising pitch' }] },
+  ];
+  const S = { start:'A', view:'1', state:'ready', open:1, heard:0, timer:null };
+  const CHANGED = 2;            // line index edited in "changed"
+  const TOTAL = 20;
+
+  const ico = {
+    ear:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h2l2-5 3 10 3-14 3 12 2-3h3"/></svg>',
+    lock:'<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+    check:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="m5 12 5 5 9-10"/></svg>',
+  };
+
+  const segs = (id, key, notes, after) => {
+    const el = document.getElementById(id);
+    el.querySelectorAll('button').forEach((b) => b.onclick = () => { S[key] = b.dataset.v; after?.(); render(); });
+  };
+  const mark = (id, key) => document.querySelectorAll(`#${id} button`).forEach((b) => b.classList.toggle('on', b.dataset.v === S[key]));
+
+  const stopTimer = () => { clearInterval(S.timer); S.timer = null; };
+  const runListening = (from = 0) => {
+    stopTimer(); S.state = 'listening'; S.heard = from;
+    S.timer = setInterval(() => { S.heard += 1; if (S.heard >= TOTAL) { stopTimer(); S.state = 'ready'; } render(); }, 260);
+  };
+
+  // App bar status, by start mode and state.
+  const barStatus = () => {
+    const { start, state } = S;
+    if (state === 'idle') {
+      return start === 'A'
+        ? `<span class="inline-flex items-center gap-2 h-8 px-3 rounded-lg border border-edge text-[12px] text-slate-400">${ico.ear} Expression: starts when the script is ready</span>`
+        : `<button id="prep" class="inline-flex items-center gap-2 h-8 px-3 rounded-lg border border-indigo-500/50 bg-indigo-500/10 hover:bg-indigo-500/20 text-[12.5px] text-indigo-200">${ico.ear} Prepare expression</button>`;
+    }
+    if (state === 'listening') {
+      const pct = Math.round((S.heard / TOTAL) * 100);
+      return `<span class="inline-flex items-center gap-2.5 h-8 pl-3 pr-1.5 rounded-lg border border-edge bg-slate-900 text-[12px]">
+        <span class="text-indigo-300 pulse">${ico.ear}</span><span class="text-slate-300">Hearing the original</span>
+        <span class="w-20 h-1.5 rounded-full bg-slate-800 overflow-hidden"><span class="bar block h-full bg-indigo-400" style="width:${pct}%"></span></span>
+        <span class="mono text-slate-400">${S.heard}/${TOTAL}</span>
+        <button id="cancel" class="h-6 px-2 rounded-md hover:bg-slate-800 text-slate-400">Cancel</button></span>`;
+    }
+    if (state === 'changed') {
+      return start === 'A'
+        ? `<span class="inline-flex items-center gap-2 h-8 px-3 rounded-lg border border-amber-500/40 bg-amber-500/10 text-[12px] text-amber-200"><span class="pulse">${ico.ear}</span> Hearing 1 changed part again · <span class="mono">00:00–01:30</span></span>`
+        : `<button id="rehear" class="inline-flex items-center gap-2 h-8 px-3 rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-[12px] text-amber-200">${ico.ear} 1 part changed · Hear again</button>`;
+    }
+    return `<span class="inline-flex items-center gap-2 h-8 px-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-[12px] text-emerald-200">${ico.check} Expression ready · <span class="mono">${TOTAL}/${TOTAL}</span> · saved in project</span>`;
+  };
+
+  const cardStatus = () => {
+    const { state, start } = S;
+    if (state === 'idle') return start === 'A'
+      ? `<div class="text-[11.5px] text-slate-400">Not heard yet. Starts by itself once the script is ready.</div>`
+      : `<button id="prep2" class="h-7 px-3 rounded-lg border border-edge hover:bg-slate-800 text-[12px] text-slate-200 inline-flex items-center gap-1.5">${ico.ear} Prepare now</button><span class="ml-2 text-[11.5px] text-slate-500">or it is heard when you press Dub</span>`;
+    if (state === 'listening') return `<div class="text-[11.5px] text-indigo-300">Hearing the original · <span class="mono">${S.heard}/${TOTAL}</span> parts</div>`;
+    if (state === 'changed') return `<div class="text-[11.5px] text-amber-300">1 line changed · only its part (<span class="mono">00:00–01:30</span>) is heard again, the other 19 are kept</div>`;
+    return `<div class="text-[11.5px] text-emerald-300 inline-flex items-center gap-1.5">${ico.check} Ready · Dub starts voicing at once</div>`;
+  };
+
+  const tagsShown = (i) => S.state === 'ready' || S.state === 'changed' && i !== CHANGED || S.state === 'listening' && S.heard >= TOTAL / 2;
+
+  const inlineText = (line, i) => {
+    const words = line.words.split(' ');
+    if (!tagsShown(i)) return words.join(' ');
+    return words.map((w, k) => line.tags.filter((t) => t.at === k).map((t) =>
+      `<span class="tagmark ${t.mine ? 'mine' : ''}">[${t.tag}]${t.mine ? ` <span class="text-emerald-400">${ico.lock}</span>` : ''}<span class="x" data-line="${i}" data-tag="${line.tags.indexOf(t)}">×</span></span>`).join('') + w).join(' ');
+  };
+
+  const chips = (line, i) => {
+    if (!tagsShown(i)) return '';
+    const words = line.words.split(' ');
+    return `<div class="flex flex-wrap gap-1.5 mt-2">${line.tags.map((t, k) =>
+      `<span class="chip inline-flex items-center gap-1.5 h-6 pl-2 pr-1.5 rounded-md text-[11px] ${t.mine ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30' : 'bg-indigo-500/10 text-indigo-200 border border-indigo-500/25'}">
+        <span class="mono">[${t.tag}]</span><span class="text-slate-500">before “${words[t.at]}”</span>${t.mine ? `<span class="text-emerald-400">${ico.lock}</span>` : ''}<span class="x px-0.5" data-line="${i}" data-tag="${k}">×</span></span>`).join('')}
+      <button class="h-6 px-2 rounded-md border border-dashed border-edge text-[11px] text-slate-500 hover:text-slate-300">+ tag</button></div>`;
+  };
+
+  const lineNote = (i) => {
+    if (S.state === 'changed' && i === CHANGED) return `<div class="mt-2 text-[11.5px] text-amber-300">Words changed · this part is heard again${S.start === 'B' ? ' when you press Hear again or Dub' : ''}</div>`;
+    if (S.state === 'listening' && !tagsShown(i)) return `<div class="mt-2 text-[11.5px] text-slate-500">Waiting to be heard…</div>`;
+    if (S.state === 'idle' && i === S.open) return `<div class="mt-2 text-[11.5px] text-slate-500">No tags yet. Words stay exactly as written either way.</div>`;
+    return LINES[i].tags.some((t) => t.mine) ? `<div class="mt-2 text-[11.5px] text-emerald-300/80 inline-flex items-center gap-1.5">${ico.lock} Your tags · kept when heard again</div>` : '';
+  };
+
+  const renderLines = () => {
+    document.getElementById('lines').innerHTML = LINES.map((line, i) => {
+      const open = i === S.open;
+      const dot = S.state === 'changed' && i === CHANGED ? 'bg-amber-400' : tagsShown(i) ? 'bg-indigo-400' : 'bg-slate-700';
+      return `<div class="row px-4 py-3 ${open ? 'bg-slate-900/70' : 'hover:bg-slate-900/40 cursor-pointer'}" data-open="${i}">
+        <div class="flex items-start gap-3">
+          <span class="mono text-[11.5px] text-slate-500 pt-0.5 w-14 shrink-0">${line.t}</span>
+          <span class="w-1.5 h-1.5 rounded-full mt-2 shrink-0 ${dot}" title="tags"></span>
+          <div class="min-w-0 flex-1">
+            <div class="text-[15px] leading-7 ${open ? 'text-slate-50' : 'text-slate-300'}">${open && S.view === '1' ? inlineText(line, i) : line.words}</div>
+            ${open && S.view === '2' ? chips(line, i) : ''}
+            ${open ? lineNote(i) : ''}
+          </div>
+          <span class="text-[11.5px] text-slate-500 shrink-0 pt-0.5">${line.sp}</span>
+        </div></div>`;
+    }).join('');
+  };
+
+  const renderAfter = () => {
+    const ready = S.state === 'ready';
+    const part = S.state === 'changed';
+    const first = ready
+      ? `<li class="flex items-center gap-2.5"><span class="text-emerald-400">${ico.check}</span><span>Listening to the original</span><span class="ml-auto text-[11.5px] text-emerald-300">ready before Dub · skipped</span></li>`
+      : part
+        ? `<li class="flex items-center gap-2.5"><span class="w-4 h-4 rounded-full border-2 border-amber-400 border-t-transparent animate-spin"></span><span>Hearing 1 changed part</span><span class="ml-auto mono text-[11.5px] text-slate-500">1 / 1 · 19 kept</span></li>`
+        : `<li class="flex items-center gap-2.5"><span class="w-4 h-4 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin"></span><span>Listening to the original</span><span class="ml-auto mono text-[11.5px] text-slate-500">${S.heard} / ${TOTAL} · rest only</span></li>`;
+    document.getElementById('afterSteps').innerHTML = first +
+      `<li class="flex items-center gap-2.5 ${ready ? '' : 'text-slate-500'}"><span class="w-4 h-4 rounded-full ${ready ? 'border-2 border-indigo-400 border-t-transparent animate-spin' : 'border border-slate-600'}"></span><span>Voicing lines</span><span class="ml-auto text-[11.5px] ${ready ? 'mono text-slate-500' : ''}">${ready ? '38 / 212' : 'starts after'}</span></li>
+       <li class="flex items-center gap-2.5 text-slate-500"><span class="w-4 h-4 rounded-full border border-slate-600"></span><span>Placing on the timeline</span></li>`;
+  };
+
+  const NOTES = {
+    start: { A:'Natural বা Expressive বাছলে আর স্ক্রিপ্ট তৈরি থাকলে পেছনে নিজে শোনে। Cancel সবসময় থাকে।', B:'যতক্ষণ না Prepare চাপেন, কিছু শোনে না। না চাপলে Dub চাপার সময় শোনে, এখনকার মতো।' },
+    view: { 1:'ট্যাগ ঠিক যে শব্দের আগে বসবে সেখানেই দেখায়। লাইন যেমন পড়বে তেমন।', 2:'লাইনের লেখা পরিষ্কার থাকে, ট্যাগ নিচে আলাদা chip-এ।' },
+  };
+
+  function render() {
+    mark('startSeg', 'start'); mark('viewSeg', 'view'); mark('stateSeg', 'state');
+    document.getElementById('startNote').textContent = NOTES.start[S.start];
+    document.getElementById('viewNote').textContent = NOTES.view[S.view];
+    document.getElementById('barSlot').innerHTML = barStatus();
+    document.getElementById('cardSlot').innerHTML = cardStatus();
+    renderLines(); renderAfter();
+    const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
+    on('prep', () => runListening(0)); on('prep2', () => runListening(0));
+    on('cancel', () => { stopTimer(); S.state = 'idle'; render(); });
+    on('rehear', () => { S.state = 'listening'; S.heard = TOTAL - 1; runListening(TOTAL - 1); });
+    document.querySelectorAll('[data-open]').forEach((el) => el.onclick = (e) => {
+      const x = e.target.closest('.x');
+      if (x) { const line = LINES[+x.dataset.line]; line.tags.splice(+x.dataset.tag, 1); line.tags.forEach((t) => t.mine = true); render(); return; }
+      S.open = +el.dataset.open; render();
+    });
+  }
+
+  segs('startSeg', 'start');
+  segs('viewSeg', 'view');
+  segs('stateSeg', 'state', null, () => { stopTimer(); if (S.state === 'listening') runListening(0); if (S.state === 'ready') S.heard = TOTAL; });
+  S.heard = TOTAL;
+  render();
+</script>
+</body>
+</html>

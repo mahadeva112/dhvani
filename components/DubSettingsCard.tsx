@@ -337,6 +337,8 @@ export interface DubSettingsCardProps {
     cartesia: boolean;
     /** Why Natural and Expressive can't be picked. */
     notTagged: string;
+    /** With Natural: how far it is heard ahead of Dub (see ExpressionPrep.tsx). */
+    prep?: React.ReactNode;
   };
   voiceSettings?: {
     shown: ElevenLabsVoiceSettings;
@@ -642,7 +644,12 @@ export const DubSettingsCard: React.FC<DubSettingsCardProps> = ({
             )}
           </Row>
           {expression && expressionNow && (
-            <Row name="Expression" changed={expressionNow !== 'off'} note={expressionNote(expressionNow, expression.takesCues, expression.cartesia, expression.notTagged)}>
+            <Row
+              name="Expression"
+              changed={expressionNow !== 'off'}
+              note={expressionNote(expressionNow, expression.takesCues, expression.cartesia, expression.notTagged)}
+              below={expressionNow === 'natural' && expression.prep ? <div className="text-[11.5px]">{expression.prep}</div> : undefined}
+            >
               <Seg
                 label="Expression"
                 value={expressionNow}
