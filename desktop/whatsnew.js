@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.7',
+    changes: [
+      'Fast translation now writes each sentence whole, the way the language is spoken, then fits it to the lines: no more English word order, at about the same speed.',
+    ],
+  },
+  {
     version: '1.5.6',
     changes: [
       'Natural translation reads more like people talk: no "uh" carried over, no unclear "it", and words that give the right picture (a village shrine is no longer called a mazar).',
