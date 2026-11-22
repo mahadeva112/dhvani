@@ -64,6 +64,12 @@ const LANGUAGE_EXAMPLES = {
         wrong: ['यदि आपको अपनी समयबद्धता का ज्ञान हो,', 'तो आप स्पष्टता के साथ जिएँगे।'],
         right: ['एक बार आपको पता चल जाए कि आपका समय सीमित है,', 'तो आप साफ़ समझ के साथ जिएँगे।'],
       },
+      {
+        lesson: 'Indian-English "simply because" and "somewhere" said by what they mean, not word for word.',
+        english: ['I keep going back there, simply because somewhere', 'it feels like home.'],
+        wrong: ['मैं बार-बार वहाँ वापस जाता हूँ, सिर्फ़ इसलिए क्योंकि कहीं न कहीं', 'वह घर जैसा लगता है।'],
+        right: ['मैं बार-बार वहीं लौट जाता हूँ, क्योंकि पता नहीं क्यों,', 'वो जगह अपने घर जैसी लगती है।'],
+      },
     ],
   },
   Bengali: {
@@ -86,6 +92,12 @@ const LANGUAGE_EXAMPLES = {
       {
         english: ['not with a sword or any kind of weapon, but simply out of their consciousness.'],
         right: ['কোনো তলোয়ার বা অস্ত্রের জোরে নয়, বরং স্রেফ তাঁদের চেতনার ক্ষমতায়।'],
+      },
+      {
+        lesson: 'Indian-English "simply because" and "somewhere" said by what they mean, not word for word: never "স্রেফ এই কারণে যে" or a "কোথাও" that is no place.',
+        english: ['I keep going back there, simply because somewhere', 'it feels like home.'],
+        wrong: ['আমি বারবার সেখানে ফিরে যাই, স্রেফ এই কারণে যে কোথাও', 'এটা বাড়ির মতো মনে হয়।'],
+        right: ['ওখানে বারবার ফিরে যাই, কারণ কেন জানি না,', 'জায়গাটা নিজের বাড়ির মতো লাগে।'],
       },
     ],
   },
@@ -294,9 +306,10 @@ export const examplesBlock = (targetLanguage) => {
   set.pairs.forEach(([wrong, right], index) => {
     lines.push('', `${index + 1}. ${LESSONS[index]}`, `English: ${cueLine(SOURCES[index])}`, `Not this: ${cueLine(wrong)}`, `This: ${cueLine(right)}`);
   });
+  let number = set.pairs.length;
   for (const example of set.extra || []) {
     lines.push('');
-    if (example.lesson) lines.push(`${set.pairs.length + 1}. ${example.lesson}`);
+    if (example.lesson) lines.push(`${(number += 1)}. ${example.lesson}`);
     lines.push(`English: ${cueLine(example.english)}`);
     if (example.wrong) lines.push(`Not this: ${cueLine(example.wrong)}`);
     lines.push(`This: ${cueLine(example.right)}`);

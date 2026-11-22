@@ -220,3 +220,59 @@ test('quick (Fast translate) writes like Natural with no glossary or meaning rev
   assert.equal(out.translations.get('q1'), 'তার কথা।');
   assert.equal(out.translations.size, 12);
 });
+
+test('a "¦" inside a pair moves so the whole pair sits on one line, words unchanged', async () => {
+  const { mendLineSplits } = await import('./naturalTranslation.js');
+  // Malayalam marks "fear and resistance" on both words.
+  assert.equal(
+    mendLineSplits('അങ്ങനെ ചെയ്യുമ്പോഴുള്ള പേടിയും ¦ എതിർപ്പും മാറ്റാൻ ‖ ഇതൊരു വഴിയാണ്.'),
+    'അങ്ങനെ ചെയ്യുമ്പോഴുള്ള ¦ പേടിയും എതിർപ്പും മാറ്റാൻ ‖ ഇതൊരു വഴിയാണ്.'
+  );
+  // A line never ends on "and".
+  assert.equal(mendLineSplits('तुमची भीती आणि ¦ विरोध हाताळण्याचा मार्ग'), 'तुमची भीती ¦ आणि विरोध हाताळण्याचा मार्ग');
+  // A "¦" between whole phrases stays, and a line keeps at least one word of its own.
+  assert.equal(mendLineSplits('"ശിവ" എന്ന് പറഞ്ഞ് ¦ നടക്കുക.'), '"ശിവ" എന്ന് പറഞ്ഞ് ¦ നടക്കുക.');
+  assert.equal(mendLineSplits('ഇതാണ് ‖ പേടിയും ¦ എതിർപ്പും.'), 'ഇതാണ് ‖ പേടിയും ¦ എതിർപ്പും.');
+});
+
+test('a whole sentence is sent back for length only from three syllables over', async () => {
+  const { NATURAL_LONG_MIN } = await import('./naturalTranslation.js');
+  assert.equal(NATURAL_LONG_MIN, 3);
+  const unit = { id: 'n-1', text: 'Some god you believe in.', syllables: 7, pauses: [], cues: [] };
+  const over = (n) => naturalIssues([unit], new Map([['n-1', `${Array(n).fill('का').join(' ')}।`]])).filter((i) => i.kind === 'long');
+  assert.equal(over(9).length, 0, 'two over is left alone');
+  assert.equal(over(10).length, 1, 'three over is fixed');
+});
+
+test('a fix the second read finds more wrong than before goes back to how it was written', async () => {
+  let reviews = 0;
+  const generate = async ({ contents }) => {
+    const prompt = contents.parts[0].text;
+    let body;
+    if (prompt.includes('INPUT SENTENCES')) {
+      body = {
+        sentences: [
+          { id: 'n-1', natural: 'यह उस डर और हिचक से निपटने का एक तरीका है जो आपको होती है।', split: 'यह उस डर और हिचक से ¦ निपटने का ‖ एक तरीका है जो आपको होती है।' },
+          { id: 'n-2', natural: 'दूसरा तरीका, कोई मंत्र आता हो।', split: 'दूसरा तरीका, ¦ कोई मंत्र आता हो।' },
+        ],
+        terms: [],
+      };
+    } else if (prompt.includes('strict reviewer')) {
+      reviews += 1;
+      body =
+        reviews === 1
+          ? { sentences: [{ ids: ['n-1'], problem: '"have" became "feel"', words: [{ english: 'have', translatedAs: 'feel', same: false }] }, { ids: ['n-2'], problem: '' }] }
+          : { sentences: [{ ids: ['n-1'], problem: '"fear" and "have" are missing', words: [{ english: 'fear', translatedAs: '', same: false }, { english: 'have', translatedAs: '', same: false }] }, { ids: ['n-2'], problem: '' }] };
+    } else {
+      assert.ok(prompt.includes('never drops "gave"'), 'the fix keeps every word of a short sentence');
+      assert.ok(prompt.includes('a dargah or a mazar'), 'the fix keeps the picture');
+      body = { translations: [{ id: 'n-1', translatedText: 'यह उस हिचक से ¦ निपटने का ‖ एक तरीका है जो आपको होती है।' }] };
+    }
+    return { response: { text: JSON.stringify(body) }, modelUsed: 'test-model' };
+  };
+  const out = await translateNatural(talk, { targetLanguage: 'Hindi', voiceRate: 5.8, generate });
+  assert.equal(reviews, 2, 'the fixed batch is read a second time');
+  assert.equal(out.reverted, 1);
+  assert.equal(out.fixed, 0);
+  assert.equal(out.translations.get('c1'), 'यह उस डर और हिचक से');
+});

@@ -298,6 +298,43 @@ const mergeCueTalk = (parts) => {
   return [...byCue].map(([index, talk]) => ({ index, talk }));
 };
 
+/**
+ * Endings that join a pair on both of its words ("fear and resistance" in
+ * Malayalam പേടിയും എതിർപ്പും, Tamil -உம் ... -உம், Kannada -ವೂ, Telugu -ూ; "a
+ * mantra or a god" in Malayalam മന്ത്രമോ ദൈവമോ). The model still split such
+ * pairs with "¦" in about one Malayalam sentence in three.
+ */
+const PAIR_ENDINGS = ['ും', 'ும்', 'ೂ', 'ూ', 'ോ', 'ோ'];
+/** "and" / "or" as words in the dub languages; a subtitle line should never end on one. Words that are also pronouns or postpositions are left out. */
+const PAIR_WORDS = new Set(['and', 'or', 'और', 'या', 'एवं', 'तथा', 'आणि', 'किंवा', 'আর', 'এবং', 'বা', 'কিংবা', 'অথবা', 'আৰু', 'અને', 'અથવા', 'ਅਤੇ', 'ਜਾਂ', 'र', 'वा', 'अनि', 'अथवा', 'ଓ', 'ଏବଂ', 'ବା', 'କିମ୍ବା', 'ଅଥବା', 'மற்றும்', 'அல்லது', 'మరియు', 'లేదా', 'ಮತ್ತು', 'ಅಥವಾ', 'അല്ലെങ്കിൽ']);
+const bareWord = (token) => String(token).normalize('NFC').replace(/^[^\p{L}\p{M}\p{N}]+|[^\p{L}\p{M}\p{N}]+$/gu, '');
+const pairEnding = (token) => PAIR_ENDINGS.find((end) => bareWord(token).endsWith(end) && bareWord(token).length > end.length);
+
+/**
+ * Moves a "¦" that splits a pair so the whole pair sits on one line: before
+ * the first word of a pair joined by endings, or before the "and" / "or" a
+ * line would end on. Only "¦" moves ("‖" stays at the speaker's stop) and no
+ * word changes.
+ */
+export const mendLineSplits = (line) => {
+  const tokens = String(line ?? '').split(/\s+/).filter(Boolean);
+  const isMark = (t) => t === PAUSE_SPLIT || t === SOFT_SPLIT;
+  for (let k = 1; k < tokens.length - 1; k++) {
+    if (tokens[k] !== SOFT_SPLIT) continue;
+    const before = tokens[k - 1];
+    const ending = pairEnding(before);
+    const pairsOn = ending && tokens.slice(k + 1, k + 3).some((t) => !isMark(t) && pairEnding(t) === ending);
+    const endsOnAnd = PAIR_WORDS.has(bareWord(before).toLowerCase());
+    if (!(pairsOn || endsOnAnd)) continue;
+    // Room before the word: the line keeps at least one word of its own.
+    if (k >= 2 && !isMark(tokens[k - 2])) {
+      tokens.splice(k, 1);
+      tokens.splice(k - 1, 0, SOFT_SPLIT);
+    }
+  }
+  return tokens.join(' ');
+};
+
 /** How many "‖" a line has. */
 const marks = (line) => String(line ?? '').split(PAUSE_SPLIT).length - 1;
 
@@ -309,9 +346,17 @@ export const readNaturalLine = (item) => {
   return natural || split;
 };
 
-/** What is off with each unit's line: everything cueIssues finds, plus a wrong "‖" count. */
+/**
+ * A whole sentence runs long only when it is this many syllables over (about
+ * half a second at a usual pace): sending a sentence back for one or two
+ * syllables cut "say" or "you believe in" out of short sentences, and Sync's
+ * speed fit takes up that much anyway.
+ */
+export const NATURAL_LONG_MIN = 3;
+
+/** What is off with each unit's line: everything cueIssues finds (a long line only from NATURAL_LONG_MIN over), plus a wrong "‖" count. */
 export const naturalIssues = (units, lines) => {
-  const issues = cueIssues(units, lines);
+  const issues = cueIssues(units, lines).filter((issue) => issue.kind !== 'long' || issue.syllables - issue.target >= NATURAL_LONG_MIN);
   for (const unit of units) {
     const line = lines.get(unit.id);
     if (line && marks(line) !== unit.pauses.length) issues.push({ id: unit.id, kind: 'pauses', want: unit.pauses.length, have: marks(line) });
@@ -322,6 +367,23 @@ export const naturalIssues = (units, lines) => {
 const unitScore = (unit, line) => {
   const one = new Map([[unit.id, line]]);
   return issueScore([unit], one) + (marks(line) === unit.pauses.length ? 0 : 3);
+};
+
+/**
+ * How wrong a meaning review found each sentence: the key words it marked as
+ * missing or changed, plus one when it found any problem (where it reads like
+ * English is not counted). Sentences the review left alone are 0.
+ */
+export const meaningWeights = (parsed, ids) => {
+  const flagged = new Set(readMeaningIssues(parsed, ids, { shape: false }).flatMap((p) => p.ids));
+  const weights = new Map();
+  for (const sentence of Array.isArray(parsed?.sentences) ? parsed.sentences : []) {
+    const wrong = (Array.isArray(sentence?.words) ? sentence.words : []).filter((w) => w && w.same === false && String(w.english ?? '').trim()).length;
+    for (const id of (Array.isArray(sentence?.ids) ? sentence.ids : []).map(String)) {
+      if (flagged.has(id)) weights.set(id, Math.max(weights.get(id) ?? 0, wrong + 1));
+    }
+  }
+  return weights;
 };
 
 const promptUnit = (unit) => ({
@@ -363,11 +425,12 @@ ${style}
 HOW TO WRITE EACH SENTENCE
 1. Read the English sentence whole and understand what it says and why.
 2. "natural": say that the way a native ${targetLanguage} speaker says it out loud to people, in ${targetLanguage}'s own word order and sentence shape, with the everyday words people use when they talk (colloquial, not written, literary or bookish words; keep the English words a ${targetLanguage} speaker would say in English). Do not translate the English words one by one and do not keep the English order: rebuild the sentence the ${targetLanguage} way, by whole phrases. The verb, a "which / who / that" part, "only", "even", "just" and tag questions go where ${targetLanguage} puts them.
-3. Never change the meaning while doing it: every idea, example, condition, negation, number, name, who does what to whom, the tense and the certainty stay exactly as in the English. Add nothing the speaker did not say, and drop nothing.
+3. Never change the meaning while doing it: every idea, example, condition, negation, number, name, who does what to whom, the tense and the certainty stay exactly as in the English. Add nothing the speaker did not say, and drop nothing. This holds for the shortest sentence too: "the book you gave me" still says that you gave it, never "a gift book" or just "the book".
 4. Follow the speaker's rhythm: short bursts stay short, a trailing thought stays. Punctuate for the ear: commas where the speaker breathes, "?" and "!" where the voice rises. Leave out hesitation sounds ("uh", "um", "er") and words the speaker repeats while searching ("a sort of a hall sort of place" is one "a hall-like place"): the voice says what he means, once.
 5. Write out what a voice would stumble on: no digits, abbreviations, symbols or brackets (numbers as they are said). Sound notes in square brackets such as [laughs] are copied exactly, in English, where they stand.
 6. Where "it", "that" or "this" would leave a ${targetLanguage} listener unsure what is meant, say the thing itself (a letter that "never came" is "the letter never came"). That is not adding: it is what the speaker means.
 7. Pick each word for the picture it gives a ${targetLanguage} listener, not only for its dictionary meaning: a word tied to another religion, kind of place or kind of person is wrong (a village temple is not a church, a mosque, a dargah or a mazar; a monk is not a priest). Never hedge with "X or Y" when X is the wrong picture: pick the right word.
+8. Indian-English turns of phrase are said by what they mean, never word for word: "somewhere" in "somewhere I felt it was wrong" means "deep down, in some way", not a place; "simply" means "just, for no other reason"; "what to do" means "nothing can be done"; "itself" and "only" often just stress a word. Say that meaning the way a ${targetLanguage} speaker would.
 ${examples ? `\n${examples}\n(These examples show cue lines; here you write the whole sentence, so the same idea applies to the whole sentence.)\n` : ''}${marked ? `
 MARKS IN THE ENGLISH
 - "${PAUSE_SPLIT}" is where the speaker stops for over a second; the dub voice stops at the same moments, so before each stop it should be saying what the speaker said before it.
@@ -440,26 +503,22 @@ const translateUnitBatch = async (batch, { generate, sourceLanguage, targetLangu
   let lines = written.lines;
   const known = mergeTerms(terms, written.terms, lines);
 
-  const plain = new Map([...lines].map(([id, line]) => [id, withoutSoft(line)]));
   // Quick (Fast translate): no meaning review, and only bookish words are sent back.
-  const review = quick ? Promise.resolve([]) : askJson(generate, buildMeaningReviewPrompt({ cues: batch, translations: plain, targetLanguage, spoken: true }), { apiKey, models, temperature: 0, effort: CHECK_EFFORT })
-    .then(({ parsed }) => readMeaningIssues(parsed, ids))
-    .catch((err) => {
-      logger.warn(`Natural translation meaning check skipped: ${err?.message || err}`);
-      return [];
-    });
+  const review = quick ? Promise.resolve(null) : reviewMeaning(generate, batch, lines, { targetLanguage, apiKey, models });
   const counted = quick
     ? bookishIssues(batch, lines, targetLanguage, known)
     : [...naturalIssues(batch, lines), ...termIssues(batch, lines, known), ...bookishIssues(batch, lines, targetLanguage, known)];
-  const meaning = (await review).flatMap((p) => p.ids.map((id) => ({ id, kind: 'meaning', problem: p.problem })));
+  const reviewed = await review;
+  const meaning = (reviewed ? readMeaningIssues(reviewed, ids) : []).flatMap((p) => p.ids.map((id) => ({ id, kind: 'meaning', problem: p.problem })));
   const issues = [...meaning, ...counted];
   let fixed = 0;
+  let reverted = 0;
   if (issues.length) {
     try {
       // Each sentence stands alone, so the fix call reads only the sentences it has to change.
       const flagged = new Set(issues.map((issue) => issue.id));
       const toFix = batch.filter((u) => flagged.has(u.id));
-      const { parsed } = await askJson(generate, buildFixPrompt({ cues: toFix, translations: lines, issues, targetLanguage, customPrompt, brief }), { apiKey, models, temperature: 0.3, effort: CHECK_EFFORT });
+      const { parsed } = await askJson(generate, buildFixPrompt({ cues: toFix, translations: lines, issues, targetLanguage, customPrompt, brief, spoken: true }), { apiKey, models, temperature: 0.3, effort: CHECK_EFFORT });
       const changes = readFix(parsed, ids);
       const meant = new Set(meaning.map((m) => m.id));
       const next = new Map(lines);
@@ -472,12 +531,42 @@ const translateUnitBatch = async (batch, { generate, sourceLanguage, targetLangu
           fixed += 1;
         }
       }
+      // A fix is read again before it is kept: fixes for length or for one
+      // word cut "god" or "say" out of short sentences, and put a dargah
+      // where the English has a shrine. A fixed sentence the review finds
+      // more wrong than before goes back to how it was written.
+      const changed = ids.filter((id) => next.get(id) !== lines.get(id));
+      if (changed.length && reviewed) {
+        const again = await reviewMeaning(generate, batch, next, { targetLanguage, apiKey, models });
+        if (again) {
+          const was = meaningWeights(reviewed, ids);
+          const now = meaningWeights(again, ids);
+          for (const id of changed) {
+            if ((now.get(id) ?? 0) > (was.get(id) ?? 0)) {
+              next.set(id, lines.get(id));
+              fixed -= 1;
+              reverted += 1;
+            }
+          }
+        }
+      }
       lines = next;
     } catch (err) {
       logger.warn(`Natural translation fix skipped: ${err?.message || err}`);
     }
   }
-  return { lines, modelUsed: written.modelUsed, terms: written.terms, fixed, found: issues.length, meaning: meaning.length };
+  return { lines, modelUsed: written.modelUsed, terms: written.terms, fixed, reverted, found: issues.length, meaning: meaning.length };
+};
+
+/** One meaning review of a batch's lines (the parsed answer), or null when it fails: a failed check never stops the translation. */
+const reviewMeaning = (generate, batch, lines, { targetLanguage, apiKey, models }) => {
+  const plain = new Map([...lines].map(([id, line]) => [id, withoutSoft(line)]));
+  return askJson(generate, buildMeaningReviewPrompt({ cues: batch, translations: plain, targetLanguage, spoken: true }), { apiKey, models, temperature: 0, effort: CHECK_EFFORT })
+    .then(({ parsed }) => parsed)
+    .catch((err) => {
+      logger.warn(`Natural translation meaning check skipped: ${err?.message || err}`);
+      return null;
+    });
 };
 
 /**
@@ -526,6 +615,7 @@ export const translateNatural = async (
   let firstError = null;
   let fixed = 0;
   let found = 0;
+  let reverted = 0;
   let done = 0;
   let stopped = false;
   const queue = batches.map((batch, index) => ({ batch, index }));
@@ -543,6 +633,7 @@ export const translateNatural = async (
         for (const [id, line] of out.lines) lines.set(id, line);
         fixed += out.fixed;
         found += out.found;
+        reverted += out.reverted ?? 0;
       } catch (err) {
         failedBatches += 1;
         firstError ??= err;
@@ -560,8 +651,9 @@ export const translateNatural = async (
   const pausedTexts = new Map();
   const unitLines = [];
   for (const unit of units) {
-    const line = lines.get(unit.id);
-    if (!line) continue;
+    const written = lines.get(unit.id);
+    if (!written) continue;
+    const line = mendLineSplits(written);
     const cut = cutUnit(unit, line);
     unit.cues.forEach((cue, i) => {
       if (cut.lines[i]) translations.set(cue.id, cut.lines[i]);
@@ -570,6 +662,6 @@ export const translateNatural = async (
     unitLines.push({ id: unit.id, cueIds: unit.cues.map((c) => c.id), english: unit.text, line, syllables: unit.syllables, said: dubSyllables(line) });
   }
   const missingIds = sized.filter((cue) => !translations.has(cue.id)).map((cue) => cue.id);
-  logger.info(`Natural translation: ${units.length} sentences over ${sized.length} cues; ${found} issue(s) found, ${fixed} line(s) fixed.`);
-  return { translations, pausedTexts, modelUsed, translatedCount: translations.size, missingIds, failedBatches, terms, brief, units: unitLines, fixed, found };
+  logger.info(`Natural translation: ${units.length} sentences over ${sized.length} cues; ${found} issue(s) found, ${fixed} line(s) fixed, ${reverted} fix(es) undone after a second read.`);
+  return { translations, pausedTexts, modelUsed, translatedCount: translations.size, missingIds, failedBatches, terms, brief, units: unitLines, fixed, found, reverted };
 };

@@ -251,7 +251,13 @@ const keepLineSplitsRule = (cues, translations) =>
 - A "${LINE_SPLIT}" is where one subtitle line ends and the next begins; the English shows the same marks. Keep as many "${LINE_SPLIT}" as the line has, each at the matching place, between whole phrases: never between a word and its postposition, case ending or helper verb, and never inside a pair joined by "and" or "or" ("fear and resistance").`
     : '';
 
-export const buildFixPrompt = ({ cues, translations, issues, targetLanguage, customPrompt = '', brief = null }) => {
+/** Natural translation's fix (`spoken`) also keeps each word's picture and every word of a short sentence. */
+const spokenFixRules = () => `
+- Never swap a word for one that gives another picture: a village temple is not a church, a mosque, a dargah or a mazar; a monk is not a priest.
+- A short sentence keeps every noun and verb its English has: shortening "the book you gave me" never drops "gave" or turns it into "a gift book". If a sentence cannot be shorter without losing a word, leave it as long as it is.
+- To shorten, first drop what only repeats or stresses what is already said (a pronoun said twice, "out" after "came", an "even" or "any" added for stress), then pick shorter everyday words. Never drop "all", "not", a number, a name, or a noun or verb the English has, and keep the joining words the language needs ("that", "who", "where").`;
+
+export const buildFixPrompt = ({ cues, translations, issues, targetLanguage, customPrompt = '', brief = null, spoken = false }) => {
   const rows = cues.map((cue) => ({
     id: cue.id,
     ...speakerField(cue),
@@ -267,7 +273,7 @@ FIX THESE CUES
 ${issues.map(describeIssue).join('\n')}
 
 RULES
-- Keep every idea, emphasis, negation, number and name. Shorten by wording, never by leaving meaning out, and never by swapping a word for a shorter one that means something else ("beings" are not "people", "emperors" are not "kings"), never by folding a pair of words into one.
+- Keep every idea, emphasis, negation, number and name. Shorten by wording, never by leaving meaning out, and never by swapping a word for a shorter one that means something else ("beings" are not "people", "emperors" are not "kings"), never by folding a pair of words into one.${spoken ? spokenFixRules() : ''}
 - Change only the cues listed above and, when a word moves, its neighbour in the same sentence. Do not shorten cues that already fit.
 - Keep the language's normal word order; never invert it or turn poetic to save syllables. If a line cannot fit without becoming unclear or unnatural, keep a clear natural line that runs a little long.
 - Never fill a cue with a word the speaker did not say. Copy sound notes in square brackets ([laughs]) exactly as they are.
@@ -295,7 +301,9 @@ const spokenReviewRules = (targetLanguage) => `
 Also report as a problem, because a listener hears the wrong thing:
 - a word that gives a different picture than the English: another religion, kind of place, person or thing, even if a dictionary allows it (a village temple said as a church, a mosque, a dargah or a mazar, also inside an "X or Y"; a monk said as a priest);
 - an "it", "that" or "this" left so the listener cannot tell what it means, where the English makes it clear;
-- a hesitation sound ("uh", "um", "er" or the ${targetLanguage} sound for it) or a word the speaker repeated while searching ("a sort of a hall sort of place") kept in the translation.
+- a hesitation sound ("uh", "um", "er" or the ${targetLanguage} sound for it) or a word the speaker repeated while searching ("a sort of a hall sort of place") kept in the translation;
+- a short phrase that lost one of its words or who does what ("the book you gave me" said as "a gift book" or just "the book");
+- an Indian-English turn of phrase said word for word so it means something else ("somewhere I felt it was wrong" said with "somewhere" as a place, where it means "deep down, in some way").
 `;
 
 export const buildMeaningReviewPrompt = ({ cues, translations, targetLanguage, spoken = false }) => `You are a strict reviewer checking a ${targetLanguage} dubbing translation against the English it was translated from.
