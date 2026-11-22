@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.6',
+    changes: [
+      'Natural translation reads more like people talk: no "uh" carried over, no unclear "it", and words that give the right picture (a village shrine is no longer called a mazar).',
+      'Every dub language now has its own list of bookish words to say the spoken way, and Fast translation checks for them too.',
+      'While Expression listens to the original, Review shows it under the list of lines.',
+    ],
+  },
+  {
     version: '1.5.5',
     changes: [
       'New "Natural" translation, beside Fast: each sentence is written whole, the way people speak, then placed back on its lines. In Review (Script & translation) and on the Translate card.',
