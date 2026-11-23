@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.11',
+    changes: [
+      'Full translation keeps each idea on its own line where the language allows it, so the voice says it while the speaker does.',
+      'A person in the talk keeps one respect form throughout (no more "he said" respectfully, then familiar a line later), in every translation.',
+    ],
+  },
+  {
     version: '1.5.10',
     changes: [
       'One read now works when a project has several speakers: each speaker reads all their own lines in one take, in their own voice, and every line is cut from it for Sync.',
