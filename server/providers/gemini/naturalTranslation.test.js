@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildNaturalUnits, cutPiece, cutUnit, readNaturalLine, naturalIssues, translateNatural } from './naturalTranslation.js';
+import { reviewEffort, writeEffort } from './translation.js';
 
 /** A cue whose words are spread evenly over its time. */
 const cue = (id, text, startTime, endTime, extra = {}) => {
@@ -305,10 +306,11 @@ test('thorough (Full translate) checks at full effort, puts spoken words before 
   assert.ok(write.prompt.includes('the meaning comes first and spoken words second'));
   assert.ok(!write.prompt.includes('a little under is better than over'));
   const review = calls.find((c) => c.kind === 'review');
-  assert.notEqual(review.effort, 'low');
+  // The app's own effort (Settings), whatever it is set to here or in CI.
+  assert.equal(review.effort, reviewEffort());
   assert.ok(review.prompt.includes('"bookish"'));
   const fix = calls.find((c) => c.kind === 'fix');
-  assert.notEqual(fix.effort, 'low');
+  assert.equal(fix.effort, writeEffort());
   assert.match(fix.prompt, /"আবশ্যক" is a written, bookish word/);
   assert.ok(!fix.prompt.includes('নেই-এমন'), 'a word the line does not have is never sent');
   assert.equal(out.heard, 1);
