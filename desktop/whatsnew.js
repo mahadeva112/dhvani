@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.10',
+    changes: [
+      'One read now works when a project has several speakers: each speaker reads all their own lines in one take, in their own voice, and every line is cut from it for Sync.',
+      'Full translation now writes each sentence whole the way it is spoken, checks it more closely for meaning and bookish words, and carries on where it stopped after a restart.',
+    ],
+  },
+  {
     version: '1.5.9',
     changes: [
       'Expression Natural and Expressive now work when a project has several speakers, as long as every speaker\'s voice is on Eleven v3 or v4 (or Sonic 3 for a Cartesia voice). Each line is tagged from its own speaker\'s delivery.',
