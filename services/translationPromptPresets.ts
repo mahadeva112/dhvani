@@ -19,6 +19,8 @@ export const TRANSLATION_PRESETS: TranslationPromptPreset[] = [
     // each cue's syllable budget. This says how Sadhguru's speech is carried over.
     prompt: `ROLE: You write the dubbing script for a talk by Sadhguru (and anyone who speaks or asks questions with him). A voice artist speaks each line over the original video, so it must sound like Sadhguru talking in this language, not like a translated text.
 
+WHAT COMES FIRST: the meaning, exactly; then everyday spoken words; then the time. A spoken line a syllable or two long is better than a short line with a bookish word, and better than a short line that lost part of the meaning.
+
 1. MEANING, NEVER WORD FOR WORD
 - First understand what the whole sentence says and why he says it. Then say that the way a native speaker of the language would say it out loud. Never copy the English word order or sentence shape.
 - Where an English word is broad, pick the specific word this context needs. Carry the relation, not the connective: "Because X, Y" can become "X, that is why Y" when that is how the language says it.
@@ -33,7 +35,7 @@ export const TRANSLATION_PRESETS: TranslationPromptPreset[] = [
 
 3. NOTHING DROPPED, NOTHING ADDED
 - Keep every idea, example, condition, negation, comparison, number and name, and the exact certainty: "may" stays "may", "some" stays "some", "known to be" is not "people think", "pain" is not "suffering".
-- Keep each word's exact sense in every language, even when a shorter word is tempting. Find the word of this language that means the same thing, not a near one:
+- Keep each idea's exact sense in every language, even when a shorter word is tempting. For the words the meaning rests on (a name, a number, a negation, a key term, a pair he uses on purpose and the distinctions below), find the word of this language that means the same thing, not a near one. For everything else, the everyday word that carries the same idea is the right one, never a rarer formal word picked for exactness:
   - never a narrower or broader word: "emperors" are not "kings", "men" are not "people", "civilization" is not "culture", "revered" is not "worshipped";
   - never a word of another kind: when he speaks of "beings" beyond the human, they are neither "people" nor "creatures" or "animals" (Hindi सत्ता, Bengali সত্তা: use your language's word for an existence or entity);
   - keep both words of a pair he uses on purpose ("controlled and ruled", "guided and nurtured"), not one for both.
@@ -41,6 +43,7 @@ export const TRANSLATION_PRESETS: TranslationPromptPreset[] = [
 - Never add "not", "only", "even", "never", an explanation or a stronger claim.
 
 4. WORDS
+- Say it the way a speaker of the language talks to an audience in a talk or a film: the everyday spoken language, never the written or textbook register.
 - Everyday spoken forms, not bookish or officialese ones; respectful forms for the people he speaks about with respect.
 - Use the classical word only for a spiritual term he means as one (mukti, sadhana, chitta). Every other idea, in a spiritual talk too, gets the word people say aloud: being mortal, a doubt, a limit, a way of living are said as everyday speech says them, often as a short clause with a verb ("that we will die"), never as a classical abstract noun.
 - Keep the English words the audience itself says in English (internet, hospital, meditation app).
@@ -51,8 +54,9 @@ export const TRANSLATION_PRESETS: TranslationPromptPreset[] = [
 - "!" where a point lands sharply.
 
 6. SHORT ON TIME
-- Indian languages take longer to say than English. When a line's syllable budget is tight, say the same thing in fewer syllables: shorter common words, a leaner sentence, dropping fillers he did not stress ("so", "you know", "actually"), dropping a subject the previous line already set.
-- Cut the wrapping, never the point: the idea, the emphasis, the punchline and the negation always stay, and no word becomes a different one.`
+- Indian languages take longer to say than English. When a line's syllable budget is tight, say the same thing more leanly, in this order: first drop what only repeats or stresses (a word said twice, a filler he did not stress: "so", "you know", "actually"), then use a leaner sentence shape, then shorter everyday words.
+- Never shorten with a bookish, classical or written word, and never drop a joining word the language needs ("that", "who", "where"), a noun or verb he said, "all" or "not".
+- Cut the wrapping, never the point: the idea, the emphasis, the punchline and the negation always stay, and no word becomes a different one. If a line cannot fit without that, keep the clear spoken line a little long.`
   },
   {
     id: 'natural_spoken',
@@ -138,7 +142,7 @@ export const promptFingerprint = (prompt: string) => {
  * whenever a style's text changes.
  */
 export const EARLIER_TEXTS: Record<string, string[]> = {
-  sadhguru_spoken: ['bec608bf', '4ed0d984', 'f4fc3dde'],
+  sadhguru_spoken: ['bec608bf', '4ed0d984', 'f4fc3dde', '789ad0f4'],
   natural_spoken: ['69f648d4'],
 };
 

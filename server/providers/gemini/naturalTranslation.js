@@ -14,6 +14,7 @@ import {
   buildFixPrompt,
   buildMeaningReviewPrompt,
   readMeaningIssues,
+  readRegisterIssues,
   readFix,
   sentenceEnding,
   briefBlock,
@@ -30,6 +31,7 @@ import {
   rateForCue,
   syllableTarget,
   writeEffort,
+  reviewEffort,
   translationParallel,
   readGlossary,
   withoutThreeStepNotes,
@@ -54,6 +56,14 @@ import {
  * numbers, key terms, bookish words and the "‖" count are counted in code;
  * one meaning review reads the batch; one fix call takes everything found.
  * Timings are never sent to the model, only the syllable budgets.
+ *
+ * Three ways it runs: Natural (checks at CHECK_EFFORT), Fast (`quick`: no
+ * glossary or review, only the bookish-word fix) and Full (`thorough`, since
+ * 2026-11-23: glossary, review and fix at the app's full effort, a review that
+ * also lists bookish words outside the fixed lists, spoken words put before a
+ * syllable or two of length, and a resume after a restart). Full wrote cue by
+ * cue before (translateCueTexts), which kept the English order at every pause
+ * and pushed tight cues to short bookish words.
  */
 
 /** Where a subtitle line of the sentence ends without a long stop, in the text the model reads and writes. */
@@ -409,7 +419,7 @@ const contextBlock = (before, after) => {
   return `\nCONTEXT\n${lines.join('\n')}\n`;
 };
 
-export const buildNaturalPrompt = ({ batch, sourceLanguage, targetLanguage, customPrompt, before = [], after = [], terms = [], brief = null }) => {
+export const buildNaturalPrompt = ({ batch, sourceLanguage, targetLanguage, customPrompt, before = [], after = [], terms = [], brief = null, spokenFirst = false }) => {
   const script = scriptOf(targetLanguage);
   const examples = examplesBlock(targetLanguage);
   const sized = batch.some((u) => u.syllables);
@@ -442,8 +452,11 @@ MARKS IN THE ENGLISH
 ` : ''}${sized ? `
 LENGTH FOR THE VOICE
 "syllables" is about how many ${targetLanguage} syllables the voice says in the time the speaker took for the whole sentence (stops not counted); "partSyllables" splits it over the pieces between stops. ${targetLanguage} usually takes longer than English, so this is often tight.
-- Stay close to it: a little under is better than over; far under leaves the voice silent while the speaker talks.
-- Reach it by word choice: shorter everyday words, a leaner sentence, dropping a filler the speaker did not stress. Never by dropping meaning, never by swapping a word for one that means something else, never by padding.
+${spokenFirst
+    ? `- Stay close to it, but the meaning comes first and spoken words second: a sentence in everyday words that runs a syllable or two over is better than a shorter one with a bookish, written or classical word in it. Far under leaves the voice silent while the speaker talks.
+- Reach it by word choice: everyday words, a leaner sentence, dropping a filler or a repeat the speaker did not stress. Never by dropping meaning, never by swapping a word for one that means something else, never by a shorter bookish word, never by padding.`
+    : `- Stay close to it: a little under is better than over; far under leaves the voice silent while the speaker talks.
+- Reach it by word choice: shorter everyday words, a leaner sentence, dropping a filler the speaker did not stress. Never by dropping meaning, never by swapping a word for one that means something else, never by padding.`}
 - Never clip a phrase below what a speaker would say: keep the noun a phrase needs ("one way is" keeps "way"), even when that runs a syllable or two over.
 ` : ''}
 RULES
@@ -497,20 +510,27 @@ const writeBatch = async (generate, prompt, ids, options) => {
  * same time, then one fix call for everything found. A fixed line is kept
  * when it scores no worse (a meaning fix may run up to a few syllables longer).
  */
-const translateUnitBatch = async (batch, { generate, sourceLanguage, targetLanguage, customPrompt, before, after, terms, brief, apiKey, models, quick = false }) => {
+const translateUnitBatch = async (batch, { generate, sourceLanguage, targetLanguage, customPrompt, before, after, terms, brief, apiKey, models, quick = false, thorough = false }) => {
   const ids = batch.map((u) => u.id);
-  const written = await writeBatch(generate, buildNaturalPrompt({ batch, sourceLanguage, targetLanguage, customPrompt, before, after, terms, brief }), ids, { apiKey, models });
+  const written = await writeBatch(generate, buildNaturalPrompt({ batch, sourceLanguage, targetLanguage, customPrompt, before, after, terms, brief, spokenFirst: thorough }), ids, { apiKey, models });
   let lines = written.lines;
   const known = mergeTerms(terms, written.terms, lines);
+  const reviewOptions = { targetLanguage, apiKey, models, effort: thorough ? reviewEffort() : CHECK_EFFORT };
 
   // Quick (Fast translate): no meaning review, and only bookish words are sent back.
-  const review = quick ? Promise.resolve(null) : reviewMeaning(generate, batch, lines, { targetLanguage, apiKey, models });
-  const counted = quick
-    ? bookishIssues(batch, lines, targetLanguage, known)
-    : [...naturalIssues(batch, lines), ...termIssues(batch, lines, known), ...bookishIssues(batch, lines, targetLanguage, known)];
+  const review = quick ? Promise.resolve(null) : reviewMeaning(generate, batch, lines, { ...reviewOptions, register: thorough });
+  const listed = bookishIssues(batch, lines, targetLanguage, known);
+  const counted = quick ? listed : [...naturalIssues(batch, lines), ...termIssues(batch, lines, known), ...listed];
   const reviewed = await review;
   const meaning = (reviewed ? readMeaningIssues(reviewed, ids) : []).flatMap((p) => p.ids.map((id) => ({ id, kind: 'meaning', problem: p.problem })));
-  const issues = [...meaning, ...counted];
+  // Full: bookish words the reviewer heard that the fixed lists don't know.
+  const heard = thorough && reviewed
+    ? readRegisterIssues(reviewed, batch, new Map([...lines].map(([id, line]) => [id, withoutSoft(line)])), targetLanguage, {
+        terms: known,
+        skip: new Set(listed.map((issue) => `${issue.id}|${issue.said}`)),
+      })
+    : [];
+  const issues = [...meaning, ...counted, ...heard];
   let fixed = 0;
   let reverted = 0;
   if (issues.length) {
@@ -518,15 +538,18 @@ const translateUnitBatch = async (batch, { generate, sourceLanguage, targetLangu
       // Each sentence stands alone, so the fix call reads only the sentences it has to change.
       const flagged = new Set(issues.map((issue) => issue.id));
       const toFix = batch.filter((u) => flagged.has(u.id));
-      const { parsed } = await askJson(generate, buildFixPrompt({ cues: toFix, translations: lines, issues, targetLanguage, customPrompt, brief, spoken: true }), { apiKey, models, temperature: 0.3, effort: CHECK_EFFORT });
+      const { parsed } = await askJson(generate, buildFixPrompt({ cues: toFix, translations: lines, issues, targetLanguage, customPrompt, brief, spoken: true }), { apiKey, models, temperature: 0.3, effort: thorough ? writeEffort() : CHECK_EFFORT });
       const changes = readFix(parsed, ids);
-      const meant = new Set(meaning.map((m) => m.id));
+      // A meaning fix may run a few syllables longer, and so may a bookish word said the spoken way.
+      const roomy = new Set([...meaning, ...listed, ...heard].map((m) => m.id));
       const next = new Map(lines);
       for (const [id, line] of changes) {
         const unit = batch.find((u) => u.id === id);
         const was = lines.get(id) ?? '';
         if (unit.pauses.length && marks(line) !== unit.pauses.length && marks(was) === unit.pauses.length) continue;
-        if (unitScore(unit, line) <= unitScore(unit, was) + (meant.has(id) ? 3 : 0)) {
+        // A fix never brings in a listed bookish word the line did not have.
+        if (bookishCount(unit, line, targetLanguage, known) > bookishCount(unit, was, targetLanguage, known)) continue;
+        if (unitScore(unit, line) <= unitScore(unit, was) + (roomy.has(id) ? 3 : 0)) {
           next.set(id, line);
           fixed += 1;
         }
@@ -537,7 +560,7 @@ const translateUnitBatch = async (batch, { generate, sourceLanguage, targetLangu
       // more wrong than before goes back to how it was written.
       const changed = ids.filter((id) => next.get(id) !== lines.get(id));
       if (changed.length && reviewed) {
-        const again = await reviewMeaning(generate, batch, next, { targetLanguage, apiKey, models });
+        const again = await reviewMeaning(generate, batch, next, reviewOptions);
         if (again) {
           const was = meaningWeights(reviewed, ids);
           const now = meaningWeights(again, ids);
@@ -555,13 +578,16 @@ const translateUnitBatch = async (batch, { generate, sourceLanguage, targetLangu
       logger.warn(`Natural translation fix skipped: ${err?.message || err}`);
     }
   }
-  return { lines, modelUsed: written.modelUsed, terms: written.terms, fixed, reverted, found: issues.length, meaning: meaning.length };
+  return { lines, modelUsed: written.modelUsed, terms: written.terms, fixed, reverted, found: issues.length, meaning: meaning.length, heard: heard.length };
 };
 
+/** How many listed bookish words (spokenWords.js) a unit's line says. */
+const bookishCount = (unit, line, targetLanguage, terms) => bookishIssues([unit], new Map([[unit.id, withoutSoft(line)]]), targetLanguage, terms).length;
+
 /** One meaning review of a batch's lines (the parsed answer), or null when it fails: a failed check never stops the translation. */
-const reviewMeaning = (generate, batch, lines, { targetLanguage, apiKey, models }) => {
+const reviewMeaning = (generate, batch, lines, { targetLanguage, apiKey, models, effort = CHECK_EFFORT, register = false }) => {
   const plain = new Map([...lines].map(([id, line]) => [id, withoutSoft(line)]));
-  return askJson(generate, buildMeaningReviewPrompt({ cues: batch, translations: plain, targetLanguage, spoken: true }), { apiKey, models, temperature: 0, effort: CHECK_EFFORT })
+  return askJson(generate, buildMeaningReviewPrompt({ cues: batch, translations: plain, targetLanguage, spoken: true, register }), { apiKey, models, temperature: 0, effort })
     .then(({ parsed }) => parsed)
     .catch((err) => {
       logger.warn(`Natural translation meaning check skipped: ${err?.message || err}`);
@@ -571,14 +597,16 @@ const reviewMeaning = (generate, batch, lines, { targetLanguage, apiKey, models 
 
 /**
  * Translates `cues` sentence by sentence and cuts each sentence back onto its
- * cues. Takes the same options as translateCueTexts (no resume) and returns
- * the same shape: `translations` (cue id → line), `pausedTexts` (only cues a
- * hard pause falls inside), `modelUsed`, `missingIds`, `failedBatches`, plus
- * `units` (each sentence's line, for checking) and `fixed` / `found` counts.
+ * cues. Takes the same options as translateCueTexts and returns the same
+ * shape: `translations` (cue id → line), `pausedTexts` (only cues a hard pause
+ * falls inside), `modelUsed`, `missingIds`, `failedBatches`, plus `units`
+ * (each sentence's line, for checking) and `fixed` / `found` counts.
+ * `onBatchDone` hears each sentence's line so far (by unit id) after every
+ * batch, and `resumeFrom` (what it heard, saved) skips the batches it holds.
  */
 export const translateNatural = async (
   cues,
-  { sourceLanguage = '', targetLanguage, customPrompt = '', apiKey, models, onProgress, voiceRate, speakerRates, speakerGenders, generate = generateText, batchSize = NATURAL_BATCH, quick = false } = {}
+  { sourceLanguage = '', targetLanguage, customPrompt = '', apiKey, models, onProgress, voiceRate, speakerRates, speakerGenders, generate = generateText, batchSize = NATURAL_BATCH, quick = false, thorough = false, resumeFrom = null, onBatchDone } = {}
 ) => {
   if (!targetLanguage) throw new ApiError('No target language was selected for translation.', { status: 400, code: 'missing_target_language' });
   customPrompt = withoutThreeStepNotes(customPrompt);
@@ -602,24 +630,27 @@ export const translateNatural = async (
   const batches = sentenceBatches(units, Math.max(5, batchSize));
   const say = (message, extra = {}) => onProgress?.({ stage: 'translating', batchCount: batches.length, step: 'translate', ...extra, message });
 
-  let terms = [];
-  let brief = null;
-  if (batches.length > 1 && !quick) {
+  // Sentence lines kept from before a restart: only ids this run has too.
+  const unitIds = new Set(units.map((u) => u.id));
+  const lines = new Map(Object.entries(resumeFrom?.translations || {}).filter(([id, line]) => unitIds.has(id) && typeof line === 'string' && line.trim()));
+  let terms = lines.size && Array.isArray(resumeFrom?.terms) ? resumeFrom.terms : [];
+  let brief = lines.size ? resumeFrom?.brief ?? null : null;
+  if (batches.length > 1 && !quick && !lines.size) {
     say('Reading the whole talk for its key terms and tone...', { batch: 1 });
-    ({ terms, brief } = await readGlossary(sized, { sourceLanguage, targetLanguage, customPrompt, apiKey, models, generate, effort: CHECK_EFFORT }));
+    ({ terms, brief } = await readGlossary(sized, { sourceLanguage, targetLanguage, customPrompt, apiKey, models, generate, effort: thorough ? writeEffort() : CHECK_EFFORT }));
   }
 
-  const lines = new Map();
-  let modelUsed = null;
+  let modelUsed = lines.size ? resumeFrom?.modelUsed ?? null : null;
   let failedBatches = 0;
   let firstError = null;
   let fixed = 0;
   let found = 0;
   let reverted = 0;
-  let done = 0;
+  let heard = 0;
   let stopped = false;
-  const queue = batches.map((batch, index) => ({ batch, index }));
-  say(`Writing ${units.length} sentences in ${targetLanguage}...`, { batch: 1 });
+  const queue = batches.map((batch, index) => ({ batch, index })).filter(({ batch }) => !batch.every((u) => lines.has(u.id)));
+  let done = batches.length - queue.length;
+  say(lines.size ? `Carrying on: ${lines.size} of ${units.length} sentences were already written...` : `Writing ${units.length} sentences in ${targetLanguage}...`, { batch: Math.max(1, done) });
   const worker = async () => {
     while (queue.length && !stopped) {
       const { batch } = queue.shift();
@@ -627,10 +658,12 @@ export const translateNatural = async (
       const before = units.slice(Math.max(0, at - CONTEXT_UNITS), at).map((u) => ({ text: u.text, line: lines.get(u.id) }));
       const after = units.slice(at + batch.length, at + batch.length + CONTEXT_UNITS).map((u) => ({ text: u.text }));
       try {
-        const out = await translateUnitBatch(batch, { generate, sourceLanguage, targetLanguage, customPrompt, before, after, terms, brief, apiKey, models, quick });
+        const out = await translateUnitBatch(batch, { generate, sourceLanguage, targetLanguage, customPrompt, before, after, terms, brief, apiKey, models, quick, thorough });
         modelUsed = out.modelUsed ?? modelUsed;
         terms = mergeTerms(terms, out.terms, out.lines);
         for (const [id, line] of out.lines) lines.set(id, line);
+        heard += out.heard ?? 0;
+        onBatchDone?.({ translations: lines, terms, brief, modelUsed });
         fixed += out.fixed;
         found += out.found;
         reverted += out.reverted ?? 0;
@@ -662,6 +695,6 @@ export const translateNatural = async (
     unitLines.push({ id: unit.id, cueIds: unit.cues.map((c) => c.id), english: unit.text, line, syllables: unit.syllables, said: dubSyllables(line) });
   }
   const missingIds = sized.filter((cue) => !translations.has(cue.id)).map((cue) => cue.id);
-  logger.info(`Natural translation: ${units.length} sentences over ${sized.length} cues; ${found} issue(s) found, ${fixed} line(s) fixed, ${reverted} fix(es) undone after a second read.`);
-  return { translations, pausedTexts, modelUsed, translatedCount: translations.size, missingIds, failedBatches, terms, brief, units: unitLines, fixed, found, reverted };
+  logger.info(`${thorough ? 'Full' : quick ? 'Fast' : 'Natural'} translation: ${units.length} sentences over ${sized.length} cues; ${found} issue(s) found${thorough ? ` (${heard} bookish word(s) heard by the review)` : ''}, ${fixed} line(s) fixed, ${reverted} fix(es) undone after a second read.`);
+  return { translations, pausedTexts, modelUsed, translatedCount: translations.size, missingIds, failedBatches, terms, brief, units: unitLines, fixed, found, reverted, heard };
 };

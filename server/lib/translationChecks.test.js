@@ -186,3 +186,19 @@ test('refineBatch survives a failing meaning check and drops length fixes that m
   assert.equal(out.meaningFixed, 0);
   assert.deepEqual([...out.translations], [...start]);
 });
+
+test('the bookish words a review hears are kept only when the line has them and nothing else reports them', async () => {
+  const { readRegisterIssues } = await import('./translationChecks.js');
+  const cues = [{ id: 'a', text: 'You need a mantra.' }, { id: 'b', text: 'That is all.' }];
+  const lines = new Map([['a', 'আপনার একটা মন্ত্র আবশ্যক।'], ['b', 'এইটুকুই, তাহার বেশি না।']]);
+  const parsed = {
+    sentences: [
+      { ids: ['a'], bookish: [{ word: 'আবশ্যক', say: 'লাগে' }, { word: 'উপলব্ধি', say: 'বোঝা' }, { word: 'মন্ত্র', say: 'মন্ত্র' }] },
+      { ids: ['b'], bookish: [{ word: 'তাহার', say: 'তার' }] },
+    ],
+  };
+  const found = readRegisterIssues(parsed, cues, lines, 'Bengali', { skip: new Set(['b|তাহার']) });
+  assert.deepEqual(found.map((i) => [i.id, i.said, i.say, i.kind]), [['a', 'আবশ্যক', 'লাগে', 'bookish']]);
+  // A key term the talk chose is left alone.
+  assert.equal(readRegisterIssues(parsed, cues, lines, 'Bengali', { terms: [{ english: 'need', translated: 'আবশ্যক' }], skip: new Set(['b|তাহার']) }).length, 0);
+});

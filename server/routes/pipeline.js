@@ -135,8 +135,8 @@ pipelineRouter.post(
       });
     }
 
-    const { translateCueTexts } = await import('../providers/gemini/translation.js');
     const { translateNatural } = await import('../providers/gemini/naturalTranslation.js');
+    const full = natural !== true && fast !== true;
     const { generateText } = await import('../providers/textModel.js');
     const { serializeSrt, retextCues, assertTimingsPreserved } = await import('../lib/srt.js');
 
@@ -173,24 +173,24 @@ pipelineRouter.post(
     // The same translation sent again under the same id, after a backend
     // restart, carries on from the batches it had finished.
     const fingerprint = job
-      ? translationFingerprint({ cues: sourceCues.map(({ id, text, startTime, endTime, speaker }) => ({ id, text, startTime, endTime, speaker })), sourceLanguage, targetLanguage, customPrompt, voiceRate, speakerRates, ...(speakerGenders && { speakerGenders }), fast: fast === true, ...(natural === true && { natural: true }) })
+      ? translationFingerprint({ cues: sourceCues.map(({ id, text, startTime, endTime, speaker }) => ({ id, text, startTime, endTime, speaker })), sourceLanguage, targetLanguage, customPrompt, voiceRate, speakerRates, ...(speakerGenders && { speakerGenders }), fast: fast === true, ...(natural === true && { natural: true }), ...(full && { sentenceFirst: 1 }) })
       : null;
     if (job) pruneCheckpoints();
-    // Fast translate writes like Natural, whole sentences first, only without
-    // its glossary and checks (quick); neither keeps checkpoints, so both start
-    // over after a restart.
-    const sentenceFirst = natural === true || fast === true;
-    const resumeFrom = job && !sentenceFirst ? loadCheckpoint(jobId, fingerprint) : null;
+    // All three write whole sentences first (naturalTranslation.js). Full
+    // (neither flag) checks the most and keeps a checkpoint of its sentences,
+    // so it carries on after a restart; Natural and Fast start over.
+    const resumeFrom = job && full ? loadCheckpoint(jobId, fingerprint) : null;
     if (resumeFrom) {
       const kept = Object.keys(resumeFrom.translations || {}).length;
-      logger.info(`Resuming translation ${jobId}: ${kept} cue(s) were done before the restart.`);
-      send({ type: 'progress', stage: 'translating', batch: 0, batchCount: 0, cueCount, message: `Carrying on: ${kept} of ${cueCount} cues were already translated...` });
+      logger.info(`Resuming translation ${jobId}: ${kept} sentence(s) were done before the restart.`);
     }
 
     try {
-      // Natural translate: whole sentences first, cut onto the cues after (naturalTranslation.js).
-      const translate = sentenceFirst ? translateNatural : translateCueTexts;
-      const outcome = await translate(sourceCues, {
+      // Whole sentences first, cut onto the cues after (naturalTranslation.js).
+      // Full ran cue by cue until 2026-11-23 (translateCueTexts), which kept the
+      // English order and bookish words; it now writes like Natural, checked
+      // at the app's full effort (`thorough`).
+      const outcome = await translateNatural(sourceCues, {
         sourceLanguage,
         targetLanguage,
         customPrompt,
@@ -200,6 +200,8 @@ pipelineRouter.post(
         speakerGenders,
         // Fast translate: Natural's writing, no glossary or meaning review, only the bookish-word fix.
         quick: natural !== true && fast === true,
+        // Full translate: glossary, review and fix at full effort, bookish words outside the lists found too.
+        thorough: full,
         apiKey: req.get('x-gemini-key') || undefined,
         onProgress: (event) => send({ type: 'progress', cueCount, ...event }),
         resumeFrom,

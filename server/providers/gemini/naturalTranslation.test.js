@@ -276,3 +276,81 @@ test('a fix the second read finds more wrong than before goes back to how it was
   assert.equal(out.fixed, 0);
   assert.equal(out.translations.get('c1'), 'यह उस डर और हिचक से');
 });
+
+test('thorough (Full translate) checks at full effort, puts spoken words before length and fixes bookish words the review hears', async () => {
+  const calls = [];
+  const generate = async ({ contents, effort }) => {
+    const prompt = contents.parts[0].text;
+    let body;
+    if (prompt.includes('INPUT SENTENCES')) {
+      calls.push({ kind: 'write', effort, prompt });
+      body = {
+        sentences: [
+          { id: 'n-1', natural: 'এটা সেই ভয় আর বাধা সামলানোর একটা উপায় যা আপনার আছে।', split: 'এটা সেই ভয় আর বাধা ¦ সামলানোর ‖ একটা উপায় যা আপনার আছে।' },
+          { id: 'n-2', natural: 'আরেকটা উপায়, কোনো মন্ত্র আবশ্যক।', split: 'আরেকটা উপায়, ¦ কোনো মন্ত্র আবশ্যক।' },
+        ],
+        terms: [],
+      };
+    } else if (prompt.includes('strict reviewer')) {
+      calls.push({ kind: 'review', effort, prompt });
+      body = { sentences: [{ ids: ['n-1'], problem: '' }, { ids: ['n-2'], problem: '', bookish: [{ word: 'আবশ্যক', say: 'লাগে' }, { word: 'নেই-এমন', say: 'x' }] }] };
+    } else {
+      calls.push({ kind: 'fix', effort, prompt });
+      body = { translations: [{ id: 'n-2', translatedText: 'আরেকটা উপায়, ¦ কোনো একটা মন্ত্র লাগে।' }] };
+    }
+    return { response: { text: JSON.stringify(body) }, modelUsed: 'test-model' };
+  };
+  const out = await translateNatural(talk, { targetLanguage: 'Bengali', voiceRate: 5.8, generate, thorough: true });
+  const write = calls.find((c) => c.kind === 'write');
+  assert.ok(write.prompt.includes('the meaning comes first and spoken words second'));
+  assert.ok(!write.prompt.includes('a little under is better than over'));
+  const review = calls.find((c) => c.kind === 'review');
+  assert.notEqual(review.effort, 'low');
+  assert.ok(review.prompt.includes('"bookish"'));
+  const fix = calls.find((c) => c.kind === 'fix');
+  assert.notEqual(fix.effort, 'low');
+  assert.match(fix.prompt, /"আবশ্যক" is a written, bookish word/);
+  assert.ok(!fix.prompt.includes('নেই-এমন'), 'a word the line does not have is never sent');
+  assert.equal(out.heard, 1);
+  assert.equal(out.translations.get('c5'), 'কোনো একটা মন্ত্র লাগে।');
+});
+
+test('a fix that brings in a listed bookish word is not kept', async () => {
+  const generate = async ({ contents }) => {
+    const prompt = contents.parts[0].text;
+    let body;
+    if (prompt.includes('INPUT SENTENCES')) {
+      body = { sentences: [{ id: 'n-1', natural: 'এটা একটা উপায়।' }, { id: 'n-2', natural: 'আরেকটা উপায় মন্ত্র।' }], terms: [] };
+    } else if (prompt.includes('strict reviewer')) {
+      body = { sentences: [{ ids: ['n-1'], problem: '' }, { ids: ['n-2'], problem: '"you know" is missing' }] };
+    } else {
+      body = { translations: [{ id: 'n-2', translatedText: 'আরেকটা উপায় হইল মন্ত্র।' }] };
+    }
+    return { response: { text: JSON.stringify(body) }, modelUsed: 'test-model' };
+  };
+  const out = await translateNatural(talk, { targetLanguage: 'Bengali', voiceRate: 5.8, generate, thorough: true });
+  assert.ok(![...out.translations.values()].some((line) => line.includes('হইল')));
+});
+
+test('Full carries on after a restart from the sentences it saved, and saves after every batch', async () => {
+  const cues = Array.from({ length: 12 }, (_, i) => cue(`r${i + 1}`, `Sentence number ${i + 1} is here.`, i * 3, i * 3 + 2));
+  const prompts = [];
+  const generate = async ({ contents }) => {
+    const prompt = contents.parts[0].text;
+    prompts.push(prompt);
+    if (prompt.includes('INPUT SENTENCES')) {
+      const ids = [...prompt.split('INPUT SENTENCES')[1].matchAll(/"id": "([^"]+)"/g)].map((m) => m[1]);
+      return { response: { text: JSON.stringify({ sentences: ids.map((id) => ({ id, natural: `নতুন ${id}।` })) }) }, modelUsed: 'fake' };
+    }
+    return { response: { text: JSON.stringify({ sentences: [], translations: [], terms: [] }) }, modelUsed: 'fake' };
+  };
+  const saved = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`n-${i + 1}`, `পুরোনো ${i + 1}।`]));
+  const all = await translateNatural(cues, { targetLanguage: 'Bengali', generate, thorough: true, resumeFrom: { translations: saved, terms: [], brief: null, modelUsed: 'fake' } });
+  assert.equal(prompts.length, 0, 'nothing is asked again when every sentence was saved');
+  assert.equal(all.translations.get('r3'), 'পুরোনো 3।');
+
+  const heard = [];
+  const fresh = await translateNatural(cues, { targetLanguage: 'Bengali', generate, thorough: true, onBatchDone: (p) => heard.push(p.translations.size) });
+  assert.equal(fresh.translations.size, 12);
+  assert.ok(heard.length >= 2 && heard.at(-1) === 12, 'saved after every batch');
+});

@@ -255,7 +255,8 @@ const keepLineSplitsRule = (cues, translations) =>
 const spokenFixRules = () => `
 - Never swap a word for one that gives another picture: a village temple is not a church, a mosque, a dargah or a mazar; a monk is not a priest.
 - A short sentence keeps every noun and verb its English has: shortening "the book you gave me" never drops "gave" or turns it into "a gift book". If a sentence cannot be shorter without losing a word, leave it as long as it is.
-- To shorten, first drop what only repeats or stresses what is already said (a pronoun said twice, "out" after "came", an "even" or "any" added for stress), then pick shorter everyday words. Never drop "all", "not", a number, a name, or a noun or verb the English has, and keep the joining words the language needs ("that", "who", "where").`;
+- To shorten, first drop what only repeats or stresses what is already said (a pronoun said twice, "out" after "came", an "even" or "any" added for stress), then pick shorter everyday words. Never drop "all", "not", a number, a name, or a noun or verb the English has, and keep the joining words the language needs ("that", "who", "where").
+- Never shorten by swapping an everyday word or phrase for a bookish, written or classical one: an everyday line a syllable or two long is better.`;
 
 export const buildFixPrompt = ({ cues, translations, issues, targetLanguage, customPrompt = '', brief = null, spoken = false }) => {
   const rows = cues.map((cue) => ({
@@ -306,7 +307,17 @@ Also report as a problem, because a listener hears the wrong thing:
 - an Indian-English turn of phrase said word for word so it means something else ("somewhere I felt it was wrong" said with "somewhere" as a place, where it means "deep down, in some way").
 `;
 
-export const buildMeaningReviewPrompt = ({ cues, translations, targetLanguage, spoken = false }) => `You are a strict reviewer checking a ${targetLanguage} dubbing translation against the English it was translated from.
+/**
+ * Full translation's review also lists bookish words (`register`): the fixed
+ * lists of spokenWords.js only know the plainest cases, so a written word
+ * outside them (Bengali আবশ্যক, উপলব্ধি) is found by the reviewer and sent
+ * back the same way (readRegisterIssues).
+ */
+const registerRules = (targetLanguage) => `
+
+Separately, as "bookish", list every word of the translation that a ${targetLanguage} speaker would not say aloud in a talk or a film: a written, literary, officialese or classical (Sanskrit- or Persian-made) word where everyday speech has a common word or a short phrase for the same idea, a written verb form or ending where speech has its own, an abstract noun people would say as a short clause with a verb. Give each word exactly as the translation writes it, with what a speaker says instead. Leave out a spiritual term the speaker means as one (mukti, sadhana), a name, and a word careful speakers do say aloud. Leave it empty when every word is spoken ${targetLanguage}.`;
+
+export const buildMeaningReviewPrompt = ({ cues, translations, targetLanguage, spoken = false, register = false }) => `You are a strict reviewer checking a ${targetLanguage} dubbing translation against the English it was translated from.
 
 The translation is meant to be free, not word for word, and a word may sit one cue earlier or later than in the English. Judge each sentence as a whole, across its cues.
 
@@ -322,7 +333,7 @@ Report a problem only when the meaning changed:
 - the translation says something the English does not;${speakerGenderReview(cues)}
 Do not report style, word choice, length or word order as a meaning problem, nor a small connective ("and", "so", "then") or a subject the language needs that the English left implicit.${spoken ? spokenReviewRules(targetLanguage) : ''}
 
-Separately, as "englishShaped", say where a sentence keeps the English sentence shape where a native ${targetLanguage} speaker would build it differently: a "which / who / that" part left trailing after its word, "that"-clauses, tag questions or words like "just" and "only" placed as in English, an English idiom said word for word. Report it only when a native speaker would clearly not say it that way. Leave it empty when the sentence sounds the way ${targetLanguage} is spoken, even if its order is close to the English, and never for formality or word choice.${spoken ? ` Also report a sentence that follows the English clause by clause so it sounds translated ("I went there simply because somewhere, what they do, it pulled me" kept in that order), where a ${targetLanguage} speaker would first say what it is about and then the rest.` : ''}
+Separately, as "englishShaped", say where a sentence keeps the English sentence shape where a native ${targetLanguage} speaker would build it differently: a "which / who / that" part left trailing after its word, "that"-clauses, tag questions or words like "just" and "only" placed as in English, an English idiom said word for word. Report it only when a native speaker would clearly not say it that way. Leave it empty when the sentence sounds the way ${targetLanguage} is spoken, even if its order is close to the English, and never for formality or word choice.${spoken ? ` Also report a sentence that follows the English clause by clause so it sounds translated ("I went there simply because somewhere, what they do, it pulled me" kept in that order), where a ${targetLanguage} speaker would first say what it is about and then the rest.` : ''}${register ? registerRules(targetLanguage) : ''}
 
 HOW TO CHECK
 For every English sentence:
@@ -334,7 +345,7 @@ CUES (JSON):
 ${JSON.stringify(cues.map((cue) => ({ id: cue.id, ...speakerField(cue), english: cue.text, translation: withoutSplits(translations.get(cue.id)) })), null, 2)}
 
 Respond with ONLY this JSON, one entry per English sentence, "problem" empty when the sentence keeps its meaning:
-{"sentences":[{"ids":["<id>", "..."],"backTranslation":"<literal English of the translation>","words":[{"english":"<word>","translatedAs":"<literal English of the translation's word, or empty>","same":true}],"problem":"<anything else missing, added or changed, in English; empty if nothing>","englishShaped":"<what follows English instead of ${targetLanguage}, in English; empty if nothing>"}]}`;
+{"sentences":[{"ids":["<id>", "..."],"backTranslation":"<literal English of the translation>","words":[{"english":"<word>","translatedAs":"<literal English of the translation's word, or empty>","same":true}],"problem":"<anything else missing, added or changed, in English; empty if nothing>","englishShaped":"<what follows English instead of ${targetLanguage}, in English; empty if nothing>"${register ? `,"bookish":[{"word":"<the word as the translation writes it>","say":"<what a speaker says instead>"}]` : ''}}]}`;
 
 /** Asks for the cues the reviewer found, with what it found. */
 export const buildMeaningFixPrompt = ({ cues, translations, problems, targetLanguage, customPrompt = '', brief = null }) => `You are correcting a ${targetLanguage} dubbing translation where a reviewer found the meaning changed or the sentence shaped like English.
@@ -393,6 +404,33 @@ export const readMeaningIssues = (parsed, ids, { shape = true } = {}) => {
       };
     })
     .filter((issue) => issue.ids.length > 0 && issue.problem);
+};
+
+/**
+ * The bookish words a `register` review found (buildMeaningReviewPrompt), as
+ * `bookish` issues like bookishIssues gives: only words the cue's line really
+ * has, never one of the talk's key terms, and never a word the fixed list
+ * already reports (`skip`: `${id}|${word}` keys).
+ */
+export const readRegisterIssues = (parsed, cues, translations, targetLanguage, { terms = [], skip = new Set() } = {}) => {
+  const chosen = terms.map((term) => spoken(term.translated));
+  const byId = new Map(cues.map((cue) => [cue.id, cue]));
+  const issues = [];
+  const seen = new Set();
+  for (const sentence of Array.isArray(parsed?.sentences) ? parsed.sentences : []) {
+    const ids = (Array.isArray(sentence?.ids) ? sentence.ids : []).map(String).filter((id) => byId.has(id));
+    for (const item of Array.isArray(sentence?.bookish) ? sentence.bookish : []) {
+      const said = String(item?.word ?? '').trim();
+      const say = String(item?.say ?? '').trim();
+      if (!said || !say || said === say) continue;
+      if (chosen.some((term) => term.includes(said))) continue;
+      const id = ids.find((cueId) => spoken(translations.get(cueId)).includes(said));
+      if (!id || skip.has(`${id}|${said}`) || seen.has(`${id}|${said}`)) continue;
+      seen.add(`${id}|${said}`);
+      issues.push({ id, kind: 'bookish', word: said, said, say, language: targetLanguage });
+    }
+  }
+  return issues;
 };
 
 /** The changed cues of a fix answer, as a Map, keeping only ids of this batch and lines that aren't empty. */
