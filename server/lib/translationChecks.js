@@ -216,6 +216,9 @@ const describeIssue = (issue) => {
   if (issue.kind === 'meaning') {
     return `- id ${issue.id}: a reviewer found: ${issue.problem}. Say exactly what the English says, no more and no less, in natural spoken words and the language's own sentence shape, never the English word order.`;
   }
+  if (issue.kind === 'offline') {
+    return `- id ${issue.id}: the pieces between the marks do not line up with the English: ${issue.problem}. Say the sentence again in a natural spoken order where each piece says what the same piece of the English says (speech allows an afterthought: "most people run every day, ${LINE_SPLIT} without knowing where they go"), with the same marks, the same meaning and everyday words. Only where the language cannot say it in that order, keep the order it needs.`;
+  }
   if (issue.kind === 'pauses') {
     return `- id ${issue.id}: the English has ${issue.want} "${PAUSE_SPLIT}" (where the speaker stops for over a second) and the line has ${issue.have}. Put exactly ${issue.want} "${PAUSE_SPLIT}" in the line, each between the same ideas as in the English, as near as the language's word order allows.`;
   }
@@ -304,7 +307,8 @@ Also report as a problem, because a listener hears the wrong thing:
 - an "it", "that" or "this" left so the listener cannot tell what it means, where the English makes it clear;
 - a hesitation sound ("uh", "um", "er" or the ${targetLanguage} sound for it) or a word the speaker repeated while searching ("a sort of a hall sort of place") kept in the translation;
 - a short phrase that lost one of its words or who does what ("the book you gave me" said as "a gift book" or just "the book");
-- an Indian-English turn of phrase said word for word so it means something else ("somewhere I felt it was wrong" said with "somewhere" as a place, where it means "deep down, in some way").
+- an Indian-English turn of phrase said word for word so it means something else ("somewhere I felt it was wrong" said with "somewhere" as a place, where it means "deep down, in some way");
+- a person spoken of with another respect form (pronoun or verb form, respectful or familiar) than earlier in these sentences, or the listener addressed with another form of "you".
 `;
 
 /**
@@ -317,7 +321,17 @@ const registerRules = (targetLanguage) => `
 
 Separately, as "bookish", list every word of the translation that a ${targetLanguage} speaker would not say aloud in a talk or a film: a written, literary, officialese or classical (Sanskrit- or Persian-made) word where everyday speech has a common word or a short phrase for the same idea, a written verb form or ending where speech has its own, an abstract noun people would say as a short clause with a verb. Give each word exactly as the translation writes it, with what a speaker says instead. Leave out a spiritual term the speaker means as one (mukti, sadhana), a name, and a word careful speakers do say aloud. Leave it empty when every word is spoken ${targetLanguage}.`;
 
-export const buildMeaningReviewPrompt = ({ cues, translations, targetLanguage, spoken = false, register = false }) => `You are a strict reviewer checking a ${targetLanguage} dubbing translation against the English it was translated from.
+/**
+ * Full translation's review also sees where each sentence breaks into lines
+ * (`marked`): the English and the translation keep their "‖" and "¦", and the
+ * reviewer reports a piece that says what another English piece says, so the
+ * voice would say it at the wrong moment (readOfflineIssues).
+ */
+const markedRules = (targetLanguage) => `
+
+The English and the translation show where the sentence breaks into lines: "${PAUSE_SPLIT}" where the speaker stops, "${LINE_SPLIT}" where a subtitle line ends while they talk on. The voice says each piece at the time of the same English piece. Ignore the marks when you judge the meaning. Separately, as "offLine", say where a piece of the translation says something that is in a different piece of the English (an idea moved across a mark), when a natural spoken ${targetLanguage} order exists that would keep it in its own piece: speech allows an afterthought ("most people run every day, ${LINE_SPLIT} without knowing where they go"). A verb or ending that ${targetLanguage} must put later in the same sentence is not off. Leave it empty when every piece says what its English piece says.`;
+
+export const buildMeaningReviewPrompt = ({ cues, translations, targetLanguage, spoken = false, register = false, marked = false }) => `You are a strict reviewer checking a ${targetLanguage} dubbing translation against the English it was translated from.
 
 The translation is meant to be free, not word for word, and a word may sit one cue earlier or later than in the English. Judge each sentence as a whole, across its cues.
 
@@ -333,7 +347,7 @@ Report a problem only when the meaning changed:
 - the translation says something the English does not;${speakerGenderReview(cues)}
 Do not report style, word choice, length or word order as a meaning problem, nor a small connective ("and", "so", "then") or a subject the language needs that the English left implicit.${spoken ? spokenReviewRules(targetLanguage) : ''}
 
-Separately, as "englishShaped", say where a sentence keeps the English sentence shape where a native ${targetLanguage} speaker would build it differently: a "which / who / that" part left trailing after its word, "that"-clauses, tag questions or words like "just" and "only" placed as in English, an English idiom said word for word. Report it only when a native speaker would clearly not say it that way. Leave it empty when the sentence sounds the way ${targetLanguage} is spoken, even if its order is close to the English, and never for formality or word choice.${spoken ? ` Also report a sentence that follows the English clause by clause so it sounds translated ("I went there simply because somewhere, what they do, it pulled me" kept in that order), where a ${targetLanguage} speaker would first say what it is about and then the rest.` : ''}${register ? registerRules(targetLanguage) : ''}
+Separately, as "englishShaped", say where a sentence keeps the English sentence shape where a native ${targetLanguage} speaker would build it differently: a "which / who / that" part left trailing after its word, "that"-clauses, tag questions or words like "just" and "only" placed as in English, an English idiom said word for word. Report it only when a native speaker would clearly not say it that way. Leave it empty when the sentence sounds the way ${targetLanguage} is spoken, even if its order is close to the English, and never for formality or word choice.${spoken ? ` Also report a sentence that follows the English clause by clause so it sounds translated ("I went there simply because somewhere, what they do, it pulled me" kept in that order), where a ${targetLanguage} speaker would first say what it is about and then the rest.` : ''}${register ? registerRules(targetLanguage) : ''}${marked ? markedRules(targetLanguage) : ''}
 
 HOW TO CHECK
 For every English sentence:
@@ -342,10 +356,10 @@ For every English sentence:
 3. Mark "same" false only when the idea of that word is missing or became something else, by the rules above. A natural expression of the same idea is the same: "people think you need an investigation" said as "people think you should be investigated" keeps every word; "anyone on the spiritual path" said as "spiritual seekers" keeps it.
 
 CUES (JSON):
-${JSON.stringify(cues.map((cue) => ({ id: cue.id, ...speakerField(cue), english: cue.text, translation: withoutSplits(translations.get(cue.id)) })), null, 2)}
+${JSON.stringify(cues.map((cue) => ({ id: cue.id, ...speakerField(cue), english: marked ? cue.markedText ?? cue.text : cue.text, translation: marked ? String(translations.get(cue.id) ?? '').trim() : withoutSplits(translations.get(cue.id)) })), null, 2)}
 
 Respond with ONLY this JSON, one entry per English sentence, "problem" empty when the sentence keeps its meaning:
-{"sentences":[{"ids":["<id>", "..."],"backTranslation":"<literal English of the translation>","words":[{"english":"<word>","translatedAs":"<literal English of the translation's word, or empty>","same":true}],"problem":"<anything else missing, added or changed, in English; empty if nothing>","englishShaped":"<what follows English instead of ${targetLanguage}, in English; empty if nothing>"${register ? `,"bookish":[{"word":"<the word as the translation writes it>","say":"<what a speaker says instead>"}]` : ''}}]}`;
+{"sentences":[{"ids":["<id>", "..."],"backTranslation":"<literal English of the translation>","words":[{"english":"<word>","translatedAs":"<literal English of the translation's word, or empty>","same":true}],"problem":"<anything else missing, added or changed, in English; empty if nothing>","englishShaped":"<what follows English instead of ${targetLanguage}, in English; empty if nothing>"${register ? `,"bookish":[{"word":"<the word as the translation writes it>","say":"<what a speaker says instead>"}]` : ''}${marked ? `,"offLine":"<which piece says what another English piece says, in English; empty if every piece is in its place>"` : ''}}]}`;
 
 /** Asks for the cues the reviewer found, with what it found. */
 export const buildMeaningFixPrompt = ({ cues, translations, problems, targetLanguage, customPrompt = '', brief = null }) => `You are correcting a ${targetLanguage} dubbing translation where a reviewer found the meaning changed or the sentence shaped like English.
@@ -429,6 +443,18 @@ export const readRegisterIssues = (parsed, cues, translations, targetLanguage, {
       seen.add(`${id}|${said}`);
       issues.push({ id, kind: 'bookish', word: said, said, say, language: targetLanguage });
     }
+  }
+  return issues;
+};
+
+/** The sentences a `marked` review found with an idea in the wrong piece, as `offline` issues (one per sentence, on its first id). */
+export const readOfflineIssues = (parsed, ids) => {
+  const known = new Set(ids);
+  const issues = [];
+  for (const sentence of Array.isArray(parsed?.sentences) ? parsed.sentences : []) {
+    const problem = String(sentence?.offLine ?? '').trim();
+    const id = (Array.isArray(sentence?.ids) ? sentence.ids : []).map(String).find((x) => known.has(x));
+    if (id && problem && !NO_PROBLEM.test(problem)) issues.push({ id, kind: 'offline', problem });
   }
   return issues;
 };

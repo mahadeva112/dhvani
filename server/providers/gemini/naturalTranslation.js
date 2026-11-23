@@ -15,6 +15,7 @@ import {
   buildMeaningReviewPrompt,
   readMeaningIssues,
   readRegisterIssues,
+  readOfflineIssues,
   readFix,
   sentenceEnding,
   briefBlock,
@@ -440,13 +441,15 @@ HOW TO WRITE EACH SENTENCE
 5. Write out what a voice would stumble on: no digits, abbreviations, symbols or brackets (numbers as they are said). Sound notes in square brackets such as [laughs] are copied exactly, in English, where they stand.
 6. Where "it", "that" or "this" would leave a ${targetLanguage} listener unsure what is meant, say the thing itself (a letter that "never came" is "the letter never came"). That is not adding: it is what the speaker means.
 7. Pick each word for the picture it gives a ${targetLanguage} listener, not only for its dictionary meaning: a word tied to another religion, kind of place or kind of person is wrong (a village temple is not a church, a mosque, a dargah or a mazar; a monk is not a priest). Never hedge with "X or Y" when X is the wrong picture: pick the right word.
-8. Indian-English turns of phrase are said by what they mean, never word for word: "somewhere" in "somewhere I felt it was wrong" means "deep down, in some way", not a place; "simply" means "just, for no other reason"; "what to do" means "nothing can be done"; "itself" and "only" often just stress a word. Say that meaning the way a ${targetLanguage} speaker would.
+8. A person keeps one respect form every time they are spoken of (pronoun and verb forms, respectful or familiar), the one their first mention set, and the listener is addressed with one form of "you" throughout: a man in a story who "said" respectfully never turns familiar a sentence later.
+9. Indian-English turns of phrase are said by what they mean, never word for word: "somewhere" in "somewhere I felt it was wrong" means "deep down, in some way", not a place; "simply" means "just, for no other reason"; "what to do" means "nothing can be done"; "itself" and "only" often just stress a word. Say that meaning the way a ${targetLanguage} speaker would.
 ${examples ? `\n${examples}\n(These examples show cue lines; here you write the whole sentence, so the same idea applies to the whole sentence.)\n` : ''}${marked ? `
 MARKS IN THE ENGLISH
 - "${PAUSE_SPLIT}" is where the speaker stops for over a second; the dub voice stops at the same moments, so before each stop it should be saying what the speaker said before it.
 - "${SOFT_SPLIT}" is where a subtitle line ends while the speaker talks on. It only says where the line breaks: it never binds the wording.
 - "split" is "natural" again, with exactly the same words in the same order, plus the same marks as the English, the same number of each in the same order. Put each "${PAUSE_SPLIT}" where what comes before it says what came before it in the English, as near as ${targetLanguage}'s order allows. Put each "${SOFT_SPLIT}" at the natural phrase break nearest to the same point of the meaning, never between a word and its postposition, case ending or helping verb, never inside a name or a fixed phrase, and never inside a pair joined by "and" or "or" ("fear and resistance", "a mantra or a god"), also when the language marks the pair on both words instead of with a word between them: the whole pair stays on one side, even if that moves the mark a few words.
-- Write "natural" first, freely; then place the marks. Never reword "natural" to make a mark fit. If the language's order moves an idea across a mark, put the mark at the nearest natural phrase break.
+- Write "natural" first, freely; then place the marks. Never reword "natural" to make a mark fit. If the language's order moves an idea across a mark, put the mark at the nearest natural phrase break.${spokenFirst ? `
+- The voice says each piece at the time of the same English piece. So when the English sentence runs over several pieces, pick, among the natural spoken orders, one that keeps each idea in its own piece: speech allows an afterthought ("most people run every day, ${SOFT_SPLIT} without knowing where they go" rather than "not knowing where they go, ${SOFT_SPLIT} most people run every day"). Only where ${targetLanguage} cannot say it in that order, use the order it needs.` : ''}
 - Each piece between marks must be a phrase that can stand on its own line. Never fill a piece with a word the speaker did not say.
 - A sentence without marks gets "split" equal to "natural".
 ` : ''}${sized ? `
@@ -518,7 +521,7 @@ const translateUnitBatch = async (batch, { generate, sourceLanguage, targetLangu
   const reviewOptions = { targetLanguage, apiKey, models, effort: thorough ? reviewEffort() : CHECK_EFFORT };
 
   // Quick (Fast translate): no meaning review, and only bookish words are sent back.
-  const review = quick ? Promise.resolve(null) : reviewMeaning(generate, batch, lines, { ...reviewOptions, register: thorough });
+  const review = quick ? Promise.resolve(null) : reviewMeaning(generate, batch, lines, { ...reviewOptions, register: thorough, marked: thorough });
   const listed = bookishIssues(batch, lines, targetLanguage, known);
   const counted = quick ? listed : [...naturalIssues(batch, lines), ...termIssues(batch, lines, known), ...listed];
   const reviewed = await review;
@@ -530,7 +533,9 @@ const translateUnitBatch = async (batch, { generate, sourceLanguage, targetLangu
         skip: new Set(listed.map((issue) => `${issue.id}|${issue.said}`)),
       })
     : [];
-  const issues = [...meaning, ...counted, ...heard];
+  // Full: an idea said in another piece than its English one, so the voice would say it at the wrong moment.
+  const offline = thorough && reviewed ? readOfflineIssues(reviewed, ids) : [];
+  const issues = [...meaning, ...counted, ...heard, ...offline];
   let fixed = 0;
   let reverted = 0;
   if (issues.length) {
@@ -541,7 +546,7 @@ const translateUnitBatch = async (batch, { generate, sourceLanguage, targetLangu
       const { parsed } = await askJson(generate, buildFixPrompt({ cues: toFix, translations: lines, issues, targetLanguage, customPrompt, brief, spoken: true }), { apiKey, models, temperature: 0.3, effort: thorough ? writeEffort() : CHECK_EFFORT });
       const changes = readFix(parsed, ids);
       // A meaning fix may run a few syllables longer, and so may a bookish word said the spoken way.
-      const roomy = new Set([...meaning, ...listed, ...heard].map((m) => m.id));
+      const roomy = new Set([...meaning, ...listed, ...heard, ...offline].map((m) => m.id));
       const next = new Map(lines);
       for (const [id, line] of changes) {
         const unit = batch.find((u) => u.id === id);
@@ -578,16 +583,17 @@ const translateUnitBatch = async (batch, { generate, sourceLanguage, targetLangu
       logger.warn(`Natural translation fix skipped: ${err?.message || err}`);
     }
   }
-  return { lines, modelUsed: written.modelUsed, terms: written.terms, fixed, reverted, found: issues.length, meaning: meaning.length, heard: heard.length };
+  return { lines, modelUsed: written.modelUsed, terms: written.terms, fixed, reverted, found: issues.length, meaning: meaning.length, heard: heard.length, offline: offline.length };
 };
 
 /** How many listed bookish words (spokenWords.js) a unit's line says. */
 const bookishCount = (unit, line, targetLanguage, terms) => bookishIssues([unit], new Map([[unit.id, withoutSoft(line)]]), targetLanguage, terms).length;
 
 /** One meaning review of a batch's lines (the parsed answer), or null when it fails: a failed check never stops the translation. */
-const reviewMeaning = (generate, batch, lines, { targetLanguage, apiKey, models, effort = CHECK_EFFORT, register = false }) => {
-  const plain = new Map([...lines].map(([id, line]) => [id, withoutSoft(line)]));
-  return askJson(generate, buildMeaningReviewPrompt({ cues: batch, translations: plain, targetLanguage, spoken: true, register }), { apiKey, models, temperature: 0, effort })
+const reviewMeaning = (generate, batch, lines, { targetLanguage, apiKey, models, effort = CHECK_EFFORT, register = false, marked = false }) => {
+  // A `marked` review (Full) reads the lines with their marks, to see where each piece falls.
+  const plain = marked ? lines : new Map([...lines].map(([id, line]) => [id, withoutSoft(line)]));
+  return askJson(generate, buildMeaningReviewPrompt({ cues: batch, translations: plain, targetLanguage, spoken: true, register, marked }), { apiKey, models, temperature: 0, effort })
     .then(({ parsed }) => parsed)
     .catch((err) => {
       logger.warn(`Natural translation meaning check skipped: ${err?.message || err}`);
@@ -647,6 +653,7 @@ export const translateNatural = async (
   let found = 0;
   let reverted = 0;
   let heard = 0;
+  let offline = 0;
   let stopped = false;
   const queue = batches.map((batch, index) => ({ batch, index })).filter(({ batch }) => !batch.every((u) => lines.has(u.id)));
   let done = batches.length - queue.length;
@@ -663,6 +670,7 @@ export const translateNatural = async (
         terms = mergeTerms(terms, out.terms, out.lines);
         for (const [id, line] of out.lines) lines.set(id, line);
         heard += out.heard ?? 0;
+        offline += out.offline ?? 0;
         onBatchDone?.({ translations: lines, terms, brief, modelUsed });
         fixed += out.fixed;
         found += out.found;
@@ -695,6 +703,6 @@ export const translateNatural = async (
     unitLines.push({ id: unit.id, cueIds: unit.cues.map((c) => c.id), english: unit.text, line, syllables: unit.syllables, said: dubSyllables(line) });
   }
   const missingIds = sized.filter((cue) => !translations.has(cue.id)).map((cue) => cue.id);
-  logger.info(`${thorough ? 'Full' : quick ? 'Fast' : 'Natural'} translation: ${units.length} sentences over ${sized.length} cues; ${found} issue(s) found${thorough ? ` (${heard} bookish word(s) heard by the review)` : ''}, ${fixed} line(s) fixed, ${reverted} fix(es) undone after a second read.`);
-  return { translations, pausedTexts, modelUsed, translatedCount: translations.size, missingIds, failedBatches, terms, brief, units: unitLines, fixed, found, reverted, heard };
+  logger.info(`${thorough ? 'Full' : quick ? 'Fast' : 'Natural'} translation: ${units.length} sentences over ${sized.length} cues; ${found} issue(s) found${thorough ? ` (${heard} bookish word(s) heard by the review, ${offline} sentence(s) with an idea in another line)` : ''}, ${fixed} line(s) fixed, ${reverted} fix(es) undone after a second read.`);
+  return { translations, pausedTexts, modelUsed, translatedCount: translations.size, missingIds, failedBatches, terms, brief, units: unitLines, fixed, found, reverted, heard, offline };
 };

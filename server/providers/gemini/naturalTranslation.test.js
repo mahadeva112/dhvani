@@ -356,3 +356,44 @@ test('Full carries on after a restart from the sentences it saved, and saves aft
   assert.equal(fresh.translations.size, 12);
   assert.ok(heard.length >= 2 && heard.at(-1) === 12, 'saved after every batch');
 });
+
+test('Full reviews the lines with their marks and sends a sentence with an idea in another line back', async () => {
+  const calls = [];
+  const generate = async ({ contents }) => {
+    const prompt = contents.parts[0].text;
+    let body;
+    if (prompt.includes('INPUT SENTENCES')) {
+      calls.push({ kind: 'write', prompt });
+      body = {
+        sentences: [
+          { id: 'n-1', natural: 'এটা ভয় আর বাধা সামলানোর একটা উপায় যা আপনার আছে।', split: 'এটা ভয় আর বাধা ¦ সামলানোর ‖ একটা উপায় যা আপনার আছে।' },
+          { id: 'n-2', natural: 'কোনো মন্ত্র জানা থাকলে, আরেকটা উপায়।', split: 'কোনো মন্ত্র জানা থাকলে, ¦ আরেকটা উপায়।' },
+        ],
+        terms: [],
+      };
+    } else if (prompt.includes('strict reviewer')) {
+      calls.push({ kind: 'review', prompt });
+      body = { sentences: [{ ids: ['n-1'], problem: '', offLine: '' }, { ids: ['n-2'], problem: '', offLine: '"Another way" is said in the second piece' }] };
+    } else {
+      calls.push({ kind: 'fix', prompt });
+      body = { translations: [{ id: 'n-2', translatedText: 'আরেকটা উপায়, ¦ কোনো মন্ত্র জানা থাকলে।' }] };
+    }
+    return { response: { text: JSON.stringify(body) }, modelUsed: 'test-model' };
+  };
+  const out = await translateNatural(talk, { targetLanguage: 'Bengali', voiceRate: 5.8, generate, thorough: true });
+  assert.ok(calls.find((c) => c.kind === 'write').prompt.includes('keeps each idea in its own piece'));
+  const review = calls.find((c) => c.kind === 'review').prompt;
+  assert.ok(review.includes('"offLine"'));
+  assert.ok(review.includes('Another way is ¦ you know some mantra.'), 'the review sees the English marks');
+  assert.ok(review.includes('আরেকটা উপায়।"') || review.includes('¦ আরেকটা উপায়'), 'and the translation marks');
+  assert.match(calls.find((c) => c.kind === 'fix').prompt, /do not line up with the English/);
+  assert.equal(out.offline, 1);
+  assert.equal(out.translations.get('c4'), 'আরেকটা উপায়,');
+});
+
+test('every sentence-first mode keeps one respect form per person', async () => {
+  const { buildNaturalPrompt } = await import('./naturalTranslation.js');
+  const prompt = buildNaturalPrompt({ batch: buildNaturalUnits(talk), targetLanguage: 'Bengali' });
+  assert.ok(prompt.includes('A person keeps one respect form'));
+  assert.ok(!prompt.includes('keeps each idea in its own piece'), 'the line-order rule is Full only');
+});
