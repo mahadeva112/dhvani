@@ -64,6 +64,8 @@ import {
   type StabilityAdjustment,
 } from './services/elevenLabsService';
 import { buildSpeechScript } from './services/speechScript';
+import { joinReads, speakerReadPlan } from './services/speakerReads';
+import { voicingWith } from './services/castService';
 import { expressionLineKey, expressionOf, hearExpression, keepCurrent, planExpression, taggedSegments, type ExpressionTags } from './services/expressionPrep';
 import type { ExpressionPrepView } from './components/ExpressionPrep';
 import { castForVoicing, isMultiSpeaker, renameCast, renameSpeaker, speakerGendersOf } from './services/speakers';
@@ -3062,52 +3064,101 @@ export default function App() {
     saveExpressionTags(activeJob.id, { [expressionLineKey(expressionLanguage, segment)]: { text, mine: true } }, expressionLanguage);
   };
 
-  const readScript = async (job: BatchJob, voice: DubVoice, language: string, readKey: string, matchLoudness: boolean, outputFormat: string, signal: AbortSignal) => {
-    const readJobId =
+  /**
+   * With `cast` (several speakers), each speaker's lines are read in one take
+   * by their own voice and the takes joined end to end (services/speakerReads.ts),
+   * the cues in that order. Undefined when the takes can't be joined as they
+   * are (an MP3 fallback, voices at different sample rates): every line is
+   * then voiced on its own.
+   */
+  const readScript = async (
+    job: BatchJob,
+    voice: DubVoice,
+    language: string,
+    readKey: string,
+    matchLoudness: boolean,
+    outputFormat: string,
+    signal: AbortSignal,
+    cast?: Record<string, SpeakerVoice>
+  ): Promise<{ blob: Blob; lines: DubLines } | undefined> => {
+    const newReadId = () =>
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
         : `read-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    if (syncRunRef.current) syncRunRef.current.readJobId = readJobId;
+    const several = Boolean(cast);
+    // One read per speaker with several, in the order each first speaks; one read of every cue with one voice.
+    const plan = several ? speakerReadPlan(job.segments) : [{ speaker: '', segments: job.segments }];
+    // Each take's share of the whole, by its script's length, so the progress bar runs once across all of them.
+    let lengths: number[] = [];
+    let take = 0;
+    let readJobId = '';
     setReadProgress({ phase: 'preparing', passageCount: 0, passagesDone: 0, totalChars: 0, charsDone: 0, secondsGenerated: 0, streaming: true });
     const poll = window.setInterval(() => {
-      getDubProgress(readJobId)
+      const polled = readJobId;
+      if (!polled) return;
+      getDubProgress(polled)
         .then((progress) => {
-          if (syncRunRef.current?.readJobId === readJobId) setReadProgress(progress);
+          if (syncRunRef.current?.readJobId !== polled) return;
+          if (!several) return setReadProgress(progress);
+          const total = lengths.reduce((a, b) => a + b, 0);
+          const before = lengths.slice(0, take).reduce((a, b) => a + b, 0);
+          const share = progress.totalChars > 0 ? Math.min(1, progress.charsDone / progress.totalChars) : 0;
+          setReadProgress({ ...progress, totalChars: total, charsDone: Math.round(before + share * (lengths[take] || 0)) });
         })
         // The job is only registered once the request reaches the server; until then, keep waiting.
         .catch(() => {});
     }, 700);
     try {
       // Natural: tag the script from the original speaker's delivery before voicing it.
-      const tags = expressionTakesTags(voice);
+      const tags = expressionTakesTags(voice, cast);
       const expression: VoiceExpression = tags || voice.expression === 'off' ? voice.expression : 'neutral';
       const matchSource = expression === 'natural';
-      let script = buildSpeechScript(job.segments);
+      let spoken = new Map(job.segments.map((segment) => [String(segment.id), segment]));
       if (matchSource) {
         const tagged = await sourceTaggedSegments(job, language, signal, (done, toHear) =>
           setReadProgress({ phase: 'listening', passageCount: toHear, passagesDone: done, totalChars: 0, charsDone: 0, secondsGenerated: 0, streaming: true })
         );
-        script = buildSpeechScript(tagged);
+        spoken = new Map(tagged.map((segment) => [String(segment.id), segment]));
       }
-      const blob = await synthesizeSpeech(voice.apiKey, voice.voiceId, script, voice.modelId, outputFormat, voice.voiceSettings, {
-        expressive: expression === 'expressive',
-        audioTags: matchSource,
-        performanceTags: matchSource,
-        steady: expression === 'neutral',
-        matchLoudness,
-        tuneStability: voice.tuneStability,
-        onStabilityAdjustment: setLastStabilityAdjustment,
-        cartesia: cartesiaForExpression(voice.cartesia, expression),
-        language,
-        jobId: readJobId,
-        signal,
-      });
+      const scripts = plan.map((part) => buildSpeechScript(part.segments.map((segment) => spoken.get(String(segment.id)) || segment)));
+      lengths = scripts.map((script) => script.length);
+      const takes: Blob[] = [];
+      for (take = 0; take < plan.length; take++) {
+        readJobId = newReadId();
+        if (syncRunRef.current) syncRunRef.current.readJobId = readJobId;
+        // A speaker's own voice and settings over the main voicing; the main voice for anyone without one.
+        const own = several ? cast?.[plan[take].speaker] : undefined;
+        const voiceId = own?.voiceId || voice.voiceId;
+        const voicing = voicingWith({ modelId: voice.modelId, voiceSettings: voice.voiceSettings, cartesia: voice.cartesia }, own?.own);
+        takes.push(
+          await synthesizeSpeech(voice.apiKey, voiceId, scripts[take], voicing.modelId, outputFormat, voicing.voiceSettings, {
+            expressive: expression === 'expressive',
+            audioTags: matchSource,
+            performanceTags: matchSource,
+            steady: expression === 'neutral',
+            matchLoudness,
+            tuneStability: voice.tuneStability,
+            // What the backend changed about the main voice's stability, as Sync reports it.
+            ...(voiceId === voice.voiceId && !own?.own && { onStabilityAdjustment: setLastStabilityAdjustment }),
+            cartesia: cartesiaForExpression(voicing.cartesia || voice.cartesia, expression),
+            language,
+            jobId: readJobId,
+            signal,
+          })
+        );
+      }
+      const blob = several ? await joinReads(takes) : takes[0];
+      if (!blob) {
+        console.info('The speakers’ reads could not be joined as they are (not WAV, or different sample rates); every line is voiced on its own.');
+        return undefined;
+      }
       const lines: DubLines = {
-        dubId: readJobId,
+        dubId: newReadId(),
         voiceId: voice.voiceId,
         modelId: voice.modelId,
         readKey,
-        cues: job.segments
+        cues: plan
+          .flatMap((part) => part.segments)
           .map((segment) => ({ id: String(segment.id), text: (segment.textTarget || segment.targetText || '').trim() }))
           .filter((cue) => cue.text),
       };
@@ -3299,23 +3350,39 @@ export default function App() {
       // Cartesia has no plan tiers: a Cartesia voice is asked for the chosen format as it is.
       const refused = isCartesiaVoice(voice.voiceId) ? new Set<string>() : refusedQualities;
       /*
-       * One continuous read (one voice only): the script is read in one take,
-       * or the last read is reused while it was voiced the same way, and its
-       * lines are cut from it rather than voiced again. A dub made before Dub
-       * and Sync were one step counts as a read by its voice.
+       * One continuous read: the script is read in one take (with several
+       * speakers, one take per speaker by their own voice), or the last read
+       * is reused while it was voiced the same way, and its lines are cut
+       * from it rather than voiced again. A dub made before Dub and Sync were
+       * one step counts as a read by its voice, with one voice only.
        */
+      const readCast = several ? castForVoicing(activeJob.cast, activeJob.speakerProfiles, voice.voiceId) : undefined;
       const voiceDub = async (outputFormat: string) => {
         let dub: { blob: Blob; lines: DubLines } | undefined;
-        if (voicing === 'continuous' && !several) {
-          const readKey = JSON.stringify([voice.voiceId, voice.modelId, voice.voiceSettings ?? null, expression, matchLoudness, cartesiaDub, outputFormat]);
+        if (voicing === 'continuous') {
+          const readKey = JSON.stringify([
+            voice.voiceId,
+            voice.modelId,
+            voice.voiceSettings ?? null,
+            expression,
+            matchLoudness,
+            cartesiaDub,
+            outputFormat,
+            ...(several ? [{ speakers: readCast ?? null }] : []),
+          ]);
           const last = activeJob.dubLines;
           const lastFits =
             !fresh &&
-            activeJob.synthesizedBlob && last && last.voiceId === voice.voiceId && last.modelId === voice.modelId && (last.readKey ?? readKey) === readKey;
+            activeJob.synthesizedBlob &&
+            last &&
+            last.voiceId === voice.voiceId &&
+            last.modelId === voice.modelId &&
+            // An old dub with no read key was one voice: never the read of several.
+            (several ? last.readKey : last.readKey ?? readKey) === readKey;
           dub =
             lastFits && activeJob.synthesizedBlob && last
               ? { blob: activeJob.synthesizedBlob, lines: last }
-              : await readScript(activeJob, voice, language, readKey, matchLoudness, outputFormat, controller.signal);
+              : await readScript(activeJob, voice, language, readKey, matchLoudness, outputFormat, controller.signal, readCast ?? (several ? {} : undefined));
         }
         return syncDub(
           {

@@ -488,7 +488,7 @@ const VOICING_OPTIONS: { id: SyncVoicing; label: string; detail: string }[] = [
   {
     id: 'continuous',
     label: 'One continuous read',
-    detail: 'The script is read in one take, then each line is cut from it and placed. The most natural flow, for narration. One voice only.',
+    detail: 'The script is read in one take, then each line is cut from it and placed. The most natural flow, for narration. With several speakers, each reads their own lines in one take.',
   },
 ];
 
@@ -580,14 +580,14 @@ export interface SyncSettingsPanelProps {
 type SettingsSection = 'basics' | SyncJoinSection | 'suggestions' | 'checks' | 'presets';
 
 const voicingLabel = (options: SyncOptions, multiSpeaker: boolean) =>
-  VOICING_OPTIONS.find((o) => o.id === (multiSpeaker ? 'lines' : options.voicing))?.label ?? 'Line by line';
+  VOICING_OPTIONS.find((o) => o.id === options.voicing)?.label ?? 'Line by line';
 const precisionLabelOf = (options: SyncOptions) => SYNC_PRECISION_OPTIONS.find((o) => o.id === options.precision)?.label ?? options.precision;
 const presetLabelOf = joinPresetLabel;
 
 /** Every section of the window, with its one-line summary, what it is for, and how many of its settings differ from the default. */
 const settingsSections = (options: SyncOptions, multiSpeaker: boolean) => {
   const suggestions = [options.suggest && 'shorter', options.suggestLonger && 'fuller'].filter(Boolean);
-  const basicsChanged = [(!multiSpeaker && options.voicing !== 'lines'), options.precision !== 'phrase', options.preset !== 'natural'].filter(Boolean).length;
+  const basicsChanged = [options.voicing !== 'lines', options.precision !== 'phrase', options.preset !== 'natural'].filter(Boolean).length;
   return [
     {
       id: 'basics' as SettingsSection,
@@ -751,7 +751,7 @@ const SyncSettingsWindow: React.FC<{
   // Basics puts back the voicing and precision; the line joins are reset in their own sections or by Natural.
   const resettable =
     current.id === 'basics'
-      ? [(!multiSpeaker && options.voicing !== 'lines'), options.precision !== 'phrase'].filter(Boolean).length
+      ? [options.voicing !== 'lines', options.precision !== 'phrase'].filter(Boolean).length
       : current.changedCount;
 
   const body = (() => {
@@ -774,21 +774,19 @@ const SyncSettingsWindow: React.FC<{
               <legend className={`${sectionLabel} mb-2`}>How to voice</legend>
               <div className="grid lg:grid-cols-2 gap-3">
                 {VOICING_OPTIONS.map((o) => {
-                  const off = o.id === 'continuous' && multiSpeaker;
-                  const checked = multiSpeaker ? o.id === 'lines' : options.voicing === o.id;
+                  const checked = options.voicing === o.id;
                   const Icon = o.id === 'lines' ? ListMusic : AudioWaveform;
                   return (
                     <label
                       key={o.id}
                       className={`flex items-start gap-3 rounded-xl border p-3.5 transition-colors ${
                         checked ? 'border-indigo-500/70 bg-indigo-500/10' : 'border-edge bg-slate-800/20 hover:border-slate-700'
-                      } ${off ? 'opacity-50 cursor-default' : 'cursor-default'}`}
+                      } cursor-default`}
                     >
                       <input
                         type="radio"
                         name="sync-voicing"
                         checked={checked}
-                        disabled={off}
                         onChange={() => onOptionsChange((opts) => ({ ...opts, voicing: o.id }))}
                         className="sr-only"
                       />
@@ -804,10 +802,10 @@ const SyncSettingsWindow: React.FC<{
                           {checked && <Check className="w-4 h-4 ml-auto text-indigo-300" />}
                         </span>
                         <span className="block text-[11.5px] text-slate-400 mt-0.5">
-                          {off ? 'For a dub in one voice. With several speakers each line is voiced on its own.' : o.detail}
+                          {o.detail}
                         </span>
                         <span className="flex flex-wrap gap-1.5 mt-2">
-                          {(o.id === 'lines' ? ['Any number of voices', 'Best timing'] : ['One voice only', 'Most natural flow']).map((tag) => (
+                          {(o.id === 'lines' ? ['Any number of voices', 'Best timing'] : [multiSpeaker ? 'One take per speaker' : 'One voice', 'Most natural flow']).map((tag) => (
                             <span key={tag} className="px-1.5 py-px rounded-md bg-slate-800 text-[10.5px] text-slate-400">
                               {tag}
                             </span>

@@ -141,7 +141,8 @@ import type { SyncJoinPreset, SyncScreen } from './syncPresets.ts';
 /**
  * How the dub is voiced: each line on its own, timed for its slot ('lines'),
  * or the whole script in one take with each line then cut from it
- * ('continuous'), which keeps the flow of one read. One voice only.
+ * ('continuous'), which keeps the flow of one read; with several speakers,
+ * each one's lines are read in one take by their own voice.
  */
 export type SyncVoicing = 'lines' | 'continuous';
 

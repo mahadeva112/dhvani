@@ -308,7 +308,8 @@ export interface BatchJob {
   /**
    * What the dub above says, cue by cue, and with which voice: a sync with the
    * same voice cuts every line that still reads the same out of the dub
-   * instead of voicing it again. Unset for a dub with several voices.
+   * instead of voicing it again. With several speakers, their one-take reads
+   * joined end to end (services/speakerReads.ts), the cues in that order.
    */
   dubLines?: DubLines | null;
   

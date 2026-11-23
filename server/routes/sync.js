@@ -456,8 +456,9 @@ const logAudioDebug = ({ sampleRate, channels, resampled, matchLoudness, output,
  * tagged for voice expression Natural) and `expressive` (Expressive) adds
  * delivery cues first; both only on a model that performs tags, and the
  * words are never changed. `steady` (voice expression Neutral) holds every
- * voice calm and even (a Cartesia one at emotion neutral). With `dub` (`{ dubId, cues }`, one voice only) every
- * line that still reads as the Final dub said it is cut from that dub rather
+ * voice calm and even (a Cartesia one at emotion neutral). With `dub` (`{ dubId, cues }`; with several
+ * speakers, each speaker's take of their own lines joined end to end, the
+ * cues in that order) every line that still reads as the read said it is cut from it rather
  * than voiced again (see dubTakes.js); a 409 `sync_dub_missing` asks for the
  * dub at PUT /api/sync/dubs/:dubId first. `suggest` and `suggestLonger`
  * (both on unless false) ask for shorter wordings of long lines and fuller
@@ -527,8 +528,8 @@ syncRouter.post(
       });
     }
 
-    // The Final dub to cut lines from, with one voice only; the app sends it again when this server lost it.
-    const fromDub = multiSpeaker === true ? null : cleanDub(dub);
+    // The read to cut lines from (with several speakers, each one's take joined end to end); the app sends it again when this server lost it.
+    const fromDub = cleanDub(dub);
     if (fromDub && !dubFor(fromDub.dubId)) {
       throw new ApiError('The server no longer has the dub to sync from.', { status: 409, code: 'sync_dub_missing' });
     }

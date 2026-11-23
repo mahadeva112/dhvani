@@ -470,7 +470,7 @@ export const DubSettingsCard: React.FC<DubSettingsCardProps> = ({
   };
 
   const PLACE_KEYS: (keyof SyncJoinSettings)[] = ['chunkSync', 'joinSpokenChunks', 'chunkGapShare', 'maxChunkGap'];
-  const voicingChanged = !multiSpeaker && options.voicing !== 'lines';
+  const voicingChanged = options.voicing !== 'lines';
   const precisionChanged = options.precision !== 'phrase';
   const placeChanged = [voicingChanged, precisionChanged, ...PLACE_KEYS.map(joinChanged)].filter(Boolean).length;
   const resetPlace = () => {
@@ -719,17 +719,19 @@ export const DubSettingsCard: React.FC<DubSettingsCardProps> = ({
             name="How to voice"
             changed={voicingChanged}
             note={
-              options.voicing === 'continuous' && !multiSpeaker
-                ? 'Read in one take, then each line is cut from it: the most natural flow, for narration.'
+              options.voicing === 'continuous'
+                ? multiSpeaker
+                  ? 'Each speaker reads all their lines in one take, then each line is cut from it: a natural flow for every voice.'
+                  : 'Read in one take, then each line is cut from it: the most natural flow, for narration.'
                 : 'Each line for its own slot: the best timing.'
             }
           >
             <Seg
               label="How to voice"
-              value={multiSpeaker ? 'lines' : options.voicing}
+              value={options.voicing}
               choices={[
                 { id: 'lines', label: 'Line by line' },
-                { id: 'continuous', label: 'One read', disabled: multiSpeaker, hint: multiSpeaker ? 'One continuous read is for a dub in one voice.' : undefined },
+                { id: 'continuous', label: 'One read', hint: multiSpeaker ? 'One take per speaker, in their own voice.' : undefined },
               ]}
               onPick={(voicing) => onOptionsChange((o) => ({ ...o, voicing }))}
               disabled={disabled}

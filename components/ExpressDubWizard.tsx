@@ -4844,7 +4844,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               about={[
                 voiceShortName,
                 ttsModelName,
-                multiSpeaker ? `${speakers.length} speakers` : syncOptions.voicing === 'continuous' ? 'one continuous read' : 'line by line',
+                multiSpeaker && `${speakers.length} speakers`,
+                syncOptions.voicing === 'continuous' ? (multiSpeaker ? 'one read per speaker' : 'one continuous read') : 'line by line',
               ]
                 .filter(Boolean)
                 .join(' · ')}
