@@ -1,6 +1,24 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Download, RotateCw, X, Check, CheckCircle2, AlertCircle, FolderOpen, Circle } from 'lucide-react';
+import {
+  Download,
+  RotateCw,
+  RefreshCw,
+  X,
+  Check,
+  CheckCircle2,
+  CircleAlert,
+  FolderOpen,
+  Circle,
+  Loader2,
+  ShieldCheck,
+  WifiOff,
+  ArrowDownToLine,
+  ArrowRight,
+  PackageCheck,
+  Sparkles,
+  Clock,
+} from 'lucide-react';
 import { ToolWindow, toolPrimaryButton, toolSecondaryButton } from './ToolWindow';
 
 /** The updater's state as desktop/main.cjs pushes it. */
@@ -191,6 +209,138 @@ const PillSpinner = () => (
   <span className="w-2.5 h-2.5 rounded-full border-[1.5px] border-current border-r-transparent animate-spin" aria-hidden="true" />
 );
 
+/** The header icon while checking. */
+const SpinningIcon: React.FC<{ className?: string }> = ({ className }) => <Loader2 className={`${className ?? ''} animate-spin`} />;
+
+/** When the update server last answered, kept so the window can say "Last checked …". */
+const LAST_CHECKED_KEY = 'dhvani_update_last_checked';
+
+const readLastChecked = () => {
+  const n = Number(readKey(LAST_CHECKED_KEY));
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+/** "just now", "4 min ago", "2 h ago", "3 days ago", or a date. */
+const sinceLabel = (at: number, now: number) => {
+  const s = Math.max(0, Math.round((now - at) / 1000));
+  if (s < 45) return 'just now';
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} h ago`;
+  const d = Math.round(h / 24);
+  if (d < 7) return d === 1 ? 'yesterday' : `${d} days ago`;
+  return new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+};
+
+const releaseDay = (iso: string | null) => {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : null;
+};
+
+const sizeLabel = (bytes: number) => (bytes >= 1024 * 1024 * 1024 ? `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB` : megabytes(bytes));
+
+const etaLabel = (seconds: number) => {
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  if (seconds < 60) return `${Math.max(1, Math.round(seconds))} s left`;
+  const m = Math.round(seconds / 60);
+  return m < 60 ? `${m} min left` : `${Math.floor(m / 60)} h ${m % 60} min left`;
+};
+
+/** Download speed from the last few progress reports, in bytes per second. */
+const useDownloadRate = (transferred: number, active: boolean) => {
+  const samples = React.useRef<{ t: number; b: number }[]>([]);
+  const [rate, setRate] = React.useState(0);
+  React.useEffect(() => {
+    if (!active) {
+      samples.current = [];
+      setRate(0);
+      return;
+    }
+    const now = Date.now();
+    const list = samples.current.filter((s) => now - s.t < 6000);
+    list.push({ t: now, b: transferred });
+    samples.current = list;
+    const first = list[0];
+    const dt = (now - first.t) / 1000;
+    if (dt >= 1 && transferred > first.b) setRate((transferred - first.b) / dt);
+  }, [transferred, active]);
+  return rate;
+};
+
+/** A ticking clock for relative times, refreshed every 30 s while the window is open. */
+const useNow = (on: boolean) => {
+  const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    if (!on) return;
+    setNow(Date.now());
+    const t = window.setInterval(() => setNow(Date.now()), 30000);
+    return () => window.clearInterval(t);
+  }, [on]);
+  return now;
+};
+
+/** Release notes as the release carries them, with "- " / "• " lines drawn as a list and "#" / "Title:" lines as headings. */
+const ReleaseNotes: React.FC<{ text: string }> = ({ text }) => {
+  const blocks: React.ReactNode[] = [];
+  let bullets: string[] = [];
+  const flush = () => {
+    if (!bullets.length) return;
+    const items = bullets;
+    bullets = [];
+    blocks.push(
+      <ul key={`l${blocks.length}`} className="flex flex-col gap-1.5">
+        {items.map((b, i) => (
+          <li key={i} className="flex gap-2.5">
+            <span className="mt-[7px] w-1 h-1 rounded-full bg-indigo-400 shrink-0" aria-hidden="true" />
+            <span>{b}</span>
+          </li>
+        ))}
+      </ul>
+    );
+  };
+  for (const raw of text.replace(/\r/g, '').split('\n')) {
+    const line = raw.trim();
+    if (!line) {
+      flush();
+      continue;
+    }
+    const bullet = line.match(/^(?:[-*•·]|\d+[.)])\s+(.*)$/);
+    if (bullet) {
+      bullets.push(bullet[1]);
+      continue;
+    }
+    flush();
+    const heading = line.match(/^#{1,6}\s+(.*)$/) || (line.length < 48 && /:$/.test(line) ? [line, line.slice(0, -1)] : null);
+    blocks.push(
+      heading ? (
+        <p key={`h${blocks.length}`} className="text-[11px] uppercase tracking-[0.08em] font-semibold text-slate-400 pt-1 first:pt-0">
+          {heading[1]}
+        </p>
+      ) : (
+        <p key={`p${blocks.length}`}>{line}</p>
+      )
+    );
+  }
+  flush();
+  return <div className="flex flex-col gap-2.5 text-[13px] leading-relaxed text-slate-300">{blocks}</div>;
+};
+
+/** The small "1.5.11" chip used in the version strip. */
+const VersionChip: React.FC<{ label: string; value: string; tone?: 'muted' | 'new' | 'ok' }> = ({ label, value, tone = 'muted' }) => (
+  <div className="min-w-0">
+    <p className="text-[10.5px] uppercase tracking-[0.09em] font-semibold text-slate-500">{label}</p>
+    <p
+      className={`mt-1 text-[15px] font-semibold tabular-nums leading-none ${
+        tone === 'new' ? 'text-indigo-300' : tone === 'ok' ? 'text-slate-100' : 'text-slate-300'
+      }`}
+    >
+      {value}
+    </p>
+  </div>
+);
+
 /**
  * The update window and its notices, opened from Tools → Check for updates.
  *
@@ -266,6 +416,21 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
     }
   }, [open, noticeKey, state?.status, markNoticeSeen]);
 
+  // Remember when the server last answered, for the window's "Last checked …".
+  const [lastChecked, setLastChecked] = React.useState(readLastChecked);
+  const prevStatus = React.useRef<AppUpdateState['status'] | null>(null);
+  React.useEffect(() => {
+    const s = state?.status ?? null;
+    if (prevStatus.current === 'checking' && (s === 'not-available' || s === 'available')) {
+      const at = Date.now();
+      setLastChecked(at);
+      writeKey(LAST_CHECKED_KEY, String(at));
+    }
+    prevStatus.current = s;
+  }, [state?.status]);
+  const now = useNow(open);
+  const rate = useDownloadRate(state?.transferred ?? 0, state?.status === 'downloading');
+
   if (!api || !state) return null;
 
   const { status, canInstall, version, currentVersion } = state;
@@ -283,24 +448,93 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
 
   const showNotice = status === 'available' && !open && !showUpdated && Boolean(version) && noticeSeen !== noticeKey;
 
-  const title =
-    status === 'checking'
-      ? 'Checking for updates…'
-      : status === 'not-available'
-        ? 'You’re up to date'
-        : status === 'error'
-          ? 'Couldn’t check for updates'
-          : status === 'downloading'
-            ? `Downloading ${version}…`
-            : status === 'downloaded'
-              ? canInstall
-                ? 'Ready to install'
-                : 'Download complete'
-              : offered
-                ? nativeBuild
-                  ? 'Apple Silicon version available'
-                  : 'Update available'
-                : 'Updates';
+  const checking = status === 'checking';
+  const upToDate = status === 'not-available';
+  const failed = status === 'error';
+  const downloadFailed = status === 'available' && Boolean(state.error);
+  const released = releaseDay(state.releaseDate);
+  const lastCheckedText = lastChecked ? `Last checked ${sinceLabel(lastChecked, now)}` : null;
+  const remaining = state.total > 0 && rate > 0 ? etaLabel((state.total - state.transferred) / rate) : null;
+
+  const title = checking
+    ? 'Checking for updates'
+    : upToDate
+      ? 'DHVANI is up to date'
+      : failed
+        ? 'Couldn’t reach the update server'
+        : status === 'downloading'
+          ? `Downloading DHVANI ${version}`
+          : status === 'downloaded'
+            ? canInstall
+              ? 'Ready to install'
+              : 'Download complete'
+            : offered
+              ? nativeBuild
+                ? 'Apple Silicon version available'
+                : 'A new version is available'
+              : 'Software update';
+
+  const subtitle = checking
+    ? 'Contacting the release server…'
+    : upToDate
+      ? `You have the newest version, ${currentVersion}.`
+      : failed
+        ? lastChecked
+          ? `Last successful check ${sinceLabel(lastChecked, now)}.`
+          : 'No answer from the release server.'
+        : status === 'downloading'
+          ? 'Keep working, it downloads in the background.'
+          : status === 'downloaded'
+            ? canInstall
+              ? 'Restart DHVANI to finish updating.'
+              : `DHVANI ${version} is saved on this computer.`
+            : offered
+              ? `DHVANI ${version}${released ? ` · Released ${released}` : ''}`
+              : `Version ${currentVersion}`;
+
+  const headerIcon = checking
+    ? SpinningIcon
+    : upToDate
+      ? ShieldCheck
+      : failed
+        ? WifiOff
+        : status === 'downloading'
+          ? ArrowDownToLine
+          : status === 'downloaded'
+            ? PackageCheck
+            : Sparkles;
+  const headerTone = checking ? 'blue' : upToDate || status === 'downloaded' ? 'emerald' : failed ? 'rose' : status === 'downloading' ? 'blue' : 'indigo';
+
+  // The status chip on the version strip.
+  const chip = checking
+    ? { text: 'Checking', cls: 'bg-blue-500/10 text-blue-300 ring-blue-400/20' }
+    : upToDate
+      ? { text: 'Up to date', cls: 'bg-emerald-500/10 text-emerald-300 ring-emerald-400/20' }
+      : failed
+        ? { text: 'Not checked', cls: 'bg-rose-500/10 text-rose-300 ring-rose-400/20' }
+        : status === 'downloading'
+          ? { text: `${percent}%`, cls: 'bg-blue-500/10 text-blue-300 ring-blue-400/20' }
+          : status === 'downloaded'
+            ? { text: 'Downloaded', cls: 'bg-emerald-500/10 text-emerald-300 ring-emerald-400/20' }
+            : { text: 'New', cls: 'bg-indigo-500/15 text-indigo-200 ring-indigo-400/25' };
+
+  /** A quiet text action at the left of the footer, with the last-checked time under it. */
+  const checkAgain = (label: string) => (
+    <div className="flex items-center gap-3 min-w-0">
+      <button
+        type="button"
+        onClick={() => api.check()}
+        disabled={checking}
+        className="h-8 -ml-2 px-2 inline-flex items-center gap-1.5 rounded-md text-[12.5px] font-medium text-slate-300 hover:text-white hover:bg-slate-800/80 transition-colors cursor-default disabled:opacity-50 disabled:pointer-events-none"
+      >
+        <RefreshCw className={`w-3.5 h-3.5 ${checking ? 'animate-spin' : ''}`} />
+        {checking ? 'Checking…' : label}
+      </button>
+      {!checking && lastCheckedText && !failed && (
+        <span className="text-[11.5px] text-slate-500 truncate tabular-nums">{lastCheckedText}</span>
+      )}
+    </div>
+  );
 
   return (
     <>
@@ -453,45 +687,43 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
           <ToolWindow
             onClose={() => setOpen(false)}
             title={title}
-            subtitle={
-              <span className="tabular-nums">
-                Installed {currentVersion}
-                {nativeBuild ? ' for Intel' : ''}
-                {version && offered && <> · New {version}{nativeBuild ? ' for Apple Silicon' : ''}</>}
-              </span>
-            }
-            icon={status === 'downloaded' ? RotateCw : Download}
-            tone="slate"
-            widthClassName="max-w-[28rem]"
+            subtitle={subtitle}
+            icon={headerIcon}
+            tone={headerTone}
+            widthClassName="max-w-[30rem]"
             titleId="update-title"
             bodyClassName="select-text"
             footer={
               <>
-                <span className="flex-1" />
-                {status === 'error' || status === 'not-available' ? (
+                {upToDate || failed || checking ? (
                   <>
+                    {checkAgain(failed ? 'Try again' : 'Check again')}
+                    <span className="flex-1" />
                     <button type="button" onClick={() => setOpen(false)} className={toolSecondaryButton}>
-                      Close
-                    </button>
-                    <button type="button" onClick={() => api.check()} className={toolPrimaryButton}>
-                      Check again
+                      {upToDate ? 'Done' : 'Close'}
                     </button>
                   </>
                 ) : status === 'available' ? (
                   <>
+                    <span className="flex-1 text-[11.5px] text-slate-500 tabular-nums truncate">{lastCheckedText}</span>
                     <button type="button" onClick={() => setOpen(false)} className={toolSecondaryButton}>
                       Later
                     </button>
                     <button type="button" onClick={() => api.download()} className={toolPrimaryButton}>
-                      <Download className="w-3.5 h-3.5" /> {state.error ? 'Retry download' : canInstall ? 'Download and install' : 'Download'}
+                      {downloadFailed ? <RefreshCw className="w-3.5 h-3.5" /> : <Download className="w-3.5 h-3.5" />}
+                      {downloadFailed ? 'Retry download' : canInstall ? 'Download and install' : 'Download'}
                     </button>
                   </>
                 ) : status === 'downloading' ? (
-                  <button type="button" onClick={() => setOpen(false)} className={toolSecondaryButton}>
-                    Hide
-                  </button>
+                  <>
+                    <span className="flex-1 text-[11.5px] text-slate-500">You can close this window, the download carries on.</span>
+                    <button type="button" onClick={() => setOpen(false)} className={toolSecondaryButton}>
+                      Hide
+                    </button>
+                  </>
                 ) : status === 'downloaded' && !canInstall ? (
                   <>
+                    <span className="flex-1" />
                     <button type="button" onClick={() => setOpen(false)} className={toolSecondaryButton}>
                       Close
                     </button>
@@ -501,8 +733,9 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                   </>
                 ) : status === 'downloaded' ? (
                   <>
+                    <span className="flex-1" />
                     <button type="button" onClick={() => setOpen(false)} className={toolSecondaryButton}>
-                      Install when I close
+                      Install when I quit
                     </button>
                     <button
                       type="button"
@@ -515,35 +748,65 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                     </button>
                   </>
                 ) : (
-                  <button type="button" onClick={() => setOpen(false)} className={toolSecondaryButton}>
-                    Close
-                  </button>
+                  <>
+                    {checkAgain('Check for updates')}
+                    <span className="flex-1" />
+                    <button type="button" onClick={() => setOpen(false)} className={toolSecondaryButton}>
+                      Close
+                    </button>
+                  </>
                 )}
               </>
             }
           >
-            <div className="px-5 py-4 flex flex-col gap-3.5" aria-live="polite">
-              {status === 'checking' && (
-                <p className="flex items-center gap-2 text-[13px] text-slate-400">
-                  <PillSpinner /> Looking for a newer version.
-                </p>
-              )}
-
-              {status === 'not-available' && (
-                <p className="flex items-center gap-2 text-[13px] text-slate-300">
-                  <Check className="w-4 h-4 text-emerald-400" /> DHVANI {currentVersion} is the latest version.
-                </p>
-              )}
-
-              {state.error && (status === 'error' || status === 'available') && (
-                <p className="flex items-start gap-2 text-[13px] text-rose-300">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>
-                    {status === 'available' ? 'The download stopped. ' : ''}
-                    Check your internet connection and try again.
-                    <span className="block text-[11.5px] text-slate-500 mt-0.5 break-words">{state.error}</span>
+            <div className="px-5 py-4 flex flex-col gap-4" aria-live="polite">
+              {/* Version strip: what is installed, what is newest, and where this copy stands. */}
+              <div className="relative rounded-[12px] border border-edge bg-slate-950/50 px-4 py-3.5 overflow-hidden">
+                <div className="flex items-center gap-4">
+                  <VersionChip label="Installed" value={`${currentVersion}${nativeBuild ? ' · Intel' : ''}`} tone={offered ? 'muted' : 'ok'} />
+                  <ArrowRight className={`w-4 h-4 shrink-0 ${offered ? 'text-indigo-400' : 'text-slate-600'}`} aria-hidden="true" />
+                  <VersionChip
+                    label={offered ? 'New version' : 'Latest'}
+                    value={
+                      offered && version
+                        ? `${version}${nativeBuild ? ' · Apple Silicon' : ''}`
+                        : upToDate
+                          ? currentVersion
+                          : '—'
+                    }
+                    tone={offered ? 'new' : 'ok'}
+                  />
+                  <span className="flex-1" />
+                  <span className={`shrink-0 inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-[11.5px] font-semibold tabular-nums ring-1 ring-inset ${chip.cls}`}>
+                    {upToDate && <Check className="w-3 h-3" strokeWidth={3} />}
+                    {checking && <PillSpinner />}
+                    {chip.text}
                   </span>
+                </div>
+                {checking && (
+                  <div className="absolute left-0 right-0 bottom-0 h-[2px] bg-slate-800/80 overflow-hidden" aria-hidden="true">
+                    <div className="h-full w-1/3 bg-blue-500 animate-[dubsweep_1.4s_ease-in-out_infinite]" />
+                  </div>
+                )}
+              </div>
+
+              {upToDate && (
+                <p className="flex items-start gap-2.5 text-[12.5px] leading-relaxed text-slate-400">
+                  <Clock className="w-3.5 h-3.5 mt-[3px] shrink-0 text-slate-500" aria-hidden="true" />
+                  DHVANI looks for updates by itself when it opens and every few hours, and tells you when one is ready.
                 </p>
+              )}
+
+              {state.error && (failed || status === 'available') && (
+                <div className="flex items-start gap-3 rounded-[12px] border border-rose-500/20 bg-rose-500/[0.06] px-3.5 py-3">
+                  <CircleAlert className="w-4 h-4 shrink-0 mt-0.5 text-rose-300" aria-hidden="true" />
+                  <div className="min-w-0 text-[12.5px] leading-relaxed">
+                    <p className="text-rose-200 font-medium">
+                      {status === 'available' ? 'The download stopped before it finished.' : 'Check your internet connection, then try again.'}
+                    </p>
+                    <p className="mt-1 text-[11.5px] text-slate-500 font-mono break-words">{state.error}</p>
+                  </div>
+                </div>
               )}
 
               {offered && nativeBuild && (
@@ -554,46 +817,64 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                 </p>
               )}
 
-              {offered && !nativeBuild && state.releaseNotes && (
-                <div>
-                  <p className="text-[11px] uppercase tracking-wider font-semibold text-slate-500 mb-1">What’s new</p>
-                  <div className="max-h-48 overflow-y-auto custom-scrollbar whitespace-pre-line text-[13px] leading-relaxed text-slate-300 rounded-[10px] bg-slate-950/60 border border-edge px-3 py-2.5">
-                    {state.releaseNotes}
-                  </div>
-                </div>
-              )}
-
               {status === 'downloading' && (
                 <div>
-                  <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                    <div className="h-full rounded-full bg-blue-500 transition-[width] duration-300" style={{ width: `${Math.max(2, percent)}%` }} />
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-[22px] font-semibold tabular-nums text-slate-100 leading-none">
+                      {percent}
+                      <span className="text-[13px] text-slate-400 font-medium">%</span>
+                    </span>
+                    <span className="text-[11.5px] text-slate-400 tabular-nums text-right">
+                      {state.total > 0 && `${megabytes(state.transferred)} of ${sizeLabel(state.total)}`}
+                      {rate > 0 && ` · ${megabytes(rate)}/s`}
+                      {remaining && ` · ${remaining}`}
+                    </span>
                   </div>
-                  <div className="flex justify-between mt-1.5 text-[11.5px] text-slate-400 tabular-nums">
-                    <span>{percent}%</span>
-                    {state.total > 0 && (
-                      <span>
-                        {megabytes(state.transferred)} of {megabytes(state.total)}
-                      </span>
-                    )}
+                  <div className="mt-2.5 h-2 rounded-full bg-slate-800 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-400 transition-[width] duration-300"
+                      style={{ width: `${Math.max(2, percent)}%` }}
+                    />
                   </div>
                 </div>
               )}
 
-              {offered && (
-                <p className="text-[12px] text-slate-500">
+              {status === 'downloaded' && canInstall && (
+                <div className="flex items-start gap-3 rounded-[12px] border border-emerald-500/20 bg-emerald-500/[0.06] px-3.5 py-3 text-[12.5px] leading-relaxed">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-300" aria-hidden="true" />
+                  <p className="text-slate-300">
+                    {busy
+                      ? 'A dub or sync is running. Restart once it finishes, or DHVANI installs the update when you quit.'
+                      : 'DHVANI closes for about a minute, installs the update and opens again. Your keys, settings and projects are kept.'}
+                  </p>
+                </div>
+              )}
+
+              {offered && !nativeBuild && state.releaseNotes && (
+                <section>
+                  <div className="flex items-baseline justify-between gap-3 mb-2">
+                    <h3 className="text-[12px] font-semibold text-slate-200">What’s new in {version}</h3>
+                    <span className="text-[11.5px] text-slate-500 tabular-nums">
+                      {[released, state.total > 0 ? sizeLabel(state.total) : null].filter(Boolean).join(' · ')}
+                    </span>
+                  </div>
+                  <div
+                    className={`${status === 'available' ? 'max-h-60' : 'max-h-36'} overflow-y-auto custom-scrollbar rounded-[12px] bg-slate-950/50 border border-edge px-4 py-3`}
+                  >
+                    <ReleaseNotes text={state.releaseNotes} />
+                  </div>
+                </section>
+              )}
+
+              {offered && (!canInstall || status === 'available') && (
+                <p className="text-[11.5px] leading-relaxed text-slate-500">
                   {!canInstall && status === 'downloaded' && nativeBuild
                     ? 'Saved in Downloads. Close DHVANI, open the downloaded file and drag DHVANI into Applications, replacing the old one. Your keys and settings are kept.'
                     : !canInstall && status === 'downloaded'
-                    ? 'The new version is saved. Close DHVANI and open the new one; for the zip, unpack it over your DHVANI folder so your keys come along.'
-                    : !canInstall
-                      ? 'This copy can’t replace itself, so DHVANI downloads the new version for you to open.'
-                      : status === 'downloaded' && busy
-                      ? 'Wait for the current dub or sync to finish, then restart.'
-                      : status === 'downloaded'
-                        ? 'DHVANI closes, installs the update and opens again. Your keys and settings are kept.'
-                        : status === 'downloading'
-                          ? 'Keep working. You can close this window; the download carries on.'
-                          : 'Your keys and settings are kept.'}
+                      ? 'The new version is saved. Close DHVANI and open the new one; for the zip, unpack it over your DHVANI folder so your keys come along.'
+                      : !canInstall
+                        ? 'This copy can’t replace itself, so DHVANI downloads the new version for you to open.'
+                        : 'Your keys, settings and projects are kept. You choose when to restart.'}
                 </p>
               )}
             </div>

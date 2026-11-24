@@ -38,6 +38,7 @@ const TILE: Record<ToolWindowTone, string> = {
   blue: 'bg-blue-500/15 text-blue-300',
   violet: 'bg-violet-500/15 text-violet-300',
   emerald: 'bg-emerald-500/15 text-emerald-300',
+  rose: 'bg-rose-500/15 text-rose-300',
 };
 
 /** How long closing takes; the window stays on screen until it has played. */
