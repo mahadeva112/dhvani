@@ -15,7 +15,7 @@ import { clearOpenedFromTools, openedFromTools, reopenTools } from './toolsRetur
  * button that closes it and opens the list again.
  */
 
-export type ToolWindowTone = 'indigo' | 'teal' | 'pink' | 'amber' | 'slate' | 'blue' | 'violet' | 'emerald';
+export type ToolWindowTone = 'indigo' | 'teal' | 'pink' | 'amber' | 'slate' | 'blue' | 'violet' | 'emerald' | 'rose';
 
 const TILE: Record<ToolWindowTone, string> = {
   indigo: 'bg-indigo-500/15 text-indigo-300',
@@ -26,6 +26,7 @@ const TILE: Record<ToolWindowTone, string> = {
   blue: 'bg-blue-500/15 text-blue-300',
   violet: 'bg-violet-500/15 text-violet-300',
   emerald: 'bg-emerald-500/15 text-emerald-300',
+  rose: 'bg-rose-500/15 text-rose-300',
 };
 
 /** The main button at the foot of a tool window. */
