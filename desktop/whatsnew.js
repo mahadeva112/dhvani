@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.12',
+    changes: [
+      'A cleaner update window: it shows what is installed and what is newest, when it last checked, and what is new in a list, with Check again as a small link instead of a big button.',
+      'While an update downloads, the window shows its size, speed and the time left.',
+    ],
+  },
+  {
     version: '1.5.11',
     changes: [
       'Full translation keeps each idea on its own line where the language allows it, so the voice says it while the speaker does.',
