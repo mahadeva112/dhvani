@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowRight, ChevronDown, ClipboardPaste, FileText, FolderOpen, Gauge, Languages, RefreshCw, Scissors, X, Zap } from 'lucide-react';
+import { AlertTriangle, ArrowRight, ChevronDown, ClipboardPaste, FileText, FolderOpen, Gauge, Languages, Pencil, RefreshCw, Scissors, X, Zap } from 'lucide-react';
 import { AudioSegment } from '../types';
 import { timingProblems } from '../services/transcriptSegments';
 import { TranscriptExportMenu, TranscriptExportNotice, type TranscriptExportResult, type TranscriptFormat } from './TranscriptExportMenu';
@@ -54,6 +54,8 @@ interface TargetScriptChoiceProps {
   onExport?: (format: TranscriptFormat) => Promise<TranscriptExportResult>;
   /** Puts a split or merged cut on the project; omitted hides Edit segments. */
   onApplySegments?: (segments: AudioSegment[]) => void;
+  /** Opens the Original transcript window (video beside the lines); omitted hides its button. */
+  onOpenTranscript?: () => void;
   /** The segments as transcribed, kept from the first split or merge, for Reset. */
   transcriptCuts?: AudioSegment[] | null;
   /** Plays the original between two times. */
@@ -111,6 +113,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
   activeSegmentId = null,
   onExport,
   onApplySegments,
+  onOpenTranscript,
   transcriptCuts = null,
   onHear,
   getPlayhead,
@@ -279,6 +282,17 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
           )}
           {!editing && (
             <div className="ml-auto flex items-center gap-2">
+              {onOpenTranscript && hasTranscript && !busy && (
+                <button
+                  type="button"
+                  onClick={onOpenTranscript}
+                  className="h-8 px-2.5 flex items-center gap-1.5 rounded-lg border border-edge bg-slate-950 hover:bg-slate-800 text-[12px] font-medium text-slate-200 cursor-default"
+                  title="The transcript beside the video: edit or remove lines, and say who speaks each one."
+                >
+                  <Pencil className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
+                  Edit transcript
+                </button>
+              )}
               {onApplySegments && hasTranscript && !busy && (
                 <button
                   type="button"

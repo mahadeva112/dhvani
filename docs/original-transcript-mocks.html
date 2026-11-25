@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Original Transcript Mocks</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<script>
+  tailwind.config = {
+    theme: { extend: { colors: {
+      slate: { 50:'#f6f6f7',100:'#ececef',200:'#dcdde1',300:'#c6c8ce',400:'#abadb5',500:'#8b8e98',600:'#5a5d66',700:'#34363c',800:'#232529',900:'#18191c',950:'#111214' },
+      indigo: { 300:'#a5adf5',400:'#7b86ec',500:'#5866e0',600:'#4c59d0',950:'#23253a' },
+      edge: '#27292d',
+    } } },
+  };
+</script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#111214; font-family: Inter, system-ui, "Noto Sans Bengali", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .scroll::-webkit-scrollbar { width:8px } .scroll::-webkit-scrollbar-thumb { background:#34363c; border-radius:8px } .scroll::-webkit-scrollbar-track { background:transparent }
+  .pop { box-shadow: 0 24px 60px -12px rgba(0,0,0,.75); }
+  button, select { cursor:default; }
+  .row .acts { opacity:0; } .row:hover .acts, .row.cur .acts { opacity:1; }
+  textarea { resize:none; }
+  .video { background: radial-gradient(ellipse at 50% 40%, #3a3328 0%, #1d1a16 55%, #0d0c0b 100%); }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6">
+
+<div class="max-w-[72rem] mx-auto mb-2 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+  <span id="mockSeg" class="inline-flex flex-wrap rounded-lg border border-edge overflow-hidden"></span>
+</div>
+<div class="max-w-[72rem] mx-auto mb-2 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-medium">অবস্থা</span>
+  <span id="stateSeg" class="inline-flex flex-wrap rounded-lg border border-edge overflow-hidden"></span>
+</div>
+<p id="note" class="max-w-[72rem] mx-auto mb-4 text-[13.5px] text-slate-300 leading-relaxed"></p>
+
+<div class="max-w-[72rem] mx-auto">
+  <div id="win" class="bg-slate-900 border border-edge rounded-2xl pop overflow-hidden flex flex-col"></div>
+</div>
+
+<script>
+const ICON = {
+  play: '<path d="M7 4.5v15l12-7.5z" fill="currentColor" stroke="none"/>',
+  pause: '<rect x="6" y="4.5" width="4" height="15" rx="1" fill="currentColor" stroke="none"/><rect x="14" y="4.5" width="4" height="15" rx="1" fill="currentColor" stroke="none"/>',
+  pencil: '<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
+  trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
+  film: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18"/><path d="M17 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/>',
+};
+const ic = (n, c = 'w-3.5 h-3.5') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
+
+const SOURCE = [
+  [0.4, 3.1, 'When you live with someone for a long time,'],
+  [3.3, 6.8, 'a lot of things get shared, not just the house.'],
+  [7.0, 10.9, 'If you pay attention, you can deal with it, the system will go through a certain process.'],
+  [11.2, 12.2, 'Especially when you are'],
+  [12.5, 15.8, 'taken away from your partner, either through distance or death,'],
+  [16.1, 22.1, 'you will see the memory within your system plays up much more strongly when they are not here.'],
+  [22.4, 28.9, 'Particularly when loss happens, you will see the memory works in every cell in your body,'],
+  [29.2, 31.1, 'if you have lived long enough together.'],
+  [31.5, 35.2, 'It is not just an emotional and psychological process.'],
+  [35.5, 37.2, 'It is a very physical process.'],
+  [37.6, 38.4, 'So, um, so'],
+  [38.8, 43.5, 'the body remembers what the mind tries to forget.'],
+  [43.9, 48.0, 'That is why people say time heals, but it is not time.'],
+  [48.4, 53.6, 'It is the slow rearranging of the memory in the body.'],
+  [54.0, 57.9, 'If you consciously do this, it can happen much faster.'],
+  [58.3, 62.0, 'Can I ask a question here?'],
+  [62.4, 67.5, 'Yes. Ask.'],
+  [68.0, 73.9, 'What should one do in that time, simply wait?'],
+  [74.3, 80.2, 'No. Waiting is not the way. Doing a simple practice every day will help.'],
+  [80.6, 86.4, 'It settles the body, and then the mind follows.'],
+];
+const DURATION = 90;
+
+const S = {
+  mock: 'A', state: 'video', translated: false,
+  t: 31.8, playing: false, stopAt: null,
+  lines: [], saved: null, editing: null, draft: '',
+  speakers: ['Speaker 1'], speakerMode: false, menuFor: null,
+  confirmLeave: false, toast: '',
+};
+const fresh = () => SOURCE.map(([start, end, text], i) => ({ id: i + 1, start, end, text, orig: text, speaker: 0, deleted: false }));
+S.lines = fresh(); S.saved = JSON.stringify(S.lines);
+
+const MOCKS = {
+  A: { name: 'A · পাশাপাশি', note: '<b>Mock A</b> — আপনার পাঠানো ছবির মতো। বাঁয়ে ভিডিও, ডানে লাইন। হোভার করলে ✎ আর 🗑 আসে। মোছা লাইন সরু সারি হয়ে থাকে, তাতে <i>Undo</i>। নিচে "Someone else speaks too?" চাপলে প্রতিটা লাইনে স্পিকার বসানো যায়।' },
+  B: { name: 'B · ভিডিও ওপরে + লাইন-স্ট্রিপ', note: '<b>Mock B</b> — ভিডিও ওপরে চওড়া, তার নিচে একটা পাতলা টাইমলাইন যেখানে প্রতিটা লাইন একটা ব্লক (স্পিকার অনুযায়ী রং)। ব্লকে ক্লিক করলে সেখানে যায়। নিচে পুরো চওড়া লাইনের তালিকা, লেখায় ডাবল-ক্লিক করলেই এডিট।' },
+  C: { name: 'C · লেখা আগে, ছোট ভিডিও', note: '<b>Mock C</b> — লেখাই মূল জায়গা, পড়ার মতো বড় হরফ। ভিডিও ডানদিকে ছোট, ওপরে আটকে থাকে। স্পিকার আলাদা হলে লাইনগুলো স্পিকারের নামে ভাগ হয় (চ্যাটের মতো)। নিচে কতগুলো বদল হল তার হিসেব আর <i>Reset to transcribed</i>।' },
+};
+const STATES = {
+  video: 'ভিডিও আছে',
+  audio: 'ভিডিও নেই (শুধু অডিও)',
+  translated: 'অনুবাদ আগেই হয়েছে',
+};
+
+const fmt = (s) => { const m = Math.floor(s / 60); return `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}`; };
+const len = (l) => (l.end - l.start).toFixed(1) + ' s';
+const live = () => S.lines.filter((l) => !l.deleted);
+const curLine = () => S.lines.find((l) => !l.deleted && S.t >= l.start && S.t < l.end + 0.3);
+const changes = () => {
+  const old = JSON.parse(S.saved);
+  let edited = 0, removed = 0, spk = 0;
+  S.lines.forEach((l, i) => { const o = old[i]; if (l.deleted && !o.deleted) removed++; else if (!l.deleted && l.text !== o.text) edited++; if (l.speaker !== o.speaker) spk++; });
+  return { edited, removed, spk, total: edited + removed + spk };
+};
+const SPK_COL = ['bg-indigo-400', 'bg-amber-400', 'bg-emerald-400', 'bg-rose-400'];
+const SPK_TXT = ['text-indigo-300', 'text-amber-300', 'text-emerald-300', 'text-rose-300'];
+
+// ---------- shared pieces ----------
+function videoBox(h, small) {
+  const c = curLine();
+  if (S.state === 'audio') {
+    const bars = Array.from({ length: small ? 40 : 70 }, (_, i) => 18 + Math.abs(Math.sin(i * 1.7) * 30 + Math.sin(i * .6) * 22));
+    const p = S.t / DURATION;
+    return `<div class="rounded-xl bg-slate-950 border border-edge flex flex-col justify-center px-3 gap-2" style="height:${h}px">
+      <div class="flex items-end gap-[2px] h-[60%]">${bars.map((b, i) => `<span class="flex-1 rounded-sm ${i / bars.length < p ? 'bg-indigo-400' : 'bg-slate-700'}" style="height:${b}%"></span>`).join('')}</div>
+      <div class="text-[11.5px] text-slate-500 flex items-center gap-1.5">${ic('film')} No video with this project. <button data-act="pickvideo" class="text-indigo-300 hover:text-indigo-200">Pick a video…</button></div>
+    </div>`;
+  }
+  return `<div class="video rounded-xl relative overflow-hidden flex items-center justify-center" style="height:${h}px">
+    <div class="w-[30%] aspect-square rounded-full bg-[#c9b9a3]/20 blur-[2px]"></div>
+    ${c && !small ? `<div class="absolute bottom-3 left-4 right-4 text-center text-[13px] text-white/90 [text-shadow:0_1px_3px_#000]">${esc(c.text)}</div>` : ''}
+  </div>`;
+}
+function transport(full) {
+  const p = (S.t / DURATION) * 100;
+  return `<div class="flex items-center gap-2 ${full ? 'mt-2' : 'mt-1.5'}">
+    <button data-act="toggle" class="w-7 h-7 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center" title="Play / pause (Space)">${ic(S.playing ? 'pause' : 'play', 'w-3 h-3')}</button>
+    <span class="mono text-[11.5px] text-slate-400">${fmt(S.t)} / ${fmt(DURATION)}</span>
+    <div data-act="seekbar" class="flex-1 h-1.5 rounded-full bg-slate-800 relative"><div class="absolute inset-y-0 left-0 rounded-full bg-indigo-500" style="width:${p}%"></div></div>
+  </div>`;
+}
+function speakerPill(l) {
+  if (!S.speakerMode) return '';
+  const open = S.menuFor === l.id;
+  return `<span class="relative">
+    <button data-act="spkmenu" data-id="${l.id}" class="h-6 px-2 rounded-md border border-edge hover:border-slate-600 flex items-center gap-1.5 text-[11px] text-slate-300 whitespace-nowrap"><span class="w-1.5 h-1.5 rounded-full ${SPK_COL[l.speaker]}"></span>${S.speakers[l.speaker]}</button>
+    ${open ? `<div class="absolute z-20 top-7 left-0 w-40 bg-slate-800 border border-slate-700 rounded-lg pop py-1 text-[12px]">
+      ${S.speakers.map((s, i) => `<button data-act="setspk" data-id="${l.id}" data-s="${i}" class="w-full px-2.5 py-1.5 flex items-center gap-2 hover:bg-slate-700 text-left"><span class="w-1.5 h-1.5 rounded-full ${SPK_COL[i]}"></span>${s}${i === l.speaker ? ' <span class="ml-auto text-slate-500">✓</span>' : ''}</button>`).join('')}
+      ${S.speakers.length < 4 ? `<button data-act="newspk" data-id="${l.id}" class="w-full px-2.5 py-1.5 flex items-center gap-2 hover:bg-slate-700 text-left text-indigo-300 border-t border-slate-700 mt-1">${ic('plus', 'w-3 h-3')} New speaker</button>` : ''}
+      <button data-act="spkfrom" data-id="${l.id}" class="w-full px-2.5 py-1.5 hover:bg-slate-700 text-left text-slate-400 text-[11px]">This speaker from here on</button>
+    </div>` : ''}
+  </span>`;
+}
+function changedMark(l) {
+  if (l.deleted || l.text === l.orig) return '';
+  return S.state === 'translated'
+    ? `<span class="ml-1 text-[10.5px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 whitespace-nowrap" title="The translation still follows the old wording. Re-translate picks it up.">original changed</span>`
+    : `<span class="ml-1 text-[10.5px] text-slate-500">edited</span>`;
+}
+function editor(l, big) {
+  return `<textarea data-edit="${l.id}" rows="2" class="w-full bg-slate-950 border border-indigo-500 rounded-lg px-2.5 py-1.5 ${big ? 'text-[15px]' : 'text-[13.5px]'} text-slate-100 outline-none leading-relaxed">${esc(S.draft)}</textarea>
+    <div class="text-[10.5px] text-slate-500 mt-1">Enter keeps · Esc cancels · times stay as they are</div>`;
+}
+function removedRow(l) {
+  return `<div class="flex items-center gap-2 px-3 py-1.5 text-[11.5px] text-slate-500 border-b border-edge/60">
+    <span class="mono w-10">${fmt(l.start)}</span><span class="line-through truncate flex-1">${esc(l.text)}</span>
+    <button data-act="restore" data-id="${l.id}" class="flex items-center gap-1 text-indigo-300 hover:text-indigo-200">${ic('undo', 'w-3 h-3')} Undo</button>
+  </div>`;
+}
+function actions(l) {
+  return `<span class="acts flex items-center gap-0.5 shrink-0">
+    <button data-act="edit" data-id="${l.id}" class="w-7 h-7 rounded-md hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-slate-100" title="Edit words (Enter)">${ic('pencil')}</button>
+    <button data-act="del" data-id="${l.id}" class="w-7 h-7 rounded-md hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-rose-300" title="Remove line (Delete)">${ic('trash')}</button>
+  </span>`;
+}
+function header() {
+  return `<div class="flex items-center gap-3 px-5 py-3.5 border-b border-edge">
+    <div><div class="text-[15px] font-semibold">Original transcript</div><div class="text-[11.5px] text-slate-500">${live().length} lines · English</div></div>
+    <div class="flex-1"></div>
+    <button data-act="cancel" class="w-8 h-8 rounded-lg hover:bg-slate-800 flex items-center justify-center text-slate-400">${ic('x', 'w-4 h-4')}</button>
+  </div>`;
+}
+function footer(extra) {
+  const ch = changes();
+  let left;
+  if (!S.speakerMode) left = `${S.speakers.length === 1 ? 'One speaker found.' : ''} <button data-act="speakers" class="text-indigo-300 hover:text-indigo-200">Someone else speaks too?</button>`;
+  else left = `<span class="flex items-center gap-2">${S.speakers.map((s, i) => `<span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full ${SPK_COL[i]}"></span>${s} <span class="text-slate-500">${live().filter((l) => l.speaker === i).length}</span></span>`).join('<span class="text-slate-700">·</span>')}</span>
+    <span class="text-slate-500">Pick a speaker on a line; "from here on" sets the rest.</span>`;
+  if (S.confirmLeave) {
+    return `<div class="flex items-center gap-3 px-5 py-3 border-t border-edge bg-slate-950/40 text-[12.5px]">
+      <span class="text-slate-200">Leave without saving ${ch.total} change${ch.total === 1 ? '' : 's'}?</span><div class="flex-1"></div>
+      <button data-act="keep" class="h-8 px-3 rounded-lg border border-edge hover:bg-slate-800">Keep editing</button>
+      <button data-act="discard" class="h-8 px-3 rounded-lg bg-rose-600/80 hover:bg-rose-600 text-white font-semibold">Discard</button></div>`;
+  }
+  return `<div class="flex flex-wrap items-center gap-3 px-5 py-3 border-t border-edge text-[12px] text-slate-400">
+    <span class="flex flex-wrap items-center gap-2">${left}</span>
+    ${extra || ''}
+    <div class="flex-1"></div>
+    ${S.toast ? `<span class="text-emerald-300">${S.toast}</span>` : ''}
+    <button data-act="cancel" class="h-8 px-3.5 rounded-lg border border-edge hover:bg-slate-800 text-slate-200">Cancel</button>
+    <button data-act="save" ${ch.total ? '' : 'disabled'} class="h-8 px-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:hover:bg-indigo-600 text-white font-semibold">Save changes${ch.total ? ` (${ch.total})` : ''}</button>
+  </div>`;
+}
+
+// ---------- Mock A ----------
+function mockA() {
+  const c = curLine();
+  const rows = S.lines.map((l) => {
+    if (l.deleted) return removedRow(l);
+    const cur = c && c.id === l.id;
+    return `<div class="row ${cur ? 'cur' : ''} flex items-start gap-3 px-3 py-2.5 border-b border-edge/60 ${cur ? 'bg-indigo-950/70 border-l-2 border-l-indigo-400' : 'border-l-2 border-l-transparent hover:bg-slate-800/40'}" data-line="${l.id}">
+      <button data-act="hear" data-id="${l.id}" class="mt-0.5 text-slate-500 hover:text-slate-100" title="Play this line">${ic('play', 'w-3 h-3')}</button>
+      <span class="mono text-[11.5px] text-slate-300 w-9 mt-0.5">${fmt(l.start)}</span>
+      <span class="mono text-[10.5px] text-slate-500 w-9 mt-0.5">${len(l)}</span>
+      <div class="flex-1 min-w-0">
+        ${S.speakerMode ? `<div class="mb-1">${speakerPill(l)}</div>` : ''}
+        ${S.editing === l.id ? editor(l) : `<div data-act="seek" data-id="${l.id}" class="text-[13.5px] leading-relaxed ${cur ? 'text-slate-50' : 'text-slate-200'}">${esc(l.text)}${changedMark(l)}</div>`}
+      </div>
+      ${S.editing === l.id ? '' : actions(l)}
+    </div>`;
+  }).join('');
+  return header() + `<div class="flex min-h-0" style="height:520px">
+    <div class="w-[42%] p-5 border-r border-edge">
+      ${videoBox(250)}${transport(true)}
+      <p class="text-[11.5px] text-slate-500 mt-3 leading-relaxed">Click a line to go to it, or its ▶ to play just that line. The line being spoken is highlighted.</p>
+    </div>
+    <div id="list" class="flex-1 overflow-y-auto scroll">${rows}</div>
+  </div>` + footer();
+}
+
+// ---------- Mock B ----------
+function mockB() {
+  const c = curLine();
+  const strip = `<div data-act="seekbar" class="relative h-7 mt-2 rounded-md bg-slate-950 border border-edge overflow-hidden">
+    ${live().map((l) => `<button data-act="seek" data-id="${l.id}" title="${esc(l.text)}" class="absolute top-1 bottom-1 rounded-[3px] ${SPK_COL[l.speaker]} ${c && c.id === l.id ? 'opacity-100 ring-1 ring-white' : 'opacity-45 hover:opacity-80'}" style="left:${l.start / DURATION * 100}%;width:${(l.end - l.start) / DURATION * 100}%"></button>`).join('')}
+    <div class="absolute top-0 bottom-0 w-px bg-white" style="left:${S.t / DURATION * 100}%"></div>
+  </div>`;
+  const rows = S.lines.map((l) => {
+    if (l.deleted) return removedRow(l);
+    const cur = c && c.id === l.id;
+    return `<div class="row ${cur ? 'cur' : ''} flex items-center gap-3 px-4 py-2 border-b border-edge/60 ${cur ? 'bg-indigo-950/70' : 'hover:bg-slate-800/40'}" data-line="${l.id}">
+      <button data-act="hear" data-id="${l.id}" class="text-slate-500 hover:text-slate-100" title="Play this line">${ic('play', 'w-3 h-3')}</button>
+      <span class="mono text-[11.5px] ${cur ? 'text-indigo-300' : 'text-slate-400'} w-9">${fmt(l.start)}</span>
+      ${S.speakerMode ? speakerPill(l) : ''}
+      <div class="flex-1 min-w-0">${S.editing === l.id ? editor(l) : `<div data-act="seek" data-id="${l.id}" data-dbl="${l.id}" class="text-[13.5px] ${cur ? 'text-slate-50' : 'text-slate-200'}">${esc(l.text)}${changedMark(l)}</div>`}</div>
+      <span class="mono text-[10.5px] text-slate-500">${len(l)}</span>
+      ${S.editing === l.id ? '' : actions(l)}
+    </div>`;
+  }).join('');
+  return header() + `<div class="px-5 pt-4 pb-3 border-b border-edge">
+      <div class="mx-auto" style="max-width:520px">${videoBox(240)}</div>
+      ${strip}${transport(false)}
+    </div>
+    <div id="list" class="overflow-y-auto scroll" style="height:300px">${rows}</div>
+    <div class="px-5 py-1.5 text-[11px] text-slate-500 border-t border-edge">Double-click words to edit · Delete removes the picked line · Space plays</div>` + footer();
+}
+
+// ---------- Mock C ----------
+function mockC() {
+  const c = curLine();
+  let prev = -1;
+  const rows = S.lines.map((l) => {
+    if (l.deleted) return removedRow(l);
+    const cur = c && c.id === l.id;
+    const head = S.speakerMode && l.speaker !== prev ? `<div class="flex items-center gap-2 mt-4 mb-1 px-3 text-[11.5px] font-semibold ${SPK_TXT[l.speaker]}"><span class="w-2 h-2 rounded-full ${SPK_COL[l.speaker]}"></span>${S.speakers[l.speaker]}</div>` : '';
+    prev = l.speaker;
+    return head + `<div class="row ${cur ? 'cur' : ''} group flex items-start gap-3 px-3 py-2 rounded-lg ${cur ? 'bg-amber-400/10' : 'hover:bg-slate-800/40'}" data-line="${l.id}">
+      <button data-act="hear" data-id="${l.id}" class="mono text-[11px] ${cur ? 'text-amber-300' : 'text-slate-500'} hover:text-slate-100 w-10 pt-1 text-left" title="Play this line">${fmt(l.start)}</button>
+      <div class="flex-1 min-w-0">${S.editing === l.id ? editor(l, true) : `<div data-act="seek" data-id="${l.id}" class="text-[15px] leading-[1.65] ${cur ? 'text-slate-50' : 'text-slate-300'}">${esc(l.text)}${changedMark(l)}</div>`}</div>
+      ${S.speakerMode && S.editing !== l.id ? `<span class="acts">${speakerPill(l)}</span>` : ''}
+      ${S.editing === l.id ? '' : actions(l)}
+    </div>`;
+  }).join('');
+  const ch = changes();
+  const extra = `<span class="text-slate-500">${ch.total ? `${ch.edited} edited · ${ch.removed} removed${ch.spk ? ` · ${ch.spk} speaker` : ''}` : 'No changes'}</span>
+    <button data-act="reset" class="text-slate-400 hover:text-slate-200 underline decoration-dotted">Reset to transcribed</button>`;
+  return header() + `<div class="flex min-h-0" style="height:540px">
+    <div id="list" class="flex-1 overflow-y-auto scroll px-3 py-2">${rows}</div>
+    <div class="w-[260px] p-3 border-l border-edge">
+      ${videoBox(146, true)}${transport(false)}
+      ${c ? `<div class="mt-3 text-[11.5px] text-slate-500">Now <span class="mono text-slate-300">${fmt(c.start)}</span> · ${len(c)}</div>` : ''}
+      <p class="text-[11px] text-slate-500 mt-3 leading-relaxed">Click words to go there · time to play the line · ✎ or Enter edits.</p>
+    </div>
+  </div>` + footer(extra);
+}
+
+function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+
+// ---------- render & events ----------
+function seg(el, items, cur, key) {
+  el.innerHTML = Object.entries(items).map(([k, v]) => `<button data-${key}="${k}" class="px-2.5 py-1 ${k === cur ? 'bg-slate-700 text-slate-100' : 'hover:bg-slate-800'}">${typeof v === 'string' ? v : v.name}</button>`).join('');
+}
+let lastCur = null;
+function render() {
+  seg(document.getElementById('mockSeg'), MOCKS, S.mock, 'mock');
+  seg(document.getElementById('stateSeg'), STATES, S.state, 'state');
+  document.getElementById('note').innerHTML = MOCKS[S.mock].note;
+  const list = document.getElementById('list');
+  const top = list ? list.scrollTop : 0;
+  const win = document.getElementById('win');
+  win.innerHTML = S.mock === 'A' ? mockA() : S.mock === 'B' ? mockB() : mockC();
+  const nl = document.getElementById('list');
+  if (nl) nl.scrollTop = top;
+  const c = curLine();
+  if (c && c.id !== lastCur && nl && S.editing == null) {
+    const r = nl.querySelector(`[data-line="${c.id}"]`);
+    if (r) { const rt = r.offsetTop - nl.offsetTop, rb = rt + r.offsetHeight; if (rt < nl.scrollTop || rb > nl.scrollTop + nl.clientHeight) nl.scrollTop = rt - nl.clientHeight / 3; }
+  }
+  lastCur = c ? c.id : null;
+  const ta = win.querySelector('textarea[data-edit]');
+  if (ta && document.activeElement !== ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+}
+const byId = (id) => S.lines.find((l) => l.id === +id);
+function commitEdit() {
+  if (S.editing == null) return;
+  const l = byId(S.editing); const v = S.draft.trim();
+  if (v) l.text = v;
+  S.editing = null;
+}
+
+document.addEventListener('click', (e) => {
+  const m = e.target.closest('[data-mock]'); if (m) { S.mock = m.dataset.mock; S.menuFor = null; return render(); }
+  const st = e.target.closest('[data-state]'); if (st) { S.state = st.dataset.state; return render(); }
+  const a = e.target.closest('[data-act]');
+  if (!a) { if (S.menuFor) { S.menuFor = null; render(); } return; }
+  const id = a.dataset.id, act = a.dataset.act;
+  S.toast = '';
+  if (act !== 'spkmenu' && act !== 'setspk' && act !== 'newspk' && act !== 'spkfrom') S.menuFor = null;
+  if (S.editing != null && !e.target.closest('textarea') && act !== 'edit') commitEdit();
+  switch (act) {
+    case 'toggle': S.playing = !S.playing; S.stopAt = null; break;
+    case 'seekbar': { if (e.target.closest('[data-act="seek"]')) break; const r = a.getBoundingClientRect(); S.t = Math.max(0, Math.min(DURATION, (e.clientX - r.left) / r.width * DURATION)); break; }
+    case 'seek': if (S.editing === +id) return; S.t = byId(id).start; break;
+    case 'hear': { const l = byId(id); S.t = l.start; S.stopAt = l.end; S.playing = true; break; }
+    case 'edit': commitEdit(); S.editing = +id; S.draft = byId(id).text; break;
+    case 'del': byId(id).deleted = true; break;
+    case 'restore': byId(id).deleted = false; break;
+    case 'speakers': S.speakerMode = true; if (S.speakers.length < 2) S.speakers.push('Speaker 2'); break;
+    case 'spkmenu': S.menuFor = S.menuFor === +id ? null : +id; break;
+    case 'setspk': byId(id).speaker = +a.dataset.s; S.menuFor = null; break;
+    case 'newspk': S.speakers.push(`Speaker ${S.speakers.length + 1}`); byId(id).speaker = S.speakers.length - 1; S.menuFor = null; break;
+    case 'spkfrom': { const sp = byId(id).speaker; S.lines.forEach((l) => { if (l.id > +id) l.speaker = sp; }); S.menuFor = null; break; }
+    case 'save': S.saved = JSON.stringify(S.lines); S.toast = 'Saved · Undo in Review'; break;
+    case 'cancel': if (changes().total) S.confirmLeave = true; else S.toast = '(window would close)'; break;
+    case 'keep': S.confirmLeave = false; break;
+    case 'discard': S.lines = JSON.parse(S.saved); S.confirmLeave = false; S.toast = '(closed, nothing saved)'; break;
+    case 'reset': S.lines = fresh(); S.speakers = ['Speaker 1']; S.speakerMode = false; break;
+    case 'pickvideo': S.state = 'video'; break;
+  }
+  render();
+});
+document.addEventListener('dblclick', (e) => {
+  const d = e.target.closest('[data-dbl]'); if (!d) return;
+  S.editing = +d.dataset.dbl; S.draft = byId(d.dataset.dbl).text; render();
+});
+document.addEventListener('input', (e) => { if (e.target.matches('textarea[data-edit]')) S.draft = e.target.value; });
+document.addEventListener('keydown', (e) => {
+  if (e.target.matches('textarea[data-edit]')) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitEdit(); render(); }
+    if (e.key === 'Escape') { S.editing = null; render(); }
+    return;
+  }
+  if (e.key === ' ') { e.preventDefault(); S.playing = !S.playing; S.stopAt = null; render(); }
+  const c = curLine();
+  if (c && e.key === 'Enter') { S.editing = c.id; S.draft = c.text; render(); }
+  if (c && e.key === 'Delete') { c.deleted = true; render(); }
+});
+setInterval(() => {
+  if (!S.playing) return;
+  S.t += 0.1;
+  if (S.stopAt != null && S.t >= S.stopAt) { S.playing = false; S.stopAt = null; }
+  if (S.t >= DURATION) { S.t = DURATION; S.playing = false; }
+  if (S.editing == null) render();
+  else { const bar = document.querySelector('[data-act="seekbar"] > div'); if (bar) bar.style.width = (S.t / DURATION * 100) + '%'; }
+}, 100);
+render();
+</script>
+</body>
+</html>

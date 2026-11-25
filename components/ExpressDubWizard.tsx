@@ -105,6 +105,7 @@ import { VoiceSelectorCard, SelectedVoiceSummary, POPULAR_ELEVENLABS_VOICES, Voi
 import { MediaStrip } from './MediaStrip';
 import { FloatingWindow } from './FloatingWindow';
 import { useReviewVideo } from './ReviewVideoPanel';
+import { OriginalTranscriptWindow } from './OriginalTranscriptWindow';
 import { getReviewVideo } from '../services/storageService';
 import { ReviewVideoFloat, reserveReviewWindow } from './ReviewVideoFloat';
 import { useLiveTime } from './useLiveTime';
@@ -636,7 +637,7 @@ interface ExpressDubWizardProps {
   /** Saves the transcript as Dhvani JSON, paragraph text or subtitles; never transcribes or translates. */
   onExportTranscript?: (format: TranscriptFormat) => Promise<TranscriptExportResult>;
   /** Puts a cut made on the transcript screen on the project, keeping the cut as transcribed for Reset. */
-  onApplyTranscriptSegments?: (segments: AudioSegment[]) => void;
+  onApplyTranscriptSegments?: (segments: AudioSegment[], label?: string) => void;
   /** The dub voice's speaking rate, measured from a sample read when it is picked (services/voiceRate.ts). */
   voiceRate?: VoiceRateState;
   /** With several speakers: the rate of each speaker's own voice from the cast, by speaker name. */
@@ -910,6 +911,19 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [editingTiming, setEditingTiming] = useState(false);
   /** A local video to watch the dub against; it is only looked at, never part of the project. */
   const reviewVideo = useReviewVideo(activeJob?.id);
+  // The Original transcript window: video beside the lines, edits saved as one step.
+  const [transcriptWindowOpen, setTranscriptWindowOpen] = useState(false);
+  // After saving it, a short notice with Undo: the transcript screen has no Undo of its own.
+  const [transcriptSaved, setTranscriptSaved] = useState(0);
+  useEffect(() => {
+    setTranscriptWindowOpen(false);
+    setTranscriptSaved(0);
+  }, [activeJob?.id]);
+  useEffect(() => {
+    if (!transcriptSaved) return;
+    const timer = window.setTimeout(() => setTranscriptSaved(0), 10000);
+    return () => window.clearTimeout(timer);
+  }, [transcriptSaved]);
   /**
    * The video's window is open on the Dub page. It never opens by itself when a
    * project opens: only Add video or Show video opens it. Leaving the Dub page
@@ -3530,6 +3544,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             translation or their own script before the editor opens.
           */}
           {awaitingScript ? (
+            <>
             <TargetScriptChoice
               segments={segments}
               spokenLanguage={activeJob.detectedLanguage || activeJob.sourceLanguage || ''}
@@ -3567,10 +3582,49 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               activeSegmentId={activeSegmentId}
               onExport={onExportTranscript}
               onApplySegments={onApplyTranscriptSegments}
+              onOpenTranscript={onApplyTranscriptSegments ? () => setTranscriptWindowOpen(true) : undefined}
               transcriptCuts={activeJob.transcriptCuts}
               onHear={(start, end) => onPlaySegmentSolo({ id: 'cut', startTime: start, endTime: end, duration: end - start })}
               getPlayhead={() => getSourceLiveTime?.() ?? sourceClockTime}
             />
+          {transcriptWindowOpen && onApplyTranscriptSegments && (
+            <OriginalTranscriptWindow
+              segments={segments}
+              spokenLanguage={activeJob.detectedLanguage || activeJob.sourceLanguage || ''}
+              video={reviewVideo.video}
+              onPickVideo={() => reviewVideo.pick()}
+              currentTime={sourceClockTime}
+              isPlaying={isPlaying}
+              getLiveTime={getSourceLiveTime}
+              playbackRate={playbackRate}
+              onSeek={seekSource}
+              onTogglePlay={onTogglePlay}
+              onPlayLine={handlePlayPassage}
+              onSave={(next) => {
+                onApplyTranscriptSegments(next, 'Edit transcript');
+                setTranscriptSaved(Date.now());
+              }}
+              onClose={() => setTranscriptWindowOpen(false)}
+            />
+          )}
+          {transcriptSaved > 0 && !transcriptWindowOpen && (
+            <div role="status" className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 pl-4 pr-2 py-2 rounded-xl bg-slate-800 border border-slate-700 shadow-2xl shadow-black/60 text-[12.5px] text-slate-200">
+              Transcript changes saved.
+              {onReviewHistory && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onReviewHistory('undo');
+                    setTranscriptSaved(0);
+                  }}
+                  className="h-7 px-2.5 rounded-lg hover:bg-slate-700 text-indigo-300 hover:text-indigo-200 font-medium cursor-default"
+                >
+                  Undo
+                </button>
+              )}
+            </div>
+          )}
+          </>
           ) : (
           /* Workspace: cue editor and review panel share one height, so neither leaves a gap */
           <div className={`grid grid-cols-1 ${grammar ? 'lg:grid-cols-[minmax(0,1fr)_21rem] 2xl:grid-cols-[minmax(0,1fr)_25rem]' : ''} gap-4 lg:h-[calc(100vh-7rem)] lg:min-h-[600px]`}>

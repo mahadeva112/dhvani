@@ -4321,14 +4321,18 @@ export default function App() {
    * back to it, there is nothing to keep.
    */
   const handleApplyTranscriptSegments = useCallback(
-    (segments: AudioSegment[]) => {
+    (segments: AudioSegment[], label?: string) => {
       if (!activeJob) return;
       const transcribed = activeJob.transcriptCuts ?? activeJob.segments;
-      updateJob(activeJob.id, {
-        segments,
-        transcriptCuts: sameCuts(transcribed, segments) ? null : transcribed,
-        ...syncPendingAfter(activeJob, segments),
-      });
+      updateJob(
+        activeJob.id,
+        {
+          segments,
+          transcriptCuts: sameCuts(transcribed, segments) ? null : transcribed,
+          ...syncPendingAfter(activeJob, segments),
+        },
+        label ? { label } : undefined
+      );
     },
     [activeJob, updateJob]
   );
