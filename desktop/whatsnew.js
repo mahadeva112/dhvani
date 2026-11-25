@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.13',
+    changes: [
+      'Edit transcript: see the transcript beside the video, play any line, fix its words, remove it, or say who speaks it. Save is one Undo step.',
+    ],
+  },
+  {
     version: '1.5.12',
     changes: [
       'A cleaner update window: it shows what is installed and what is newest, when it last checked, and what is new in a list, with Check again as a small link instead of a big button.',
