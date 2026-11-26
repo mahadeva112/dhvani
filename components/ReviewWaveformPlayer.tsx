@@ -114,11 +114,10 @@ export interface LaneLayers {
   fit: boolean;
   numbers: boolean;
 }
-/** v2 since every line's room is drawn with Fit: Fit starts on once, the other layers carry over. */
-const LAYERS_KEY = 'dhvani.reviewLayers.v2';
-const OLD_LAYERS_KEY = 'dhvani.reviewLayers';
-/** At first: the lines' colours and each line's room (Fit); pauses and numbers off until turned on. */
-const NO_LAYERS: LaneLayers = { pauses: false, fit: true, numbers: false };
+/** v3 since 2026-11-26: everyone starts once on these layers (Fit and Line numbers on); what was picked before is not carried over. */
+const LAYERS_KEY = 'dhvani.reviewLayers.v3';
+/** At first: the lines' colours, each line's room (Fit) and line numbers; pauses off until turned on (Bars show them in the lines). */
+const NO_LAYERS: LaneLayers = { pauses: false, fit: true, numbers: true };
 const LAYER_CHIPS: { id: keyof LaneLayers; label: string; hint: string }[] = [
   { id: 'pauses', label: 'Pauses', hint: "Pauses and cuts: the pauses row, the cuts in each dub line, Sync's place for a moved line, and the picked line's outline. Off, lines are told apart by colour alone" },
   { id: 'fit', label: 'Fit', hint: "Every dub line's room as a dashed box, and how it fits (the line you pick, or stretch, always shows it)" },
@@ -292,9 +291,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const [layers, setLayers] = useState<LaneLayers>(() => {
     try {
       const saved = localStorage.getItem(LAYERS_KEY);
-      if (saved) return { ...NO_LAYERS, ...JSON.parse(saved) };
-      const old = JSON.parse(localStorage.getItem(OLD_LAYERS_KEY) || '{}');
-      return { ...NO_LAYERS, ...old, fit: true };
+      return saved ? { ...NO_LAYERS, ...JSON.parse(saved) } : NO_LAYERS;
     } catch {
       return NO_LAYERS;
     }

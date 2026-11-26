@@ -162,44 +162,91 @@ export const pauseCutsOf = (cues: AudioSegment[], text: string, minPause = TRANS
   });
 };
 
-/** A stretch of the original said in one go: between two of the pauses Sync cuts the line at. */
+/** A pause of the original this long or longer splits a line in Bars: the pauses translation marks. */
+export const SPLIT_PAUSE_SECONDS = TRANSLATION_PAUSE_SECONDS;
+
+/**
+ * How the dub meets one of the original's pauses: Sync cuts the line there
+ * ('cut'); the dub has the pause's mark but reads on through it ('read'); or
+ * it has no mark for it ('none': the line was edited, or translated before
+ * pauses were marked), so where it falls in the dub isn't known.
+ */
+export type PauseMeet = 'cut' | 'read' | 'none';
+
+/** A stretch of the original said in one go: between two of the speaker's pauses. */
 export interface SourceChunk {
   /** Where its first word starts and its last ends, on the original's clock. */
   from: number;
   to: number;
   text: string;
+  /** The pause after it (none on the last chunk): how the dub meets it, and the dub line's letters before its mark when it has one. */
+  after?: { meet: PauseMeet; letters: number | null };
 }
 
 /**
- * The original of a line in chunks, cut where Sync cuts its dub (the line's
- * pause marks in state 'cut', where the speaker starts again): each chunk from
- * its first word's start to its last word's end, by the measured word timings.
- * One chunk, the whole line, where it isn't cut; without word timings, the
- * line's cues as they are timed.
+ * The original of a line in chunks, split at every pause its speaker makes
+ * (SPLIT_PAUSE_SECONDS or longer, by the measured word timings) and wherever
+ * Sync cuts its dub at the original's pause: each chunk from its first word's
+ * start to its last word's end, saying how the dub meets the pause after it.
+ * Without word timings, one chunk: the line's cues as they are timed.
  */
 export const sourceChunksOf = (
-  unit: Pick<SyncPreviewUnit, 'text' | 'sourceText' | 'srcStart' | 'srcEnd' | 'pauseMarks'>,
+  unit: Pick<SyncPreviewUnit, 'text' | 'sourceText' | 'srcStart' | 'srcEnd' | 'pauseMarks' | 'parts'>,
   cues: AudioSegment[]
 ): SourceChunk[] => {
   const words = cues.flatMap(timedWords).sort((a, b) => a.start - b.start);
   const sourceText = unit.sourceText?.trim() || cues.map((c) => String(c.textSource ?? c.originalText ?? c.text ?? '').trim()).filter(Boolean).join(' ');
   if (!words.length) return [{ from: unit.srcStart, to: unit.srcEnd, text: sourceText }];
-  const cutAt = new Set((unit.pauseMarks ?? []).filter((m) => m.state === 'cut').map((m) => m.letters));
-  const resumes = pauseCutsOf(cues, unit.text, 0)
-    .filter((cut) => cutAt.has(cut.letters) && cut.resume !== null)
-    .map((cut) => cut.resume as number);
-  const chunks: { from: number; to: number; words: string[] }[] = [];
+  // Where the dub line is cut: at the original's pause, or by the user at the same word.
+  const cutAt = new Set([
+    ...(unit.pauseMarks ?? []).filter((m) => m.state === 'cut').map((m) => m.letters),
+    ...(unit.parts ?? []).slice(1).map((p) => p.letters),
+  ]);
+  // The dub's mark for each pause, by where the speaker starts again.
+  const marks = pauseCutsOf(cues, unit.text, 0).filter((cut) => cut.resume !== null);
+  const markAt = (t: number) => marks.find((cut) => Math.abs((cut.resume as number) - t) < 1e-3);
+  const chunks: { from: number; to: number; words: string[]; after?: SourceChunk['after'] }[] = [];
   for (const w of words) {
     const last = chunks[chunks.length - 1];
-    // A word starting where the speaker starts again after a cut opens the next chunk.
-    const opens = !last || resumes.some((r) => Math.abs(w.start - r) < 1e-3 && r > last.from + 1e-3);
-    if (opens) chunks.push({ from: w.start, to: w.end, words: [String(w.text).trim()] });
-    else {
+    const mark = last ? markAt(w.start) : undefined;
+    // A word after a pause, or where Sync cuts the dub, opens the next chunk.
+    const opens = !last || w.start - last.to >= SPLIT_PAUSE_SECONDS - 1e-9 || (mark !== undefined && cutAt.has(mark.letters) && w.start > last.to);
+    if (!opens) {
       last.to = Math.max(last.to, w.end);
       last.words.push(String(w.text).trim());
+      continue;
     }
+    if (last) last.after = mark ? { meet: cutAt.has(mark.letters) ? 'cut' : 'read', letters: mark.letters } : { meet: 'none', letters: null };
+    chunks.push({ from: w.start, to: w.end, words: [String(w.text).trim()] });
   }
-  return chunks.map((c) => ({ from: c.from, to: c.to, text: c.words.join(' ') }));
+  return chunks.map((c) => ({ from: c.from, to: c.to, text: c.words.join(' '), ...(c.after && { after: c.after }) }));
+};
+
+/**
+ * A part of a dub line in pieces, split at the marks of the original's pauses
+ * it reads on through (`letters`, the letters of the line before each): each
+ * piece's words, and where it starts and ends in seconds from the part's
+ * start, halfway into the gap between two words. One piece, the whole part,
+ * where no mark falls inside it.
+ */
+export const partPiecesOf = (
+  unit: Pick<SyncPreviewUnit, 'estimate' | 'text' | 'expert'>,
+  part: Pick<LinePart, 'first' | 'last' | 'from' | 'to'>,
+  letters: number[]
+): { from: number; to: number; text: string }[] => {
+  const words = estimatedWords(unit);
+  const through = lettersThrough(words);
+  const length = part.to - part.from;
+  const at = [...new Set(letters.map((l) => through.indexOf(l)))].filter((k) => k >= part.first && k < part.last).sort((a, b) => a - b);
+  const textOf = (first: number, last: number) => words.slice(first, last + 1).map((w) => w.text).join(' ');
+  if (!at.length) return [{ from: 0, to: length, text: textOf(part.first, part.last) }];
+  const between = (k: number) => (words[k].end + words[k + 1].start) / 2 - part.from;
+  const bounds = [part.first - 1, ...at, part.last];
+  return bounds.slice(0, -1).map((b, n) => ({
+    from: n === 0 ? 0 : between(b),
+    to: n === bounds.length - 2 ? length : between(bounds[n + 1]),
+    text: textOf(b + 1, bounds[n + 1]),
+  }));
 };
 
 /** The line's place, from its first cue. */

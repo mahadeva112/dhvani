@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { estimatedWords, letterCount, linePartsOf, partEnd, pauseCutsOf, rateOf, rateZone, sourceChunksOf, withCut, withLinePlaces, withLineRate, withLineRates, withPartStart, withPauseSkip } from './linePlaces.ts';
+import { estimatedWords, letterCount, linePartsOf, partEnd, partPiecesOf, pauseCutsOf, rateOf, rateZone, sourceChunksOf, withCut, withLinePlaces, withLineRate, withLineRates, withPartStart, withPauseSkip } from './linePlaces.ts';
 import type { SyncPreview, SyncPreviewUnit } from './syncService.ts';
 import type { AudioSegment } from '../types';
 
@@ -199,17 +199,42 @@ test('how a speed sounds: natural to 1.15×, quick to 1.3×, then rushed; dragge
   assert.equal(rateZone(0.8), 'slow');
 });
 
-test("the original is cut into chunks where Sync cuts the dub, each as long as its words", () => {
+test("the original is split at every pause its speaker makes, each chunk as long as its words, saying how the dub meets the pause", () => {
   const u = unit(0, 0, 4, 2.2, PAUSED_TEXT);
+  const letters = letterCount('one two');
   const cut = withLinePlaces(preview([u]), [pausedCue()], null, { minPause: 0.3, maxInsert: 5 })!.units[0];
   assert.deepEqual(sourceChunksOf(cut, [pausedCue()]), [
-    { from: 0, to: 0.9, text: 'One two' },
+    { from: 0, to: 0.9, text: 'One two', after: { meet: 'cut', letters } },
     { from: 1.7, to: 2.7, text: 'three four' },
   ]);
-  // Not cut there (the setting off, or the user turned it off): one chunk, first word to last.
-  assert.deepEqual(sourceChunksOf(u, [pausedCue()]), [{ from: 0, to: 2.7, text: 'One two three four' }]);
-  const skipped = { ...cut, pauseMarks: cut.pauseMarks!.map((m) => ({ ...m, state: 'skipped' as const })) };
-  assert.equal(sourceChunksOf(skipped, [pausedCue()]).length, 1);
+  // Not cut there (the setting off, or the user turned it off): still split, the dub reading on through its mark.
+  const read = [
+    { from: 0, to: 0.9, text: 'One two', after: { meet: 'read', letters } },
+    { from: 1.7, to: 2.7, text: 'three four' },
+  ];
+  assert.deepEqual(sourceChunksOf(u, [pausedCue()]), read);
+  const skipped = { ...cut, parts: undefined, pauseMarks: cut.pauseMarks!.map((m) => ({ ...m, state: 'skipped' as const })) };
+  assert.deepEqual(sourceChunksOf(skipped, [pausedCue()]), read);
+  // Edited, the dub has no mark for it: split all the same, where it falls in the dub unknown.
+  const edited = 'one two, three five';
+  assert.deepEqual(sourceChunksOf({ ...u, text: edited }, [pausedCue(edited)])[0].after, { meet: 'none', letters: null });
+  // A gap shorter than a pause is no split.
+  assert.equal(sourceChunksOf(u, [pausedCue(PAUSED_TEXT, PAUSED_TEXT)].map((c) => ({ ...c, words: c.words!.map((w) => (w.start >= 1.7 ? { ...w, start: w.start - 0.7, end: w.end - 0.7 } : w)) }))).length, 1);
   // Without word timings, the line as its cues are timed.
   assert.deepEqual(sourceChunksOf({ ...u, srcEnd: 3.2 }, [cue(1, { textSource: 'hello there' })]), [{ from: 0, to: 3.2, text: 'hello there' }]);
+});
+
+test("a dub part is split at the marks it reads on through, halfway into the gap between two words", () => {
+  const u = unit(0, 0, 4, 2.2, 'one two, three four five');
+  const words = estimatedWords(u);
+  const [part] = linePartsOf(u, null);
+  const pieces = partPiecesOf(u, part, [letterCount('one two'), letterCount('one two three four')]);
+  assert.deepEqual(pieces.map((p) => p.text), ['one two,', 'three four', 'five']);
+  assert.equal(pieces[0].from, 0);
+  assert.ok(Math.abs(pieces[0].to - (words[1].end + words[2].start) / 2) < 1e-9);
+  assert.equal(pieces[1].from, pieces[0].to);
+  assert.equal(pieces[2].to, part.to - part.from);
+  // A mark outside the part, or none: the whole part.
+  assert.deepEqual(partPiecesOf(u, part, []).map((p) => p.text), ['one two, three four five']);
+  assert.equal(partPiecesOf(u, part, [999]).length, 1);
 });

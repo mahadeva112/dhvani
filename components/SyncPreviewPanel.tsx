@@ -23,7 +23,7 @@ import type { RateBasis } from '../services/voiceRate';
 import { timeLine } from '../services/speechTiming';
 import { reportError } from '../services/errorPopup';
 import { PhoneticTextarea } from './review/PhoneticTextarea';
-import { LINE_GAP_SECONDS, MAX_LINE_RATE, MIN_LINE_RATE, QUICK_RATE, RUSHED_RATE, SLOW_RATE, PART_GAP_SECONDS, PAUSE_MARK, estimatedWords, lanePartsOf, letterCount, lineTimeAt, partEnd, rateZone, roomEnd, sourceChunksOf, type LinePart, type SourceChunk } from '../services/linePlaces';
+import { LINE_GAP_SECONDS, MAX_LINE_RATE, MIN_LINE_RATE, QUICK_RATE, RUSHED_RATE, SLOW_RATE, PART_GAP_SECONDS, PAUSE_MARK, estimatedWords, lanePartsOf, letterCount, lineTimeAt, partEnd, partPiecesOf, rateZone, roomEnd, sourceChunksOf, type LinePart, type PauseMeet, type SourceChunk } from '../services/linePlaces';
 
 /**
  * Sync preview: before anything is voiced, which lines are likely to fit the
@@ -1124,20 +1124,26 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
   );
 };
 
-/** How the dub lane draws its lines, remembered across sessions: Wave until another is picked. */
+/**
+ * How the lanes draw their lines, remembered across sessions: Bars until
+ * another is picked. Its own key since 2026-11-26, so everyone starts on Bars
+ * once (the pauses split the original and the dub there); before, Wave under
+ * PREVIEW_VIEW_KEY.
+ */
+const LANE_VIEW_KEY = 'dhvani.laneView.v2';
 export const useLaneView = () => {
   const [view, setView] = useState<LaneView>(() => {
     try {
-      const saved = localStorage.getItem(PREVIEW_VIEW_KEY);
-      return LANE_VIEWS.find((v) => v === saved) ?? 'wave';
+      const saved = localStorage.getItem(LANE_VIEW_KEY);
+      return LANE_VIEWS.find((v) => v === saved) ?? 'bars';
     } catch {
-      return 'wave';
+      return 'bars';
     }
   });
   const change = (next: LaneView) => {
     setView(next);
     try {
-      localStorage.setItem(PREVIEW_VIEW_KEY, next);
+      localStorage.setItem(LANE_VIEW_KEY, next);
     } catch {
       /* Storage off: the view lasts until the app closes. */
     }
@@ -1210,6 +1216,13 @@ const LinePauseTicks: React.FC<{ unit: SyncPreviewUnit; pct: (t: number) => numb
   );
 };
 
+/** What the dub does at one of the original's pauses, as a split in Bars says it. */
+const SPLIT_NOTE: Record<PauseMeet, string> = {
+  cut: 'Sync cuts the dub line here',
+  read: "the dub has its mark here but Sync doesn't cut: it reads on",
+  none: 'the dub line has no mark for it (edited, or translated before pauses were marked): translate it again to split it here too',
+};
+
 /** What a cue says in the original language. */
 const sourceTextOf = (seg: AudioSegment) => (seg.textSource ?? seg.originalText ?? seg.text ?? '').trim();
 const SPOKEN = /[\p{L}\p{N}]/u;
@@ -1219,10 +1232,11 @@ const SPOKEN = /[\p{L}\p{N}]/u;
  * instead): what the original says, on its own clock, each line in the colour
  * its dub has below. Blocks (in the waveform's place): a box per word where it
  * is said (its measured word timings), the word squeezed inside. Bars (a row
- * under the waveform): a bar per chunk, cut where Sync cuts the dub
- * (sourceChunksOf), exactly as long as its words, the pause between two
- * marked with its length; its words inside, broken between words, smaller
- * only when they must be. A line without word timings is one bar; a cue in no
+ * under the waveform): a bar per chunk, split at every pause the speaker
+ * makes (sourceChunksOf), exactly as long as its words, the pause between two
+ * marked with its length, cyan where Sync cuts the dub there, grey where it
+ * doesn't; its words inside, broken between words, smaller only when they
+ * must be. A line without word timings is one bar; a cue in no
  * line is a grey bar.
  */
 export const SourceLineLane: React.FC<{
@@ -1272,7 +1286,7 @@ export const SourceLineLane: React.FC<{
         to: seg.endTime,
         text: sourceTextOf(seg),
         words: [] as { text: string; start: number; end: number }[],
-        chunks: [{ from: seg.startTime, to: seg.endTime, text: sourceTextOf(seg) }],
+        chunks: [{ from: seg.startTime, to: seg.endTime, text: sourceTextOf(seg) }] as SourceChunk[],
       }));
     return [...drawn, ...loose];
   }, [units, segments, look]);
@@ -1335,13 +1349,19 @@ export const SourceLineLane: React.FC<{
                     </span>
                     {next && (
                       <span
-                        title={`The original pauses ${(next.from - c.to).toFixed(2)} s here; Sync cuts the dub line here`}
+                        title={`The original pauses ${(next.from - c.to).toFixed(2)} s here; ${SPLIT_NOTE[c.after?.meet ?? 'cut']}`}
                         className="absolute inset-y-0 flex items-center justify-center pointer-events-none"
                         style={{ left: `${pct(c.to)}%`, width: `${Math.max(0.1, pct(next.from) - pct(c.to))}%` }}
                       >
-                        <span className="absolute inset-y-1 left-1/2 border-l border-dashed border-cyan-400/60" />
+                        <span
+                          className={`absolute inset-y-1 left-1/2 border-l ${c.after?.meet === 'cut' || !c.after ? 'border-dashed border-cyan-400/60' : 'border-dotted border-slate-500'}`}
+                        />
                         {(next.from - c.to) * pxPerSecond >= 18 && (
-                          <span className="relative bg-slate-950 px-px font-mono text-[9.5px] leading-none tabular-nums text-cyan-300">{(next.from - c.to).toFixed(1)}</span>
+                          <span
+                            className={`relative bg-slate-950 px-px font-mono text-[9.5px] leading-none tabular-nums ${c.after?.meet === 'cut' || !c.after ? 'text-cyan-300' : 'text-slate-400'}`}
+                          >
+                            {(next.from - c.to).toFixed(1)}
+                          </span>
                         )}
                       </span>
                     )}
@@ -1632,6 +1652,12 @@ export const DubEstimateLane: React.FC<{
    * while the knife is out.
    */
   cutGhost?: (unit: SyncPreviewUnit, letters: number) => { start: number; end: number } | null;
+  /**
+   * The lines' cues, with the original's word timings: in Bars a line is
+   * split, as its original above, at the marks of the pauses it reads on
+   * through, and a line with no mark for one of them says so.
+   */
+  segments?: AudioSegment[];
 }> = ({
   units,
   windowStart,
@@ -1658,6 +1684,7 @@ export const DubEstimateLane: React.FC<{
   rateMarks = 'always',
   onEditLine,
   cutGhost,
+  segments,
 }) => {
   /** The line whose words are being typed in its bar, and what they are so far. */
   const [editing, setEditing] = useState<{ key: string; text: string } | null>(null);
@@ -1696,6 +1723,18 @@ export const DubEstimateLane: React.FC<{
   const gradientId = useId().replace(/[^\w-]/g, '');
   const end = windowStart + WINDOW_SECONDS * 2;
   const partsOf = useMemo(() => new Map(units.map((u) => [u.key, lanePartsOf(u)])), [units]);
+  // Bars: each line's marks of the original's pauses it reads on through, and how many pauses it has no mark for.
+  const splitsOf = useMemo(() => {
+    if (look !== 'bars' || !segments?.length) return null;
+    const byId = new Map(segments.map((seg) => [String(seg.id), seg]));
+    return new Map(
+      units.map((u) => {
+        const cues = u.cueIds.map((id) => byId.get(String(id))).filter((seg): seg is AudioSegment => Boolean(seg));
+        const pauses = sourceChunksOf(u, cues).flatMap((c) => (c.after ? [c.after] : []));
+        return [u.key, { read: pauses.flatMap((a) => (a.meet === 'read' && a.letters !== null ? [a.letters] : [])), unmarked: pauses.filter((a) => a.meet === 'none').length }];
+      })
+    );
+  }, [look, segments, units]);
   const lastEnd = (u: SyncPreviewUnit) => {
     const parts = partsOf.get(u.key) ?? lanePartsOf(u);
     return partEnd(parts[parts.length - 1]);
@@ -1986,6 +2025,10 @@ export const DubEstimateLane: React.FC<{
               const inSlot = length > 0 ? Math.min(1, Math.max(0, (room - p.start) / length)) : 1;
               /** The knife is out over this part: a click cuts where it shows. */
               const knifeHere = knifeOut?.key === u.key && knifeOut.part === p.index ? knifeOut : null;
+              // Bars: the part in pieces where the original pauses and it reads on (whole while the knife is out, to show its words).
+              const split = drawn === 'bars' ? splitsOf?.get(u.key) : undefined;
+              const pieces = split?.read.length && !knifeHere && length > 0 ? partPiecesOf(u, p, split.read) : [];
+              const unmarked = split?.unmarked ?? 0;
               const pick =
                 onSelect || onCut
                   ? (e: React.MouseEvent) => {
@@ -2151,8 +2194,57 @@ export const DubEstimateLane: React.FC<{
                           </span>
                         );
                       })}
+                    {/* Bars, where the original pauses and the dub reads on: a piece per stretch of the original, a dashed seam between, its words and length in each */}
+                    {drawn === 'bars' &&
+                      pieces.length > 1 &&
+                      pieces.map((piece, n) => {
+                        const lastPiece = p.index === parts.length - 1 && n === pieces.length - 1;
+                        return (
+                          <span
+                            key={n}
+                            className="absolute inset-y-0 pointer-events-none"
+                            style={{ left: `${(piece.from / length) * 100}%`, width: `${((piece.to - piece.from) / length) * 100}%` }}
+                          >
+                            {n > 0 && (
+                              <span
+                                aria-hidden="true"
+                                title="The original pauses here; the dub reads on"
+                                className="absolute top-0.5 bottom-0.5 left-0 border-l-[1.5px] border-dashed border-slate-100/50"
+                              />
+                            )}
+                            <FitText className="z-[5]" fitKey={`${piece.text}|${u.index}|${layers.numbers}|${over > 0 && showFit}|${marksRate(u) ? u.rate : 1}|${n}`}>
+                              <span className="text-slate-50">
+                                {layers.numbers && p.index === 0 && n === 0 && (
+                                  <span className="font-mono font-semibold" style={{ color: hue }}>
+                                    {u.index + 1}{' '}
+                                  </span>
+                                )}
+                                {piece.text}
+                              </span>
+                              <span className="block font-mono text-[0.85em] tabular-nums whitespace-nowrap" style={{ color: over > 0 && showFit && lastPiece ? '#fda4af' : hue }}>
+                                ≈{(piece.to - piece.from).toFixed(1)} s{over > 0 && showFit && lastPiece ? ` · +${over.toFixed(1)} s` : ''}
+                                {p.index === 0 && n === 0 && marksRate(u) && (
+                                  <span style={{ color: RATE_TONE[rateZone(u.rate ?? 1)] ?? '#e2e8f0' }}> · {rateText(u.rate ?? 1)}</span>
+                                )}
+                              </span>
+                            </FitText>
+                          </span>
+                        );
+                      })}
+                    {/* A line with no mark for a pause of its original: the original is split there, the dub can't be */}
+                    {drawn === 'bars' && p.index === parts.length - 1 && unmarked > 0 && (
+                      <span
+                        title={`The original pauses ${unmarked === 1 ? 'once' : `${unmarked} times`} in this line, but the dub line has no mark for ${unmarked === 1 ? 'it' : 'them'} (edited by hand, or translated before pauses were marked), so it isn't split there. Translate it again to split it.`}
+                        className="@container absolute z-[6] inset-0 pointer-events-none"
+                      >
+                        <span className="absolute right-1 bottom-0.5 pointer-events-auto rounded border border-slate-700 bg-slate-800/95 px-1 font-mono text-[9.5px] leading-[13px] text-slate-400 whitespace-nowrap">
+                          <span className="hidden @[180px]:inline">No pause marks</span>
+                          <span className="@[180px]:hidden">‖?</span>
+                        </span>
+                      </span>
+                    )}
                     {/* Bars: the dub script inside the bar, broken between words, smaller only when it must */}
-                    {drawn === 'bars' && (laneWidth === 0 || (width / 100) * laneWidth >= FIT_TEXT_MIN_WIDTH_PX) && (
+                    {drawn === 'bars' && pieces.length <= 1 && (laneWidth === 0 || (width / 100) * laneWidth >= FIT_TEXT_MIN_WIDTH_PX) && (
                       <FitText
                         className="z-[5]"
                         fitKey={`${partText(u, p, parts.length)}|${u.index}|${layers.numbers}|${over > 0 && showFit}|${marksRate(u) ? u.rate : 1}|${knifeHere?.k ?? ''}`}

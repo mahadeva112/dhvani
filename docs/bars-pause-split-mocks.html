@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bars Pause Split Mocks</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          slate: { 50:'#f6f6f7',100:'#ececef',200:'#dcdde1',300:'#c6c8ce',400:'#abadb5',500:'#8b8e98',600:'#5a5d66',700:'#34363c',800:'#232529',900:'#18191c',950:'#111214' },
+          indigo: { 300:'#a5adf5',400:'#7b86ec',500:'#5866e0',600:'#4c59d0',950:'#23253a' },
+          edge: '#27292d',
+        },
+      },
+    },
+  };
+</script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#0b0c0e; font-family: Inter, system-ui, "Noto Sans Devanagari", "Noto Sans Bengali", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .seg button.on { background:#5866e0; color:#fff; }
+  button { cursor:default; }
+  .lane { position:relative; }
+  .bar { position:absolute; top:6px; bottom:6px; border:1px solid; border-radius:5px; overflow:hidden; padding:3px 6px; line-height:1.2; transition: box-shadow .12s, opacity .12s; }
+  .bar .t { font-size:12px; color:#f6f6f7; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+  .bar .s { font-size:10px; margin-top:1px; white-space:nowrap; }
+  .dim .bar { opacity:.35; } .dim .bar.hl { opacity:1; }
+  .bar.hl { box-shadow: 0 0 0 2px #f6f6f7; }
+  .bar.picked { box-shadow: 0 0 0 2px #f6f6f7, 0 0 0 5px rgba(246,246,247,.15); }
+  .gap { position:absolute; top:0; bottom:0; display:flex; align-items:center; justify-content:center; pointer-events:auto; }
+  .gap .ln { position:absolute; top:4px; bottom:4px; left:50%; }
+  .gap .num { position:relative; background:#111214; padding:0 2px; font-size:9.5px; line-height:1; }
+  .seam { position:absolute; top:3px; bottom:3px; width:0; border-left:1.5px dashed rgba(246,246,247,.55); }
+  .nochip { position:absolute; right:4px; bottom:3px; font-size:9.5px; padding:0 4px; border-radius:4px; background:#232529; color:#abadb5; border:1px solid #34363c; }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6">
+
+<div class="max-w-[90rem] mx-auto mb-3 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+  <span class="seg inline-flex flex-wrap rounded-lg border border-edge overflow-hidden" id="mockSeg">
+    <button data-m="now" class="px-3 py-1.5">এখন যেমন</button>
+    <button data-m="a" class="on px-3 py-1.5">A · প্রতি থামায় ভাঙা</button>
+    <button data-m="b" class="px-3 py-1.5">B · জোড়া নম্বর + কার্ড</button>
+    <button data-m="c" class="px-3 py-1.5">C · মাঝে জোড়ার ফিতে</button>
+  </span>
+</div>
+<p id="note" class="max-w-[90rem] mx-auto mb-3 text-[13px] leading-relaxed text-slate-300"></p>
+
+<div class="max-w-[90rem] mx-auto rounded-2xl border border-edge bg-slate-950 overflow-hidden">
+  <!-- Review player bar (trimmed) -->
+  <div class="h-11 px-4 flex items-center gap-3 border-b border-edge bg-slate-900/60 text-[12.5px]">
+    <span class="font-semibold text-slate-200">Review</span>
+    <span class="text-slate-500">·</span>
+    <span class="text-slate-400">Sadhguru — On Life · Hindi</span>
+    <div class="ml-auto inline-flex items-center gap-0.5 rounded-xl border border-edge bg-slate-900 p-0.5">
+      <button class="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-400">Wave</button>
+      <button class="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-400">Blocks</button>
+      <button class="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 text-slate-100">Bars</button>
+    </div>
+  </div>
+
+  <div class="overflow-x-auto">
+    <div id="stage" class="min-w-[1500px] px-4 pt-2 pb-4">
+      <!-- ruler -->
+      <div class="flex">
+        <div class="w-20 shrink-0"></div>
+        <div id="ruler" class="lane flex-1 h-5 text-[10px] text-slate-500 mono"></div>
+      </div>
+      <div class="flex items-stretch">
+        <div class="w-20 shrink-0 flex items-center text-[11px] text-slate-400">Original</div>
+        <div id="srcLane" class="lane flex-1 h-[78px] border-y border-edge bg-slate-900/40"></div>
+      </div>
+      <div class="flex">
+        <div class="w-20 shrink-0"></div>
+        <div id="ribbon" class="flex-1"></div>
+      </div>
+      <div class="flex items-stretch">
+        <div class="w-20 shrink-0 flex items-center text-[11px] text-slate-400">Dub · Hindi</div>
+        <div id="dubLane" class="lane flex-1 h-[78px] border-y border-edge bg-slate-900/40"></div>
+      </div>
+      <div id="card" class="mt-3"></div>
+      <div id="legend" class="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-[11.5px] text-slate-400"></div>
+    </div>
+  </div>
+</div>
+
+<div class="max-w-[90rem] mx-auto mt-4 grid sm:grid-cols-2 gap-3 text-[12.5px] leading-relaxed text-slate-400">
+  <div class="rounded-xl border border-edge bg-slate-900/50 p-3">
+    <div class="text-slate-200 font-medium mb-1">ভাঙার জায়গা কোথা থেকে আসে</div>
+    মূলের থামা = শব্দের সময় (০.৩ সেকেন্ড বা বেশি ফাঁক)। ডাবে সেই থামা কোথায় = অনুবাদের সময় বসানো <span class="mono text-slate-300">[pause Xs]</span> চিহ্ন। নতুন কোনো AI ডাক নেই, Review খুললেই আঁকা।
+  </div>
+  <div class="rounded-xl border border-edge bg-slate-900/50 p-3">
+    <div class="text-slate-200 font-medium mb-1">অর্থ কতটা মিলবে</div>
+    চিহ্ন যেখানে আছে, প্রতিটা মূল টুকরোর নিচে তার অনুবাদ। লাইন ৪-এ দেখুন: “only” হিন্দিতে পরের টুকরোয় (“सिर्फ़ तभी”) — শব্দক্রমের জন্য এমন হবে, অ্যাপ এটা নিজে ধরবে না, চোখে দেখা যাবে।
+  </div>
+</div>
+
+<script>
+const HUES = ['#7dd3fc', '#f9a8d4', '#c4b5fd', '#e9d5a8'];
+const alpha = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
+const SPAN = 24;
+const pct = (t) => (t / SPAN) * 100;
+// after: how the pause after this piece is handled — cut (Sync cut the dub here), read (Sync didn't; the dub runs on), none (no mark: line edited by hand)
+const LINES = [
+  { n: 1, pieces: [
+    { src: 'If you want to know life,', s0: 0.4, s1: 2.1, dub: 'अगर जीवन को जानना है,', d0: 0.4, d1: 2.0, after: 'cut' },
+    { src: 'you must first become available to it,', s0: 2.7, s1: 5.0, dub: 'तो पहले उसके लिए खुलना होगा,', d0: 2.7, d1: 5.2, after: 'read' },
+    { src: 'not to your ideas about it.', s0: 5.4, s1: 7.3, dub: 'अपने ख़यालों के लिए नहीं।', d0: 5.2, d1: 7.6 },
+  ] },
+  { n: 2, pieces: [
+    { src: 'Most people are living in their heads.', s0: 8.2, s1: 10.4, dub: 'ज़्यादातर लोग दिमाग़ में जी रहे हैं।', d0: 8.2, d1: 10.3, after: 'cut' },
+    { src: "That's not life,", s0: 11.1, s1: 12.0, dub: 'वह जीवन नहीं है,', d0: 11.1, d1: 12.1, after: 'cut' },
+    { src: "that's memory and imagination.", s0: 12.35, s1: 14.2, dub: 'वह याद और कल्पना है।', d0: 12.35, d1: 14.4 },
+  ] },
+  { n: 3, edited: true, pieces: [
+    { src: 'And when you suffer,', s0: 15.0, s1: 16.6, after: 'none' },
+    { src: 'you blame the world.', s0: 17.1, s1: 18.9 },
+  ], dub: { text: 'और जब दुख होता है तो आप दुनिया को दोष देते हैं।', d0: 15.0, d1: 18.8 } },
+  { n: 4, pieces: [
+    { src: 'It is only when you are still', s0: 19.6, s1: 21.2, dub: 'जब आप स्थिर होते हैं,', d0: 19.6, d1: 21.0, after: 'cut' },
+    { src: 'that life opens up.', s0: 21.7, s1: 23.0, dub: 'सिर्फ़ तभी जीवन खुलता है।', d0: 21.7, d1: 23.1 },
+  ] },
+];
+const BN = ['ক', 'খ', 'গ', 'ঘ'];
+const BN_NUM = (n) => String(n).replace(/\d/g, (d) => '০১২৩৪৫৬৭৮৯'[d]);
+
+const NOTES = {
+  now: 'এখন: মূল শুধু সেখানেই ভাঙে যেখানে Sync ডাব কেটেছে। লাইন ১-এর দ্বিতীয় থামা (০.৪ সেকেন্ড) আর লাইন ৩-এর থামা মূলের বারেও দেখা যায় না — বক্তা থামলেও এক বার।',
+  a: 'A: মূল প্রতিটা থামায় ভাঙে, ডাব ঠিক সেই চিহ্নে। সিয়ান = Sync এখানে কেটেছে (অডিও সরেছে)। ড্যাশ = শুধু পড়ার জন্য ভাঙা, ডাব একটানা। লাইন ৩ হাতে বদলানো, তাই ডাব এক বার + “No pause marks”। কোনো টুকরোর উপর মাউস রাখলে তার জোড়া জ্বলে।',
+  b: 'B: A-র মতো ভাঙা, সাথে প্রতিটা টুকরোয় ১ক / ১খ নম্বর দুই লেনেই। টুকরোয় ক্লিক করলে নিচে কার্ড: মূল ↔ ডাব পাশাপাশি, দুটোর লম্বা, আর পরের থামা কী হয়েছে।',
+  c: 'C: A-র মতো ভাঙা, আর দুই লেনের মাঝে পাতলা ফিতে প্রতিটা জোড়াকে জোড়ে। ফিতে বাঁকা হলে ডাবের টুকরো মূল থেকে সরেছে / লম্বা হয়েছে — এক নজরে।',
+};
+
+let mode = 'a';
+let picked = '1-1';
+
+function barHtml({ left, right, hue, text, secs, pid, label, extra = '' }) {
+  return `<div class="bar" data-pid="${pid || ''}" style="left:${pct(left)}%;width:calc(${pct(right) - pct(left)}% - 1px);background:${alpha(hue, 0.22)};border-color:${hue}" title="${text}">
+    <div class="t">${label ? `<span class="mono font-semibold" style="color:${hue}">${label}</span> ` : ''}${text}</div>
+    <div class="s mono" style="color:${hue}">${(right - left).toFixed(2)} s</div>${extra}
+  </div>`;
+}
+
+function gapHtml(from, to, kind, lane) {
+  const secs = (to - from).toFixed(1);
+  const w = Math.max(0.15, pct(to) - pct(from));
+  const line = kind === 'cut' ? 'border-l border-dashed border-cyan-400/70' : 'border-l border-dotted border-slate-500';
+  const color = kind === 'cut' ? 'text-cyan-300' : 'text-slate-400';
+  const title = kind === 'cut' ? `The original pauses ${secs} s here; Sync cuts the dub line here`
+    : kind === 'read' ? `The original pauses ${secs} s here; Sync doesn't cut, the dub runs on`
+    : `The original pauses ${secs} s here; this line has no pause marks (edited by hand)`;
+  return `<div class="gap" title="${title}" style="left:${pct(from)}%;width:${w}%"><span class="ln ${line}"></span>${lane === 'src' || kind === 'cut' ? `<span class="num mono ${color}">${secs}</span>` : ''}</div>`;
+}
+
+function render() {
+  document.getElementById('stage').classList.remove('dim');
+  document.querySelectorAll('#mockSeg button').forEach((b) => b.classList.toggle('on', b.dataset.m === mode));
+  document.getElementById('note').textContent = NOTES[mode];
+
+  // ruler
+  let r = '';
+  for (let t = 0; t <= SPAN; t += 2) r += `<span class="absolute" style="left:${pct(t)}%"><span class="block h-1.5 border-l border-slate-600"></span>${t ? t + 's' : ''}</span>`;
+  document.getElementById('ruler').innerHTML = r;
+
+  let src = '', dub = '', rib = '';
+  LINES.forEach((line) => {
+    const hue = HUES[(line.n - 1) % 4];
+    if (mode === 'now') {
+      // Original: chunks joined unless cut. Dub: same.
+      const groups = [];
+      line.pieces.forEach((p, i) => {
+        const prev = line.pieces[i - 1];
+        if (prev && (prev.after !== 'cut')) groups[groups.length - 1].push(p); else groups.push([p]);
+      });
+      groups.forEach((g, gi) => {
+        const a = g[0], z = g[g.length - 1];
+        src += barHtml({ left: a.s0, right: z.s1, hue, text: g.map((p) => p.src).join(' '), label: gi === 0 ? line.n : '' });
+        if (!line.edited) dub += barHtml({ left: a.d0, right: z.d1, hue, text: g.map((p) => p.dub).join(' '), label: gi === 0 ? line.n : '' });
+        const next = groups[gi + 1];
+        if (next) { src += gapHtml(z.s1, next[0].s0, 'cut', 'src'); dub += gapHtml(z.d1, next[0].d0, 'cut', 'dub'); }
+      });
+      if (line.edited) dub += barHtml({ left: line.dub.d0, right: line.dub.d1, hue, text: line.dub.text, label: line.n });
+      return;
+    }
+    line.pieces.forEach((p, i) => {
+      const pid = `${line.n}-${i}`;
+      const label = mode === 'b' ? `${BN_NUM(line.n)}${line.edited ? '' : BN[i]}` : (i === 0 ? line.n : '');
+      const srcLabel = mode === 'b' ? `${BN_NUM(line.n)}${BN[i]}` : (i === 0 ? line.n : '');
+      src += barHtml({ left: p.s0, right: p.s1, hue, text: p.src, pid: line.edited ? `${line.n}-all` : pid, label: srcLabel });
+      const next = line.pieces[i + 1];
+      if (next) src += gapHtml(p.s1, next.s0, p.after, 'src');
+      if (!line.edited) {
+        dub += barHtml({ left: p.d0, right: p.d1, hue, text: p.dub, pid, label });
+        if (next && p.after === 'cut') dub += gapHtml(p.d1, next.d0, 'cut', 'dub');
+        if (next && p.after === 'read') dub += `<div class="seam" title="Read only: Sync doesn't cut here, the dub runs on" style="left:${pct(p.d1)}%"></div>`;
+        if (mode === 'c') rib += `<polygon points="${pct(p.s0) * 10},0 ${pct(p.s1) * 10},0 ${pct(p.d1) * 10},26 ${pct(p.d0) * 10},26" fill="${alpha(hue, 0.18)}" stroke="${alpha(hue, 0.45)}" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
+      }
+    });
+    if (line.edited) {
+      const label = mode === 'b' ? BN_NUM(line.n) : line.n;
+      dub += barHtml({ left: line.dub.d0, right: line.dub.d1, hue, text: line.dub.text, pid: `${line.n}-all`, label, extra: `<span class="nochip" title="This line was edited by hand, so the translation's pause marks are gone. Re-translate it to split it again.">No pause marks</span>` });
+      if (mode === 'c') {
+        const a = line.pieces[0], z = line.pieces[line.pieces.length - 1];
+        rib += `<polygon points="${pct(a.s0) * 10},0 ${pct(z.s1) * 10},0 ${pct(line.dub.d1) * 10},26 ${pct(line.dub.d0) * 10},26" fill="url(#hatch)" stroke="${alpha(hue, 0.35)}" stroke-dasharray="3 3" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
+      }
+    }
+  });
+  document.getElementById('srcLane').innerHTML = src;
+  document.getElementById('dubLane').innerHTML = dub;
+  document.getElementById('ribbon').innerHTML = mode === 'c'
+    ? `<svg viewBox="0 0 1000 26" preserveAspectRatio="none" class="block w-full h-[26px]"><defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="rgba(196,181,253,.06)"/><line x1="0" y1="0" x2="0" y2="6" stroke="rgba(196,181,253,.25)" stroke-width="2"/></pattern></defs>${rib}</svg>`
+    : '<div class="h-1.5"></div>';
+
+  renderCard();
+  renderLegend();
+  wire();
+}
+
+function renderCard() {
+  const el = document.getElementById('card');
+  if (mode !== 'b') { el.innerHTML = ''; return; }
+  const [n, i] = picked.split('-');
+  const line = LINES[n - 1];
+  const hue = HUES[(n - 1) % 4];
+  if (i === 'all') {
+    el.innerHTML = `<div class="max-w-3xl rounded-xl border border-edge bg-slate-900 p-3 text-[12.5px]">
+      <div class="flex items-center gap-2 mb-2"><span class="mono font-semibold" style="color:${hue}">Line ${n}</span><span class="text-slate-500">· edited by hand, no pause marks</span>
+      <button class="ml-auto px-2.5 py-1 rounded-lg border border-edge text-slate-200 text-xs">Re-translate this line</button></div>
+      <div class="text-slate-300">The original pauses ${(line.pieces[1].s0 - line.pieces[0].s1).toFixed(1)} s after “${line.pieces[0].src}”, but the dub line has no mark there, so it stays one bar.</div></div>`;
+    return;
+  }
+  const p = line.pieces[+i];
+  const after = p.after === 'cut' ? `Then a ${(line.pieces[+i + 1].s0 - p.s1).toFixed(1)} s pause — Sync cuts the dub here.`
+    : p.after === 'read' ? `Then a ${(line.pieces[+i + 1].s0 - p.s1).toFixed(1)} s pause — Sync doesn't cut here; the dub runs on.`
+    : 'End of the line.';
+  el.innerHTML = `<div class="max-w-3xl rounded-xl border border-edge bg-slate-900 p-3 text-[12.5px]">
+    <div class="flex items-center gap-2 mb-2"><span class="mono font-semibold" style="color:${hue}">${BN_NUM(n)}${BN[+i]}</span><span class="text-slate-500">· Line ${n}, piece ${+i + 1} of ${line.pieces.length}</span></div>
+    <div class="grid grid-cols-[1fr_auto_1fr] gap-3 items-start">
+      <div><div class="text-[10.5px] uppercase tracking-wide text-slate-500 mb-0.5">Original · <span class="mono">${(p.s1 - p.s0).toFixed(2)} s</span></div><div class="text-slate-100">${p.src}</div></div>
+      <div class="text-slate-600 pt-4">↔</div>
+      <div><div class="text-[10.5px] uppercase tracking-wide text-slate-500 mb-0.5">Dub · <span class="mono">${(p.d1 - p.d0).toFixed(2)} s</span></div><div class="text-slate-100">${p.dub}</div></div>
+    </div>
+    <div class="mt-2 text-slate-400">${after}</div></div>`;
+}
+
+function renderLegend() {
+  const items = mode === 'now'
+    ? [['border-l border-dashed border-cyan-400', 'Sync কেটেছে, শুধু এখানেই ভাঙা']]
+    : [
+        ['border-l border-dashed border-cyan-400', 'Sync এখানে কেটেছে — অডিও সরেছে'],
+        ['border-l-[1.5px] border-dashed border-slate-200/60', 'শুধু পড়ার জন্য ভাঙা — ডাব একটানা'],
+        ['border-l border-dotted border-slate-500', 'মূলের থামা, Sync কাটেনি'],
+      ];
+  let html = items.map(([c, t]) => `<span class="inline-flex items-center gap-2"><span class="inline-block h-3.5 ${c}"></span>${t}</span>`).join('');
+  if (mode !== 'now') html += `<span class="inline-flex items-center gap-2"><span class="nochip !static">No pause marks</span>হাতে বদলানো লাইন — Re-translate করলে আবার ভাঙবে</span>`;
+  document.getElementById('legend').innerHTML = html;
+}
+
+function wire() {
+  const stage = document.getElementById('stage');
+  stage.querySelectorAll('.bar[data-pid]').forEach((b) => {
+    const pid = b.dataset.pid;
+    if (!pid) return;
+    b.addEventListener('mouseenter', () => { stage.classList.add('dim'); stage.querySelectorAll(`.bar[data-pid="${pid}"]`).forEach((x) => x.classList.add('hl')); });
+    b.addEventListener('mouseleave', () => { stage.classList.remove('dim'); stage.querySelectorAll('.bar.hl').forEach((x) => x.classList.remove('hl')); });
+    if (mode === 'b') {
+      b.addEventListener('click', () => { picked = pid; render(); });
+      if (pid === picked) b.classList.add('picked');
+    }
+  });
+}
+
+document.querySelectorAll('#mockSeg button').forEach((b) => b.addEventListener('click', () => { mode = b.dataset.m; render(); }));
+render();
+</script>
+</body>
+</html>

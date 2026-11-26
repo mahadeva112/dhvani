@@ -1889,7 +1889,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
    */
   const [stretchView, setStretchView] = useState<'line' | 'card'>(() => {
     try {
-      return localStorage.getItem('dhvani.stretchView') === 'card' ? 'card' : 'line';
+      // v2 since 2026-11-26: everyone starts once on On line.
+      return localStorage.getItem('dhvani.stretchView.v2') === 'card' ? 'card' : 'line';
     } catch {
       return 'line';
     }
@@ -1897,7 +1898,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const changeStretchView = (view: 'line' | 'card') => {
     setStretchView(view);
     try {
-      localStorage.setItem('dhvani.stretchView', view);
+      localStorage.setItem('dhvani.stretchView.v2', view);
     } catch {
       /* Storage off: the choice lasts until the app closes. */
     }
@@ -3355,6 +3356,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       setStretchDraft={setStretchDraft}
                       layers={layers}
                       rateMarks={stretchView === 'card' ? 'drag' : 'always'}
+                      segments={segments}
                     />
                   )
                 : undefined
@@ -3413,7 +3415,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   )
                 : undefined
             }
-            // Bars: under the waveform, the original in chunks cut where Sync cuts the dub, each as long as its words.
+            // Bars: under the waveform, the original in chunks split at every pause its speaker makes, each as long as its words.
             sourceRow={
               linePreview && !hearingDub && !awaitingScript && laneView === 'bars'
                 ? ({ start, span, layers }) => (

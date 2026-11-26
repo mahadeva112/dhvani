@@ -52,7 +52,10 @@ const flush = () => {
   });
   // The full size first: most lines fit at it, and are done in this round.
   let open = todo.filter((t) => {
-    if (!overflows(t.fit)) return false;
+    if (!overflows(t.fit)) {
+      t.lo = t.hi;
+      return false;
+    }
     t.hi -= 1;
     return t.hi > t.lo;
   });
