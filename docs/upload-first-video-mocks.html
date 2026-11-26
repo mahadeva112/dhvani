@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Upload First Mocks</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          slate: { 50:'#f6f6f7',100:'#ececef',200:'#dcdde1',300:'#c6c8ce',400:'#abadb5',500:'#8b8e98',600:'#5a5d66',700:'#34363c',800:'#232529',900:'#18191c',950:'#111214' },
+          indigo: { 300:'#a5adf5',400:'#7b86ec',500:'#5866e0',600:'#4c59d0',950:'#23253a' },
+          edge: '#27292d',
+        },
+      },
+    },
+  };
+</script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#0b0c0e; font-family: Inter, system-ui, "Noto Sans Devanagari", "Noto Sans Bengali", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .sw { width:34px; height:19px; border-radius:999px; background:#34363c; position:relative; flex-shrink:0; display:inline-block; }
+  .sw::after { content:''; position:absolute; top:3px; left:3px; width:13px; height:13px; border-radius:50%; background:#fff; }
+  .sw.on { background:#5866e0; } .sw.on::after { left:18px; }
+  .pop { box-shadow: 0 24px 60px -12px rgba(0,0,0,.85); }
+  .film { background: linear-gradient(135deg,#1d2a33 0%,#2b2233 55%,#3a2a1f 100%); }
+  .dash { background-image: url("data:image/svg+xml,%3csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='100%25' height='100%25' fill='none' rx='18' ry='18' stroke='%235a5d66' stroke-width='2' stroke-dasharray='8%2c 9' stroke-linecap='round'/%3e%3c/svg%3e"); }
+  .seg button.on { background:#5866e0; color:#fff; }
+  .frame { display:none } .frame.on { display:block }
+  .mock { display:none } .mock.on { display:block }
+  button, select { cursor:default; }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6">
+
+<div class="max-w-[90rem] mx-auto mb-3 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+  <span class="seg inline-flex rounded-lg border border-edge overflow-hidden" id="mockSeg">
+    <button data-m="a" class="on px-3 py-1.5">A · Upload, তারপর এক কলাম</button>
+    <button data-m="b" class="px-3 py-1.5">B · ভিডিও মাঝখানে</button>
+    <button data-m="c" class="px-3 py-1.5">C · Simora-র মতো</button>
+  </span>
+  <span class="seg inline-flex rounded-lg border border-edge overflow-hidden" id="frameSeg">
+    <button data-f="1" class="on px-3 py-1.5">১ · Upload</button>
+    <button data-f="2" class="px-3 py-1.5">২ · Voice ও বাকি</button>
+    <button data-f="3" class="px-3 py-1.5">৩ · ভিডিও দেখে Review + Export</button>
+  </span>
+</div>
+<p id="note" class="max-w-[90rem] mx-auto mb-3 text-[13px] text-slate-400"></p>
+
+<!-- App shell -->
+<div class="max-w-[90rem] mx-auto rounded-2xl border border-edge bg-slate-950 overflow-hidden">
+  <header class="h-14 px-4 flex items-center gap-3 border-b border-edge bg-slate-900/60">
+    <div class="w-8 h-8 rounded-lg bg-indigo-500 grid place-items-center text-white text-sm font-bold">D</div>
+    <div class="leading-tight"><div class="font-semibold text-[14px]">Dhvani</div><div class="text-[10.5px] text-slate-500">Dubbing studio</div></div>
+    <div id="hdrFile" class="ml-3 text-[12.5px] text-slate-400"></div>
+    <div class="ml-auto flex items-center gap-2 text-[12.5px]">
+      <span class="px-3 py-1.5 rounded-lg border border-edge text-slate-300">Projects <span class="ml-1 px-1.5 rounded bg-indigo-500 text-white text-[11px]">23</span></span>
+      <span class="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-900 font-medium">+ New dub</span>
+    </div>
+  </header>
+
+  <!-- ===================== MOCK A ===================== -->
+  <div class="mock on" id="mock-a">
+    <!-- A1: only upload -->
+    <div class="frame on" data-f="1">
+      <div class="min-h-[640px] grid place-items-center p-8">
+        <div class="w-full max-w-3xl">
+          <div class="dash rounded-[18px] px-8 py-16 text-center bg-slate-900/40">
+            <div class="mx-auto w-14 h-14 rounded-2xl bg-indigo-500/15 text-indigo-300 grid place-items-center text-2xl">⇪</div>
+            <div class="mt-5 text-[22px] font-semibold">Drop your audio or video</div>
+            <div class="mt-1.5 text-[13.5px] text-slate-400">MP4 · MOV · MKV · WAV · MP3 · M4A — video stays with the project for review and export</div>
+            <div class="mt-6 inline-flex gap-2">
+              <span class="px-4 py-2 rounded-lg bg-indigo-500 text-white text-[13.5px] font-medium">Choose file</span>
+              <span class="px-4 py-2 rounded-lg border border-edge text-slate-300 text-[13.5px]">Open .dhvani project</span>
+            </div>
+          </div>
+          <div class="mt-4 text-center text-[12px] text-slate-500">Nothing else on this screen until a file is in.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- A2: after upload, one column -->
+    <div class="frame" data-f="2">
+      <div class="min-h-[640px] p-6">
+        <div class="max-w-3xl mx-auto">
+          <!-- file row -->
+          <div class="flex items-center gap-4 rounded-xl border border-edge bg-slate-900 p-3">
+            <div class="film w-36 h-20 rounded-lg relative grid place-items-center text-white/80 text-xl">▶<span class="absolute bottom-1 right-1.5 mono text-[10px] bg-black/60 px-1 rounded">1:21</span></div>
+            <div class="min-w-0">
+              <div class="font-medium text-[14px] truncate">sadhguru wants to meet shivaji.mp4</div>
+              <div class="mono text-[11.5px] text-slate-500 mt-0.5">1920×1080 · 25 fps · 1:21 · 48 MB</div>
+              <div class="mt-1.5 text-[11.5px] text-emerald-400">✓ Video kept for review and video export</div>
+            </div>
+            <span class="ml-auto px-3 py-1.5 rounded-lg border border-edge text-[12.5px] text-slate-300">Replace</span>
+          </div>
+
+          <!-- 1. dub into -->
+          <div class="mt-5 rounded-xl border border-edge bg-slate-900 divide-y divide-edge">
+            <div class="p-4 flex items-center gap-4">
+              <div class="w-6 h-6 rounded-full bg-indigo-500 text-white text-[12px] grid place-items-center">1</div>
+              <div class="text-[14px] font-medium w-32">Dub into</div>
+              <span class="px-3 py-2 rounded-lg border border-edge bg-slate-950 text-[13.5px] w-56 flex justify-between">Hindi (हिन्दी) <span class="text-slate-500">▾</span></span>
+              <span class="text-[12px] text-slate-500">Spoken in: Auto detect</span>
+            </div>
+            <!-- 2. voice -->
+            <div class="p-4">
+              <div class="flex items-center gap-4">
+                <div class="w-6 h-6 rounded-full bg-indigo-500 text-white text-[12px] grid place-items-center">2</div>
+                <div class="text-[14px] font-medium w-32">Voice</div>
+                <div class="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border border-indigo-500/60 bg-slate-950 text-[13.5px]">
+                  <span class="text-slate-500">⌕</span><span class="text-slate-200">sadh</span><span class="w-px h-4 bg-indigo-300 animate-pulse"></span>
+                  <span class="ml-auto text-[11px] text-slate-500">5,378 voices</span>
+                </div>
+              </div>
+              <div class="ml-[10.5rem] mt-2 rounded-lg border border-edge bg-slate-950 divide-y divide-edge text-[13px]">
+                <div class="px-3 py-2 flex items-center gap-3 bg-indigo-500/10"><span class="w-6 h-6 rounded-full bg-violet-500 grid place-items-center text-[11px]">S</span><b class="font-medium">Sadhguru Hindi</b><span class="text-slate-500">Clip clone</span><span class="ml-auto text-slate-400">▶ Hear</span><span class="text-indigo-300">✓</span></div>
+                <div class="px-3 py-2 flex items-center gap-3"><span class="w-6 h-6 rounded-full bg-sky-500 grid place-items-center text-[11px]">S</span>Sadhguru Bangla Voice 1<span class="ml-auto text-slate-400">▶ Hear</span></div>
+                <div class="px-3 py-2 flex items-center gap-3"><span class="w-6 h-6 rounded-full bg-fuchsia-500 grid place-items-center text-[11px]">S</span>Swami Tushya<span class="text-slate-500">Cloned</span><span class="ml-auto text-slate-400">▶ Hear</span></div>
+              </div>
+              <div class="ml-[10.5rem] mt-2 flex flex-wrap gap-1.5 text-[11.5px] text-slate-400">Recent:
+                <span class="px-2 py-0.5 rounded-full border border-edge">Aarush</span><span class="px-2 py-0.5 rounded-full border border-edge">Neha P</span><span class="px-2 py-0.5 rounded-full border border-edge">KK BANGLA</span>
+              </div>
+            </div>
+            <!-- 3. speakers -->
+            <div class="p-4 flex items-center gap-4">
+              <div class="w-6 h-6 rounded-full bg-indigo-500 text-white text-[12px] grid place-items-center">3</div>
+              <div class="text-[14px] font-medium w-32">Speakers</div>
+              <span class="inline-flex rounded-lg border border-edge overflow-hidden text-[12.5px]"><span class="px-3 py-1.5 bg-indigo-500 text-white">Auto</span><span class="px-3 py-1.5">1</span><span class="px-3 py-1.5">2</span><span class="px-3 py-1.5">3</span><span class="px-3 py-1.5">4+</span></span>
+              <span class="text-[12px] text-slate-500">Each speaker gets a voice after transcription</span>
+            </div>
+            <!-- more -->
+            <div class="px-4 py-3 text-[12.5px] text-slate-400 flex items-center gap-2">
+              <span>▸ More options</span><span class="text-slate-600">Spoken in · ElevenLabs / Cartesia · Indian voices only · Favourites · filters</span>
+            </div>
+          </div>
+
+          <div class="mt-5 flex items-center justify-end gap-3">
+            <span class="text-[12px] text-slate-500">Transcription uses a few credits</span>
+            <span class="px-5 py-2.5 rounded-lg bg-indigo-500 text-white font-medium text-[14px]">Transcribe →</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- A3: review with video + export menu -->
+    <div class="frame" data-f="3">
+      <div class="min-h-[640px] p-5 grid grid-cols-[1fr_1.15fr] gap-4">
+        <div>
+          <div class="film aspect-video rounded-xl relative grid place-items-center">
+            <span class="w-14 h-14 rounded-full bg-black/50 grid place-items-center text-2xl">▶</span>
+            <div class="absolute bottom-10 inset-x-0 text-center"><span class="bg-black/70 px-2 py-0.5 rounded text-[15px]">सद्गुरु जी, अगर आप शिवाजी से मिलते…</span></div>
+            <div class="absolute bottom-0 inset-x-0 h-8 bg-black/50 rounded-b-xl flex items-center gap-3 px-3 text-[11.5px]">
+              <span>▶</span><span class="mono">0:12 / 1:21</span>
+              <div class="flex-1 h-1 rounded bg-slate-600"><div class="w-[15%] h-1 rounded bg-indigo-400"></div></div>
+              <span class="inline-flex rounded border border-white/20 overflow-hidden"><span class="px-1.5 bg-indigo-500">Dub</span><span class="px-1.5">Original</span></span>
+              <span>⤢</span>
+            </div>
+          </div>
+          <div class="mt-2 text-[11.5px] text-slate-500">Video sits beside the lines from the start — no second pick. ⤢ pops it into its own window.</div>
+        </div>
+        <div class="relative rounded-xl border border-edge bg-slate-900">
+          <div class="h-11 px-3 flex items-center gap-2 border-b border-edge text-[12.5px]">
+            <b class="font-medium">Review</b><span class="text-slate-500">25 lines</span>
+            <span class="ml-auto px-3 py-1.5 rounded-lg bg-indigo-500 text-white">Export ▾</span>
+          </div>
+          <div class="divide-y divide-edge text-[13px]">
+            <div class="px-3 py-2.5 bg-indigo-500/10"><span class="mono text-[11px] text-slate-500 mr-2">0:10</span>सद्गुरु जी, अगर आप शिवाजी से मिलते…</div>
+            <div class="px-3 py-2.5"><span class="mono text-[11px] text-slate-500 mr-2">0:15</span>तो आप उनसे क्या पूछते?</div>
+            <div class="px-3 py-2.5"><span class="mono text-[11px] text-slate-500 mr-2">0:19</span>मैं उनसे कुछ नहीं पूछता…</div>
+            <div class="px-3 py-2.5"><span class="mono text-[11px] text-slate-500 mr-2">0:24</span>उनका समय अलग था।</div>
+          </div>
+          <!-- export dropdown -->
+          <div class="pop absolute right-3 top-12 w-80 rounded-xl border border-edge bg-slate-900 p-1.5 text-[13px]">
+            <div class="px-3 py-2.5 rounded-lg bg-indigo-500/15">
+              <div class="font-medium">🎬 Dubbed video (MP4)</div>
+              <div class="text-[11.5px] text-slate-400 mt-0.5">Original picture, Hindi dub sound. Picture is copied, not re-encoded.</div>
+            </div>
+            <div class="px-3 py-2.5 rounded-lg"><div>Dub audio (WAV 48 kHz)</div></div>
+            <div class="px-3 py-2.5 rounded-lg"><div>Subtitles (SRT)</div></div>
+            <div class="px-3 py-2.5 rounded-lg"><div>For DaVinci Resolve…</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== MOCK B ===================== -->
+  <div class="mock" id="mock-b">
+    <!-- B1 -->
+    <div class="frame on" data-f="1">
+      <div class="min-h-[640px] p-8 grid place-items-center">
+        <div class="w-full max-w-4xl">
+          <div class="dash rounded-[18px] aspect-[16/7] grid place-items-center bg-slate-900/40">
+            <div class="text-center">
+              <div class="text-[40px] text-slate-500">▶</div>
+              <div class="mt-2 text-[20px] font-semibold">Drop a video or audio here</div>
+              <div class="mt-1 text-[13px] text-slate-400">It plays right here once dropped</div>
+              <span class="mt-5 inline-block px-4 py-2 rounded-lg bg-indigo-500 text-white text-[13.5px] font-medium">Choose file</span>
+            </div>
+          </div>
+          <div class="mt-5 text-[11.5px] uppercase tracking-wide text-slate-500">Recent projects</div>
+          <div class="mt-2 grid grid-cols-3 gap-3 text-[12.5px]">
+            <div class="rounded-lg border border-edge bg-slate-900 p-2.5 flex gap-2.5 items-center"><div class="film w-14 h-9 rounded"></div><div><div class="truncate">Shivaji talk</div><div class="text-slate-500 text-[11px]">Hindi · dubbed</div></div></div>
+            <div class="rounded-lg border border-edge bg-slate-900 p-2.5 flex gap-2.5 items-center"><div class="film w-14 h-9 rounded"></div><div><div class="truncate">Inner Engineering 3</div><div class="text-slate-500 text-[11px]">Bangla · review</div></div></div>
+            <div class="rounded-lg border border-edge bg-slate-900 p-2.5 flex gap-2.5 items-center"><div class="w-14 h-9 rounded bg-slate-800 grid place-items-center text-slate-500">♪</div><div><div class="truncate">Podcast 12</div><div class="text-slate-500 text-[11px]">Tamil · transcript</div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- B2 -->
+    <div class="frame" data-f="2">
+      <div class="min-h-[640px] p-5 grid grid-cols-[1fr_360px] gap-4">
+        <div>
+          <div class="film aspect-video rounded-xl relative grid place-items-center">
+            <span class="w-16 h-16 rounded-full bg-black/50 grid place-items-center text-3xl">▶</span>
+            <div class="absolute top-3 left-3 text-[12px] bg-black/60 px-2 py-1 rounded">sadhguru wants to meet shivaji.mp4 · <span class="mono">1:21</span></div>
+            <span class="absolute top-3 right-3 text-[12px] bg-black/60 px-2 py-1 rounded">Replace</span>
+          </div>
+          <div class="mt-3 h-12 rounded-lg bg-slate-900 border border-edge flex items-center px-2 gap-[2px] overflow-hidden">
+            <script>document.write(Array.from({length:150},(_,i)=>`<span style="width:3px;height:${6+Math.abs(Math.sin(i*1.7)*Math.cos(i*.31))*30}px" class="rounded-sm ${i<22?'bg-indigo-400':'bg-teal-500/70'}"></span>`).join(''))</script>
+          </div>
+        </div>
+        <aside class="rounded-xl border border-edge bg-slate-900 flex flex-col">
+          <div class="p-4 border-b border-edge">
+            <div class="text-[11.5px] text-slate-500 mb-1.5">Dub into</div>
+            <span class="px-3 py-2 rounded-lg border border-edge bg-slate-950 text-[13.5px] flex justify-between">Hindi (हिन्दी) <span class="text-slate-500">▾</span></span>
+          </div>
+          <div class="p-4 border-b border-edge flex-1">
+            <div class="text-[11.5px] text-slate-500 mb-1.5">Voice</div>
+            <div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-edge bg-slate-950 text-[13px] text-slate-500">⌕ Search 5,378 voices</div>
+            <div class="mt-2 inline-flex rounded-lg border border-edge overflow-hidden text-[11.5px]"><span class="px-2.5 py-1 bg-indigo-500 text-white">All</span><span class="px-2.5 py-1">Female</span><span class="px-2.5 py-1">Male</span><span class="px-2.5 py-1">Mine</span></div>
+            <div class="mt-3 space-y-1.5 text-[13px]">
+              <div class="px-2.5 py-2 rounded-lg border border-indigo-500/60 bg-indigo-500/10 flex items-center gap-2.5"><span class="w-7 h-7 rounded-full bg-violet-500 grid place-items-center text-[11px]">S</span><div><div>Sadhguru Hindi</div><div class="text-[11px] text-slate-500">Clip clone · Hindi</div></div><span class="ml-auto text-indigo-300">✓</span></div>
+              <div class="px-2.5 py-2 rounded-lg border border-edge flex items-center gap-2.5"><span class="w-7 h-7 rounded-full bg-fuchsia-500 grid place-items-center text-[11px]">S</span><div><div>Swami Tushya</div><div class="text-[11px] text-slate-500">Cloned</div></div><span class="ml-auto text-slate-500">▶</span></div>
+              <div class="px-2.5 py-2 rounded-lg border border-edge flex items-center gap-2.5"><span class="w-7 h-7 rounded-full bg-sky-500 grid place-items-center text-[11px]">A</span><div><div>Aaditya Kapur</div><div class="text-[11px] text-slate-500">Calm · Male</div></div><span class="ml-auto text-slate-500">▶</span></div>
+              <div class="px-2.5 py-2 rounded-lg border border-edge flex items-center gap-2.5"><span class="w-7 h-7 rounded-full bg-emerald-500 grid place-items-center text-[11px]">A</span><div><div>Aarohi</div><div class="text-[11px] text-slate-500">Narrator · Female</div></div><span class="ml-auto text-slate-500">▶</span></div>
+            </div>
+            <div class="mt-2 text-[11.5px] text-indigo-300">See all voices ›</div>
+          </div>
+          <div class="p-4 border-b border-edge flex items-center justify-between text-[13px]">
+            <span>Speakers</span>
+            <span class="inline-flex rounded-lg border border-edge overflow-hidden text-[12px]"><span class="px-2.5 py-1 bg-indigo-500 text-white">Auto</span><span class="px-2.5 py-1">1</span><span class="px-2.5 py-1">2</span><span class="px-2.5 py-1">3+</span></span>
+          </div>
+          <div class="px-4 py-2.5 border-b border-edge text-[12.5px] text-slate-400">⚙ More options ›</div>
+          <div class="p-4"><span class="block text-center px-4 py-2.5 rounded-lg bg-indigo-500 text-white font-medium">Transcribe →</span></div>
+        </aside>
+      </div>
+    </div>
+
+    <!-- B3 -->
+    <div class="frame" data-f="3">
+      <div class="min-h-[640px] p-5 relative">
+        <div class="grid grid-cols-[1fr_330px] gap-4">
+          <div class="film aspect-video rounded-xl relative grid place-items-center">
+            <span class="w-14 h-14 rounded-full bg-black/50 grid place-items-center text-2xl">▶</span>
+            <div class="absolute bottom-10 inset-x-0 text-center"><span class="bg-black/70 px-2 py-0.5 rounded text-[15px]">तो आप उनसे क्या पूछते?</span></div>
+          </div>
+          <div class="rounded-xl border border-edge bg-slate-900 text-[13px] divide-y divide-edge">
+            <div class="px-3 py-2.5 text-slate-400 text-[12px]">Lines · 25</div>
+            <div class="px-3 py-2.5">सद्गुरु जी, अगर आप शिवाजी से मिलते…</div>
+            <div class="px-3 py-2.5 bg-indigo-500/10">तो आप उनसे क्या पूछते?</div>
+            <div class="px-3 py-2.5">मैं उनसे कुछ नहीं पूछता…</div>
+          </div>
+        </div>
+        <div class="mt-3 rounded-lg border border-edge bg-slate-900 p-2 space-y-1.5">
+          <div class="h-6 rounded bg-slate-800 flex gap-1 px-1 items-center"><span class="text-[10px] text-slate-500 w-14">Original</span><span class="h-4 w-20 rounded bg-teal-600/50"></span><span class="h-4 w-32 rounded bg-teal-600/50"></span><span class="h-4 w-24 rounded bg-teal-600/50"></span></div>
+          <div class="h-6 rounded bg-slate-800 flex gap-1 px-1 items-center"><span class="text-[10px] text-slate-500 w-14">Dub</span><span class="h-4 w-20 rounded bg-indigo-500/60"></span><span class="h-4 w-28 rounded bg-indigo-500/80 ring-1 ring-indigo-300"></span><span class="h-4 w-24 rounded bg-indigo-500/60"></span></div>
+        </div>
+        <!-- export window -->
+        <div class="pop absolute left-1/2 top-16 -translate-x-1/2 w-[440px] rounded-2xl border border-edge bg-slate-900">
+          <div class="px-5 py-3.5 border-b border-edge flex items-center"><b class="font-medium">Export dubbed video</b><span class="ml-auto text-slate-500">✕</span></div>
+          <div class="p-5 space-y-4 text-[13px]">
+            <div class="flex items-center justify-between"><span>Picture</span><span class="text-slate-400">Original, copied as is</span></div>
+            <div class="flex items-center justify-between"><span>Sound</span><span class="inline-flex rounded-lg border border-edge overflow-hidden text-[12px]"><span class="px-2.5 py-1 bg-indigo-500 text-white">Hindi dub</span><span class="px-2.5 py-1">Dub + original as 2nd track</span></span></div>
+            <div class="flex items-center justify-between"><span>Subtitles</span><span class="inline-flex rounded-lg border border-edge overflow-hidden text-[12px]"><span class="px-2.5 py-1 bg-indigo-500 text-white">Off</span><span class="px-2.5 py-1">As a track</span></span></div>
+            <div class="flex items-center justify-between"><span>File</span><span class="inline-flex rounded-lg border border-edge overflow-hidden text-[12px]"><span class="px-2.5 py-1 bg-indigo-500 text-white">MP4 · AAC 320k</span><span class="px-2.5 py-1">MOV · WAV sound</span></span></div>
+            <div class="text-[11.5px] text-slate-500">MP4 needs AAC sound. Pick MOV to keep the dub sound bit-exact.</div>
+          </div>
+          <div class="px-5 py-3.5 border-t border-edge flex justify-end gap-2"><span class="px-3 py-1.5 rounded-lg border border-edge">Cancel</span><span class="px-4 py-1.5 rounded-lg bg-indigo-500 text-white">Export</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== MOCK C (Simora-like) ===================== -->
+  <div class="mock" id="mock-c">
+    <!-- C1: one card -->
+    <div class="frame on" data-f="1">
+      <div class="min-h-[640px] p-8 grid place-items-center">
+        <div class="w-full max-w-2xl rounded-2xl border border-edge bg-slate-900 overflow-hidden">
+          <div class="p-5">
+            <div class="text-[18px] font-semibold">Dub a video</div>
+            <div class="text-[12.5px] text-slate-400 mt-0.5">Drop it in, pick a language, get the dubbed video back.</div>
+          </div>
+          <div class="px-5">
+            <div class="film aspect-video rounded-xl relative grid place-items-center">
+              <span class="w-12 h-12 rounded-full bg-black/50 grid place-items-center text-xl">▶</span>
+              <div class="absolute top-2 left-2 text-[11.5px] bg-black/60 px-2 py-0.5 rounded">sadhguru wants to meet shivaji.mp4 · <span class="mono">1:21</span></div>
+              <span class="absolute top-2 right-2 text-[11.5px] bg-black/60 px-2 py-0.5 rounded">Replace</span>
+            </div>
+          </div>
+          <div class="p-5 grid grid-cols-2 gap-3 text-[13px]">
+            <div>
+              <div class="text-[11.5px] text-slate-500 mb-1">From</div>
+              <span class="px-3 py-2 rounded-lg border border-edge bg-slate-950 flex justify-between">English (detected) <span class="text-slate-500">▾</span></span>
+            </div>
+            <div>
+              <div class="text-[11.5px] text-slate-500 mb-1">To</div>
+              <span class="px-3 py-2 rounded-lg border border-indigo-500/60 bg-slate-950 flex justify-between">Hindi (हिन्दी) <span class="text-slate-500">▾</span></span>
+            </div>
+            <div class="col-span-2">
+              <div class="text-[11.5px] text-slate-500 mb-1">Voice</div>
+              <div class="grid grid-cols-2 gap-2">
+                <div class="px-3 py-2.5 rounded-lg border border-indigo-500/60 bg-indigo-500/10">
+                  <div class="font-medium">Speaker's own voice</div>
+                  <div class="text-[11.5px] text-slate-400">Cloned from this video · each speaker</div>
+                </div>
+                <div class="px-3 py-2.5 rounded-lg border border-edge flex items-center gap-2 text-slate-400">⌕ Pick a voice <span class="ml-auto text-[11px]">5,378</span></div>
+              </div>
+            </div>
+            <div class="col-span-2 flex items-center gap-6 pt-1">
+              <label class="flex items-center gap-2"><span class="sw on"></span>Hindi captions</label>
+              <label class="flex items-center gap-2"><span class="sw"></span>Keep background sound</label>
+              <span class="ml-auto text-[12px] text-slate-400">Speakers: Auto ▾</span>
+            </div>
+          </div>
+          <div class="px-5 py-4 border-t border-edge flex items-center">
+            <span class="text-[12px] text-slate-500">About 2,400 credits · ~3 min</span>
+            <span class="ml-auto px-6 py-2.5 rounded-lg bg-indigo-500 text-white font-medium text-[14px]">Dub video →</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- C2: progress -->
+    <div class="frame" data-f="2">
+      <div class="min-h-[640px] p-8 grid place-items-center">
+        <div class="w-full max-w-xl rounded-2xl border border-edge bg-slate-900 p-6">
+          <div class="flex gap-4 items-center">
+            <div class="film w-40 aspect-video rounded-lg"></div>
+            <div><div class="font-medium">Dubbing into Hindi…</div><div class="text-[12.5px] text-slate-400 mt-0.5">You can leave this screen; it keeps going.</div></div>
+          </div>
+          <div class="mt-5 h-2 rounded bg-slate-800"><div class="h-2 w-[58%] rounded bg-indigo-500"></div></div>
+          <div class="mt-5 space-y-2.5 text-[13px]">
+            <div class="flex gap-2"><span class="text-emerald-400">✓</span>Heard the speech <span class="ml-auto text-slate-500 mono">25 lines · 2 speakers</span></div>
+            <div class="flex gap-2"><span class="text-emerald-400">✓</span>Cloned the voices</div>
+            <div class="flex gap-2"><span class="text-emerald-400">✓</span>Translated to Hindi</div>
+            <div class="flex gap-2"><span class="text-indigo-300">●</span>Speaking the lines <span class="ml-auto text-slate-500 mono">14 / 25</span></div>
+            <div class="flex gap-2 text-slate-500"><span>○</span>Fitting to the picture</div>
+            <div class="flex gap-2 text-slate-500"><span>○</span>Making the video</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- C3: result -->
+    <div class="frame" data-f="3">
+      <div class="min-h-[640px] p-5">
+        <div class="flex items-center gap-2 mb-3 text-[13px]">
+          <span class="inline-flex rounded-lg border border-edge overflow-hidden"><span class="px-3 py-1.5">English</span><span class="px-3 py-1.5 bg-indigo-500 text-white">Hindi</span><span class="px-3 py-1.5 text-slate-500">+ Language</span></span>
+          <span class="ml-auto px-3 py-1.5 rounded-lg border border-edge text-slate-300">Pro editor</span>
+          <span class="px-4 py-1.5 rounded-lg bg-indigo-500 text-white font-medium">⤓ Download video</span>
+        </div>
+        <div class="grid grid-cols-[1fr_380px] gap-4">
+          <div>
+            <div class="film aspect-video rounded-xl relative grid place-items-center">
+              <span class="w-14 h-14 rounded-full bg-black/50 grid place-items-center text-2xl">▶</span>
+              <div class="absolute bottom-10 inset-x-0 text-center"><span class="bg-black/70 px-2 py-0.5 rounded text-[16px]">तो आप उनसे क्या पूछते?</span></div>
+              <div class="absolute bottom-0 inset-x-0 h-8 bg-black/50 rounded-b-xl flex items-center gap-3 px-3 text-[11.5px]"><span>▶</span><span class="mono">0:15 / 1:21</span><div class="flex-1 h-1 rounded bg-slate-600"><div class="w-[19%] h-1 rounded bg-indigo-400"></div></div><span>CC</span><span>⤢</span></div>
+            </div>
+          </div>
+          <div class="rounded-xl border border-edge bg-slate-900 text-[13px] flex flex-col">
+            <div class="px-3 py-2.5 border-b border-edge text-[12px] text-slate-400 flex">Script · 25 lines<span class="ml-auto">2 need a look</span></div>
+            <div class="divide-y divide-edge">
+              <div class="px-3 py-2.5"><div class="text-[11px] text-slate-500 mono">0:10 · Speaker 2</div>सद्गुरु जी, अगर आप शिवाजी से मिलते…</div>
+              <div class="px-3 py-2.5 bg-indigo-500/10 ring-1 ring-inset ring-indigo-500/50">
+                <div class="text-[11px] text-slate-500 mono">0:15 · Speaker 1</div>
+                <div class="mt-0.5 rounded border border-indigo-500/50 bg-slate-950 px-2 py-1">तो आप उनसे क्या पूछते?</div>
+                <div class="mt-1.5 flex gap-2 text-[11.5px]"><span class="px-2 py-0.5 rounded bg-indigo-500 text-white">Re-dub this line</span><span class="px-2 py-0.5 rounded border border-edge">▶ Hear</span><span class="px-2 py-0.5 rounded border border-edge">Voice ▾</span></div>
+              </div>
+              <div class="px-3 py-2.5"><div class="text-[11px] text-slate-500 mono">0:19 · Speaker 2</div>मैं उनसे कुछ नहीं पूछता… <span class="ml-1 text-[11px] text-amber-300">● long</span></div>
+              <div class="px-3 py-2.5"><div class="text-[11px] text-slate-500 mono">0:24 · Speaker 2</div>उनका समय अलग था।</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const notes = {
+    a1: 'A১ — শুধু একটা বড় drop জায়গা। ফাইল না দেওয়া পর্যন্ত আর কিছু নেই।',
+    a2: 'A২ — ফাইল আসার পর এক কলামে ৩টা ধাপ: ভাষা → Voice খোঁজা (টাইপ করলেই তালিকা) → Speakers। বাকি সব "More options"-এর ভেতরে।',
+    a3: 'A৩ — Review-এ ভিডিও শুরু থেকেই পাশে (আলাদা করে আর বাছতে হবে না)। Export-এ নতুন "Dubbed video (MP4)"।',
+    b1: 'B১ — ভিডিওর মাপের drop জায়গা, নিচে সাম্প্রতিক প্রজেক্ট।',
+    b2: 'B২ — ফাইল দিলেই ওখানেই ভিডিও চলে; ডানদিকে সরু প্যানেলে ভাষা, Voice খোঁজা, Speakers, Transcribe।',
+    b3: 'B৩ — বড় ভিডিও + নিচে Original/Dub lane। Export window-এ Picture/Sound/Subtitles/File বেছে নেওয়া।',
+    c1: 'C১ — একটাই কার্ড: ভিডিও দিন, ভাষা বাছুন, Voice = বক্তার নিজের গলা (clone) বা খুঁজে নিন, Captions চালু/বন্ধ → Dub। মাঝের সব ধাপ (transcribe, translate, sync) অ্যাপ নিজে করবে।',
+    c2: 'C২ — শুধু অগ্রগতি। কোনো সেটিং নেই।',
+    c3: 'C৩ — তৈরি ভিডিও মাঝখানে চলে, ডানদিকে লাইন — লেখা বদলালে শুধু সেই লাইন আবার dub। উপরে Download video। বিস্তারিত এডিট (Edit timing, Takes) "Pro editor"-এর পেছনে।',
+  };
+  let m = 'a', f = '1';
+  function show() {
+    document.querySelectorAll('.mock').forEach(el => el.classList.toggle('on', el.id === 'mock-' + m));
+    document.querySelectorAll('#mock-' + m + ' .frame').forEach(el => el.classList.toggle('on', el.dataset.f === f));
+    document.querySelectorAll('#mockSeg button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
+    document.querySelectorAll('#frameSeg button').forEach(b => b.classList.toggle('on', b.dataset.f === f));
+    document.getElementById('note').textContent = notes[m + f];
+    document.getElementById('hdrFile').textContent = f === '1' ? '' : 'sadhguru wants to meet shivaji · English → Hindi';
+  }
+  document.querySelectorAll('#mockSeg button').forEach(b => b.onclick = () => { m = b.dataset.m; show(); });
+  document.querySelectorAll('#frameSeg button').forEach(b => b.onclick = () => { f = b.dataset.f; show(); });
+  show();
+</script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AudioWaveform, Check, ClockAlert, Headphones, Merge, RotateCcw, Scissors, Undo2 } from 'lucide-react';
+import { AudioWaveform, Check, ClockAlert, FoldVertical, Headphones, Pencil, RotateCcw, Trash2, Undo2, Users } from 'lucide-react';
 import type { AudioSegment } from '../types';
 import {
   cutNearTime,
@@ -13,6 +13,8 @@ import {
   textWords,
   transcriptText,
 } from '../services/transcriptSegments';
+import { withSourceWords } from '../services/transcriptEdit';
+import { Select } from './Select';
 import { scrollWithin } from './scrollWithin';
 import { useWindowRows } from './useWindowRows';
 
@@ -63,9 +65,11 @@ interface TranscriptSegmentEditorProps {
 }
 
 /**
- * Splitting and merging the transcript's segments before it is translated.
- * Changes are made on a copy with their own undo, and reach the project only
- * on Apply, so the transcript and everything after it always share one cut.
+ * The transcript's one editor, before it is translated: type in a line, split
+ * it between two words, join it with the next, change who speaks it, or remove
+ * it. Changes are made on a copy with their own undo, and reach the project
+ * only on Save, as one Undo step, so the transcript and everything after it
+ * always share one cut.
  */
 export const TranscriptSegmentEditor: React.FC<TranscriptSegmentEditorProps> = ({
   segments,
@@ -82,6 +86,12 @@ export const TranscriptSegmentEditor: React.FC<TranscriptSegmentEditorProps> = (
   const [pending, setPending] = useState<PendingSplit | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [changedIds, setChangedIds] = useState<Set<string>>(new Set());
+  /** The line being typed in, and its text so far. */
+  const [typing, setTyping] = useState<{ id: string; text: string } | null>(null);
+  /** The undo depth at the first change to the words; null while only cuts changed, so the text check still applies. */
+  const [wordsChangedAt, setWordsChangedAt] = useState<number | null>(null);
+  /** The gap pointed at: the line above it and the one below light up together. */
+  const [seamAt, setSeamAt] = useState<number | null>(null);
   const counter = useRef(0);
   /** The segment a split or S just worked on, scrolled into view so the change is seen. */
   const [shownId, setShownId] = useState<string | null>(null);
@@ -109,7 +119,17 @@ export const TranscriptSegmentEditor: React.FC<TranscriptSegmentEditorProps> = (
   const canReset = !sameCuts(resetSegments(resetBase, draft), draft);
   const changes = past.length;
 
-  const commit = (next: AudioSegment[], touched: (string | number)[], message: string | null) => {
+  const speakers = useMemo(() => {
+    const names: string[] = [];
+    for (const seg of draft) {
+      const name = (seg.speaker || '').trim();
+      if (name && !names.includes(name)) names.push(name);
+    }
+    return names;
+  }, [draft]);
+
+  const commit = (next: AudioSegment[], touched: (string | number)[], message: string | null, wordsChange = false) => {
+    if (wordsChange && wordsChangedAt === null) setWordsChangedAt(past.length);
     setPast((p) => [...p, draft]);
     setDraft(next);
     setPending(null);
@@ -204,26 +224,57 @@ export const TranscriptSegmentEditor: React.FC<TranscriptSegmentEditorProps> = (
     if (blocked) return setNotice(`${blocked} Change one speaker first to merge them.`);
     const next = [...draft];
     next.splice(index, 2, mergeSegments(a, b));
-    commit(next, [a.id], `Merged ${String(index + 1).padStart(2, '0')} and ${String(index + 2).padStart(2, '0')}.`);
+    setSeamAt(null);
+    commit(next, [a.id], `Joined ${String(index + 1).padStart(2, '0')} and ${String(index + 2).padStart(2, '0')}.`);
+  };
+
+  /** New words for a line; emptied out, the line is removed, as a line with no words can't be dubbed. */
+  const saveWords = (id: string, text: string) => {
+    setTyping(null);
+    const index = draft.findIndex((s) => String(s.id) === id);
+    if (index < 0) return;
+    const clean = text.replace(/\s+/g, ' ').trim();
+    if (!clean) return remove(index);
+    const seg = draft[index];
+    if (clean === sourceOf(seg).replace(/\s+/g, ' ').trim()) return;
+    const next = [...draft];
+    next[index] = withSourceWords(seg, clean);
+    commit(next, [seg.id], `Changed the words of ${String(index + 1).padStart(2, '0')}.`, true);
+  };
+
+  const remove = (index: number) => {
+    const next = [...draft];
+    next.splice(index, 1);
+    commit(next, [], `Removed ${String(index + 1).padStart(2, '0')}. Its time is left empty.`, true);
+  };
+
+  const changeSpeaker = (index: number, speaker: string) => {
+    const seg = draft[index];
+    if ((seg.speaker || '').trim() === speaker) return;
+    const next = [...draft];
+    next[index] = { ...seg, speaker };
+    commit(next, [seg.id], `${String(index + 1).padStart(2, '0')} is now ${speaker}.`);
   };
 
   const undo = () => {
     if (!past.length) return;
     setDraft(past[past.length - 1]);
+    if (wordsChangedAt !== null && past.length - 1 <= wordsChangedAt) setWordsChangedAt(null);
     setPast((p) => p.slice(0, -1));
     setPending(null);
     setNotice('Undone.');
   };
 
   const reset = () => {
-    commit(resetSegments(resetBase, draft), [], 'Back to the segments from transcription. Apply to keep it.');
+    const back = resetSegments(resetBase, draft);
+    commit(back, [], 'Back to the lines from transcription. Save to keep it.', transcriptText(back) !== original);
     setChangedIds(new Set());
   };
 
   const apply = () => {
     if (!changes) return onCancel();
-    // Only whitespace at the new boundaries may differ; anything else is refused.
-    if (transcriptText(draft) !== original) {
+    // With only splits and joins, only whitespace at the new boundaries may differ; anything else is refused.
+    if (wordsChangedAt === null && transcriptText(draft) !== original) {
       setNotice("These changes would alter the transcript's text, so they weren't applied.");
       return;
     }
@@ -231,7 +282,7 @@ export const TranscriptSegmentEditor: React.FC<TranscriptSegmentEditorProps> = (
   };
 
   const cancel = () => {
-    if (changes && !window.confirm(`Discard ${changes} segment ${changes === 1 ? 'change' : 'changes'}?`)) return;
+    if (changes && !window.confirm(`Discard ${changes} transcript ${changes === 1 ? 'change' : 'changes'}?`)) return;
     onCancel();
   };
 
@@ -257,39 +308,41 @@ export const TranscriptSegmentEditor: React.FC<TranscriptSegmentEditorProps> = (
 
   return (
     <div ref={rootRef} className="flex-1 min-h-0 flex flex-col">
-      <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-edge bg-indigo-500/[0.06]">
-        <Scissors className="w-3.5 h-3.5 text-indigo-300 shrink-0" aria-hidden="true" />
-        <span className="text-[12px] text-slate-300">
-          Click between two words to split{getPlayhead ? ', or put the playhead there and press S' : ''}.{' '}
-          <span className="text-slate-500">Merge joins a segment with the next.</span>
+      <div className="shrink-0 flex items-center gap-2 px-4 h-12 border-b border-indigo-500/40 bg-indigo-500/[0.08] whitespace-nowrap">
+        <span className="flex items-center gap-1.5 text-[12.5px] font-semibold text-indigo-200">
+          <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
+          Editing
         </span>
-        <span className="text-[11.5px] text-slate-400 tabular-nums">
-          {draft.length} segments{changes ? ` · ${changes} ${changes === 1 ? 'change' : 'changes'} not applied yet` : ''}
+        <span
+          className="min-w-0 truncate text-[11.5px] text-slate-400"
+          title={`Double-click a line to type in it. Click between two words to split${getPlayhead ? ', or press S at the playhead' : ''}. Point between two lines to join them.`}
+        >
+          Double-click to type · click between words to split{getPlayhead ? ' (or S)' : ''} · point between two lines to join
         </span>
-        <div className="ml-auto flex items-center gap-1.5">
-          <button type="button" onClick={undo} disabled={!changes} className={toolButton} title="Undo (Ctrl Z)">
-            <Undo2 className="w-3.5 h-3.5" />
-            Undo
-          </button>
-          <button type="button" onClick={reset} disabled={!canReset} className={toolButton} title="Back to the segments from transcription">
-            <RotateCcw className="w-3.5 h-3.5" />
-            Reset
-          </button>
-          <span className="w-px h-5 bg-slate-800 mx-1" aria-hidden="true" />
-          <button type="button" onClick={cancel} className="h-7 px-2.5 rounded-lg text-[11.5px] text-slate-400 hover:text-slate-100 cursor-default">
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={apply}
-            className="h-7 px-3 flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-[11.5px] font-semibold text-white cursor-default"
-          >
-            <Check className="w-3.5 h-3.5" />
-            {changes ? `Apply ${changes} ${changes === 1 ? 'change' : 'changes'}` : 'Done'}
-          </button>
-        </div>
+        <span className="ml-auto text-[11.5px] text-slate-400 tabular-nums">
+          {draft.length} lines{changes ? ` · ${changes} ${changes === 1 ? 'change' : 'changes'}` : ''}
+        </span>
+        <button type="button" onClick={undo} disabled={!changes} className={toolButton} title="Undo (Ctrl Z)">
+          <Undo2 className="w-3.5 h-3.5" />
+          Undo
+        </button>
+        <button type="button" onClick={reset} disabled={!canReset} className={toolButton} title="Back to the lines from transcription">
+          <RotateCcw className="w-3.5 h-3.5" />
+          Reset
+        </button>
+        <button type="button" onClick={cancel} className="h-7 px-2.5 rounded-lg border border-edge text-[11.5px] text-slate-300 hover:bg-slate-800 cursor-default">
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={apply}
+          className="h-7 px-3 flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-[11.5px] font-semibold text-white cursor-default"
+          title="Keeps every change as one Undo step"
+        >
+          <Check className="w-3.5 h-3.5" />
+          {changes ? 'Save changes' : 'Done'}
+        </button>
       </div>
-
       <ol ref={listRef} aria-label="Segments" className="relative flex-1 min-h-0 overflow-y-auto overscroll-contain custom-scrollbar">
         <li ref={rows.spacerRef} aria-hidden="true" style={{ height: rows.padTop }} />
         {draft.slice(rows.start, rows.end).map((seg, k) => {
@@ -299,51 +352,156 @@ export const TranscriptSegmentEditor: React.FC<TranscriptSegmentEditorProps> = (
           const estimated = seg.timingSource === 'derived';
           const n = String(i + 1).padStart(2, '0');
           const isPending = pending && String(pending.id) === String(seg.id);
+          const paired = seamAt !== null && (i === seamAt || i === seamAt + 1);
+          const isTyping = typing !== null && typing.id === String(seg.id);
+          const prev = i > 0 ? draft[i - 1] : null;
+          const blocked = prev ? mergeBlocker(prev, seg) : null;
+          const prevN = String(i).padStart(2, '0');
           return (
-            // One item a segment, its Merge with the one before on its top edge and its split time under it, so the list can measure it.
+            // One item a line, its Join with the one above on its top edge and its split time under it, so the list can measure it.
             <li key={seg.id} ref={rows.rowRef(i)} data-seg-id={String(seg.id)} className="relative">
-              {i > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => merge(i - 1)}
-                    aria-label={`Merge ${String(i).padStart(2, '0')} with ${n}`}
-                    title={mergeBlocker(draft[i - 1], seg) || `Merge ${String(i).padStart(2, '0')} with ${n}`}
-                    className="absolute left-1/2 -translate-x-1/2 -top-2.5 z-10 h-5 px-2 flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 hover:border-indigo-500 hover:text-indigo-200 focus-visible:border-indigo-400 focus-visible:outline-none text-[10.5px] text-slate-400 cursor-default"
-                  >
-                    <Merge className="w-3 h-3" aria-hidden="true" />
-                    Merge
-                  </button>
+              {prev && (
+                <div
+                  className="group/seam absolute inset-x-0 -top-2 h-4 z-10"
+                  onMouseEnter={() => !blocked && setSeamAt(i - 1)}
+                  onMouseLeave={() => setSeamAt((at) => (at === i - 1 ? null : at))}
+                >
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-1/2 top-[5px] -ml-[3px] w-1.5 h-1.5 rounded-full bg-slate-700 group-hover/seam:opacity-0 group-focus-within/seam:opacity-0"
+                  />
+                  <span
+                    aria-hidden="true"
+                    className={`absolute left-4 right-4 top-[7px] h-0.5 rounded-full opacity-0 group-hover/seam:opacity-100 group-focus-within/seam:opacity-100 ${blocked ? 'bg-slate-700' : 'bg-indigo-400'}`}
+                  />
+                  {blocked ? (
+                    <span className="absolute left-1/2 -translate-x-1/2 -top-1 h-6 px-2.5 flex items-center gap-1.5 rounded-full border border-edge bg-slate-900 text-[11px] text-slate-400 whitespace-nowrap opacity-0 group-hover/seam:opacity-100 pointer-events-none">
+                      <Users className="w-3 h-3" aria-hidden="true" />
+                      Different speakers — change one to join
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => merge(i - 1)}
+                      onFocus={() => setSeamAt(i - 1)}
+                      onBlur={() => setSeamAt((at) => (at === i - 1 ? null : at))}
+                      aria-label={`Join ${prevN} and ${n}`}
+                      className="absolute left-1/2 -translate-x-1/2 -top-1 h-6 px-3 flex items-center gap-1.5 rounded-full bg-indigo-500 hover:bg-indigo-400 text-white text-[11.5px] font-semibold whitespace-nowrap shadow-lg shadow-black/50 opacity-0 group-hover/seam:opacity-100 focus-visible:opacity-100 focus-visible:outline-none cursor-default"
+                    >
+                      <FoldVertical className="w-3.5 h-3.5" aria-hidden="true" />
+                      Join {prevN} + {n}
+                      <span className="font-mono font-normal text-[10.5px] text-indigo-100/80 tabular-nums">
+                        {formatTime(prev.startTime)}–{formatTime(seg.endTime)}
+                      </span>
+                    </button>
+                  )}
+                </div>
               )}
-                <div className={`grid grid-cols-[2rem_7.5rem_minmax(0,1fr)] gap-2.5 items-baseline px-4 py-3 border-b border-edge/70 ${changed ? 'bg-indigo-500/[0.07]' : ''}`}>
+                <div
+                  className={`group grid grid-cols-[2rem_7.5rem_minmax(0,1fr)_auto] gap-2.5 items-baseline px-4 py-3 border-b border-edge/70 transition-colors ${
+                    paired ? 'bg-indigo-500/10 shadow-[inset_3px_0_0_#7b86ec]' : changed ? 'bg-indigo-500/[0.07]' : ''
+                  }`}
+                >
                   <span className="font-mono text-[11px] text-slate-500 tabular-nums">{n}</span>
                   <span className={`font-mono text-[11px] tabular-nums ${estimated ? 'text-amber-300' : 'text-slate-400'}`}>
                     {formatTime(seg.startTime)}–{formatTime(seg.endTime)}
                     {estimated && <span className="block text-[9.5px] font-sans font-semibold text-amber-300/80">estimated</span>}
                   </span>
-                  <span className="text-[13px] leading-[1.9] text-slate-200 break-words">
-                    {words.length === 0 ? (
-                      <span className="italic text-slate-600">No speech</span>
-                    ) : (
-                      words.map((w, k) => (
-                        <React.Fragment key={k}>
-                          {k > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => askSplit(i, k)}
-                              aria-label={`Split ${n} before “${w.text}”`}
-                              title="Split here"
-                              // Holds the space itself, so the text reads and copies as written.
-                              className={`whitespace-pre px-px rounded-[3px] cursor-col-resize focus:outline-none hover:bg-indigo-500/55 focus-visible:bg-indigo-500/55 ${
-                                isPending && pending!.k === k ? 'bg-amber-400/70' : ''
-                              }`}
-                            >
-                              {' '}
-                            </button>
-                          )}
-                          {w.text}
-                        </React.Fragment>
-                      ))
+                  {isTyping ? (
+                    <textarea
+                      autoFocus
+                      rows={Math.max(1, Math.ceil(typing!.text.length / 80))}
+                      value={typing!.text}
+                      aria-label={`Words of ${n}`}
+                      onChange={(e) => setTyping({ id: String(seg.id), text: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          saveWords(String(seg.id), typing!.text);
+                        } else if (e.key === 'Escape') {
+                          e.preventDefault();
+                          setTyping(null);
+                        }
+                      }}
+                      onBlur={() => saveWords(String(seg.id), typing!.text)}
+                      className="w-full resize-none bg-slate-950 border border-indigo-500 rounded-lg px-2 py-1 text-[13px] leading-[1.7] text-slate-100 focus:outline-none"
+                    />
+                  ) : (
+                    <span
+                      className="text-[13px] leading-[1.9] text-slate-200 break-words"
+                      onDoubleClick={(e) => {
+                        if ((e.target as HTMLElement).closest('button, select')) return;
+                        setTyping({ id: String(seg.id), text: sourceOf(seg) });
+                      }}
+                    >
+                      {speakers.length > 1 && (
+                        <span className="inline-block align-middle mr-2 w-[7.5rem]">
+                          <Select
+                            value={(seg.speaker || '').trim()}
+                            onChange={(v) => changeSpeaker(i, v)}
+                            ariaLabel={`Who speaks ${n}`}
+                            size="sm"
+                            className="w-full"
+                            placeholder="No speaker"
+                            options={speakers.map((name) => ({ value: name, label: name }))}
+                          />
+                        </span>
+                      )}
+                      {words.length === 0 ? (
+                        <span className="italic text-slate-600">No speech</span>
+                      ) : (
+                        words.map((w, k) => (
+                          <React.Fragment key={k}>
+                            {k > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => askSplit(i, k)}
+                                aria-label={`Split ${n} before “${w.text}”`}
+                                title="Split here"
+                                // Holds the space itself, so the text reads and copies as written.
+                                className={`whitespace-pre px-px rounded-[3px] cursor-col-resize focus:outline-none hover:bg-indigo-500/55 focus-visible:bg-indigo-500/55 ${
+                                  isPending && pending!.k === k ? 'bg-amber-400/70' : ''
+                                }`}
+                              >
+                                {' '}
+                              </button>
+                            )}
+                            {w.text}
+                          </React.Fragment>
+                        ))
+                      )}
+                    </span>
+                  )}
+                  <span className="self-center flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                    {onHear && (
+                      <button
+                        type="button"
+                        onClick={() => onHear(seg.startTime, seg.endTime)}
+                        title="Hear this line"
+                        aria-label={`Hear ${n}`}
+                        className="w-7 h-7 grid place-items-center rounded-md text-slate-500 hover:text-slate-100 hover:bg-slate-800 cursor-default"
+                      >
+                        <Headphones className="w-3.5 h-3.5" />
+                      </button>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => setTyping({ id: String(seg.id), text: sourceOf(seg) })}
+                      title="Type in this line"
+                      aria-label={`Type in ${n}`}
+                      className="w-7 h-7 grid place-items-center rounded-md text-slate-500 hover:text-slate-100 hover:bg-slate-800 cursor-default"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => remove(i)}
+                      title="Remove this line. Its time is left empty."
+                      aria-label={`Remove ${n}`}
+                      className="w-7 h-7 grid place-items-center rounded-md text-slate-500 hover:text-rose-300 hover:bg-rose-500/10 cursor-default"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </span>
                 </div>
               {isPending && (

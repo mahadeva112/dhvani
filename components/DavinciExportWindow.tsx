@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AudioWaveform, Captions, Check, Film, Flag, FolderOpen, FolderOutput, Loader2, X } from 'lucide-react';
 import { CenteredPanel } from './CenteredPanel';
+import { Select } from './Select';
 import type { SyncReport } from '../services/syncService';
 import {
   DAVINCI_FPS,
@@ -450,23 +451,18 @@ export const DavinciExportWindow: React.FC<{
             </label>
             <label className="flex flex-col gap-1">
               <span className={sectionLabel}>Frame rate</span>
-              <select
+              <Select
                 value={fpsAuto ? 'auto' : prefs.fps}
-                onChange={(e) => (e.target.value === 'auto' ? set({ fpsAuto: true }) : set({ fps: e.target.value as DavinciFps, fpsAuto: false }))}
+                onChange={(v) => (v === 'auto' ? set({ fpsAuto: true }) : set({ fps: v as DavinciFps, fpsAuto: false }))}
                 title={done?.fpsFromVideo ? `${done.fps} fps, read from the video` : fpsAuto ? 'Read from the video when exporting' : 'Match your Resolve timeline'}
-                className={`${small} border-edge cursor-default`}
-              >
-                {videoOn && (
-                  <option value="auto" className="bg-slate-900">
-                    From the video
-                  </option>
-                )}
-                {DAVINCI_FPS.map((f) => (
-                  <option key={f} value={f} className="bg-slate-900">
-                    {f} fps
-                  </option>
-                ))}
-              </select>
+                ariaLabel="Frame rate"
+                size="sm"
+                className="w-full"
+                options={[
+                  ...(videoOn ? [{ value: 'auto', label: 'From the video' }] : []),
+                  ...DAVINCI_FPS.map((f) => ({ value: f, label: `${f} fps` })),
+                ]}
+              />
             </label>
           </div>
         </>

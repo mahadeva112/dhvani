@@ -3,6 +3,7 @@ import { AlertTriangle, Check, Clock, Loader2, Minus, X as XIcon } from 'lucide-
 import type { Voice } from '../services/elevenLabsService';
 import { getFavoriteVoices } from '../services/favoriteVoicesService';
 import { readRecentVoices } from './VoiceSelectorCard';
+import { Select } from './Select';
 import { ORIGINAL_LANE, VOICE_CHANGE_FLAG_SHARE, type LaneClip, type LineProgress } from '../services/voiceChangeService';
 
 /**
@@ -83,22 +84,19 @@ export const SpeakerVoiceRows: React.FC<{
                 {keep ? ' · kept as is' : ''}
               </span>
             </span>
-            <select
-              aria-label={`Voice for ${speaker.name}`}
+            <Select
+              ariaLabel={`Voice for ${speaker.name}`}
               value={value}
               disabled={disabled}
-              onChange={(e) => (e.target.value === BROWSE ? onBrowse(speaker.name) : onChoose(speaker.name, e.target.value))}
-              className="col-span-2 sm:col-span-1 w-full h-9 bg-slate-950/60 border border-slate-700 focus:border-indigo-500 rounded-[9px] px-2.5 text-[12.5px] text-slate-100 focus:outline-none cursor-default disabled:opacity-50"
-            >
-              <option value={KEEP} className="bg-slate-900">Keep as is</option>
-              {!known && <option value={value} className="bg-slate-900">Chosen voice</option>}
-              {shortVoices.map((v) => (
-                <option key={v.voice_id} value={v.voice_id} className="bg-slate-900">
-                  {shortName(v.name)}
-                </option>
-              ))}
-              <option value={BROWSE} className="bg-slate-900">More voices…</option>
-            </select>
+              onChange={(v) => (v === BROWSE ? onBrowse(speaker.name) : onChoose(speaker.name, v))}
+              className="col-span-2 sm:col-span-1 w-full"
+              options={[
+                { value: KEEP, label: 'Keep as is' },
+                ...(!known ? [{ value, label: 'Chosen voice' }] : []),
+                ...shortVoices.map((v) => ({ value: v.voice_id, label: shortName(v.name) })),
+                { value: BROWSE, label: 'More voices…' },
+              ]}
+            />
             <button
               type="button"
               disabled={disabled}

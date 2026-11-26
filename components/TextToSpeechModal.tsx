@@ -59,6 +59,7 @@ import { reportError } from '../services/errorPopup';
 import { PhoneticTextarea } from './review/PhoneticTextarea';
 import { PageScrollLock } from './usePageScrollLock';
 import { ToolWindow, toolPrimaryButton } from './ToolWindow';
+import { Select, SelectOption } from './Select';
 
 /**
  * Text to speech studio.
@@ -84,6 +85,11 @@ const OUTPUT_FORMATS: { id: string; label: string; hint?: string }[] = [
 ];
 
 const LANGUAGES = [{ code: 'English', label: 'English' }, ...DEFAULT_LANGUAGES];
+// "Hindi (हिन्दी)" → label Hindi, hint हिन्दी: the language's own script sits dimmer after the name.
+const LANGUAGE_OPTIONS: SelectOption[] = LANGUAGES.map((l) => {
+  const m = /^(.*?) \((.+)\)$/.exec(l.label);
+  return m ? { value: l.code, label: m[1], hint: m[2] } : { value: l.code, label: l.label };
+});
 
 interface StudioPrefs {
   engine: VoiceEngine;
@@ -807,18 +813,13 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                   <label htmlFor="tts-text" className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 mr-auto">
                     Text
                   </label>
-                  <select
-                    aria-label="Language"
+                  <Select
+                    ariaLabel="Language"
+                    size="sm"
                     value={prefs.language}
-                    onChange={(ev) => updatePrefs((p) => ({ ...p, language: ev.target.value }))}
-                    className="h-7 bg-slate-950/60 border border-edge rounded-[8px] px-2 text-[11.5px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-default"
-                  >
-                    {LANGUAGES.map((l) => (
-                      <option key={l.code} value={l.code} className="bg-slate-900">
-                        {l.label}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(v) => updatePrefs((p) => ({ ...p, language: v }))}
+                    options={LANGUAGE_OPTIONS}
+                  />
                   {projectScript?.trim() && (
                     <button type="button" onClick={() => setText(projectScript)} className={smallButton} title="Replace the text with this project's dub script">
                       <FileText className="w-3.5 h-3.5" /> Project script
@@ -886,22 +887,21 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                     <div className="grid sm:grid-cols-2 gap-4 items-start">
                       <div className="flex flex-col gap-1.5">
                         <label htmlFor="tts-el-model" className="text-xs text-slate-400">Model</label>
-                        <select
+                        <Select
                           id="tts-el-model"
                           value={el.modelId}
-                          onChange={(ev) => setEl({ modelId: ev.target.value })}
-                          className={`${field} cursor-default`}
-                        >
-                          {!models.some((m) => m.model_id === el.modelId) && (
-                            <option value={el.modelId} className="bg-slate-900">{el.modelId}</option>
-                          )}
-                          {models.map((m) => (
-                            <option key={m.model_id} value={m.model_id} className="bg-slate-900">
-                              {m.name}
-                              {m.token_cost_factor && m.token_cost_factor !== 1 ? ` · ${m.token_cost_factor}× credits` : ''}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(v) => setEl({ modelId: v })}
+                          className="w-full"
+                          options={[
+                            ...(!models.some((m) => m.model_id === el.modelId) ? [{ value: el.modelId, label: el.modelId }] : []),
+                            ...models.map((m) => ({
+                              value: m.model_id,
+                              label: m.name,
+                              hint: m.token_cost_factor && m.token_cost_factor !== 1 ? `${m.token_cost_factor}× credits` : undefined,
+                              description: m.description,
+                            })),
+                          ]}
+                        />
                         {elModel?.description && <p className="text-[11px] text-slate-500 leading-snug">{elModel.description}</p>}
                       </div>
                       <div className="flex flex-col gap-3 sm:pt-6">
@@ -1000,34 +1000,28 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                     <div className="grid sm:grid-cols-2 gap-4 items-start">
                       <div className="flex flex-col gap-1.5">
                         <label htmlFor="tts-ca-model" className="text-xs text-slate-400">Model</label>
-                        <select
+                        <Select
                           id="tts-ca-model"
                           value={cartesia.modelId}
-                          onChange={(ev) => setCartesia({ modelId: ev.target.value })}
-                          className={`${field} cursor-default`}
-                        >
-                          {CARTESIA_MODELS.map((m) => (
-                            <option key={m.id} value={m.id} className="bg-slate-900">{m.name}</option>
-                          ))}
-                        </select>
+                          onChange={(v) => setCartesia({ modelId: v })}
+                          className="w-full"
+                          options={CARTESIA_MODELS.map((m) => ({ value: m.id, label: m.name, description: m.description }))}
+                        />
                         {cartesiaModel && <p className="text-[11px] text-slate-500 leading-snug">{cartesiaModel.description}</p>}
                       </div>
                       <div className={`flex flex-col gap-1.5 ${cartesiaControls ? '' : 'opacity-45'}`}>
                         <label htmlFor="tts-ca-emotion" className="text-xs text-slate-400">Emotion</label>
-                        <select
+                        <Select
                           id="tts-ca-emotion"
                           value={cartesia.emotion}
                           disabled={!cartesiaControls}
-                          onChange={(ev) => setCartesia({ emotion: ev.target.value })}
-                          className={`${field} cursor-default`}
-                        >
-                          <option value="" className="bg-slate-900">Let the model choose</option>
-                          {CARTESIA_EMOTIONS.map((emo) => (
-                            <option key={emo} value={emo} className="bg-slate-900">
-                              {emo.charAt(0).toUpperCase() + emo.slice(1)}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(v) => setCartesia({ emotion: v })}
+                          className="w-full"
+                          options={[
+                            { value: '', label: 'Let the model choose' },
+                            ...CARTESIA_EMOTIONS.map((emo) => ({ value: emo, label: emo.charAt(0).toUpperCase() + emo.slice(1) })),
+                          ]}
+                        />
                       </div>
                     </div>
                     <div className="grid sm:grid-cols-2 gap-4">
@@ -1063,16 +1057,13 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
               <div className="grid sm:grid-cols-2 gap-4 items-start">
                 <div className="flex flex-col gap-1.5">
                   <label htmlFor="tts-format" className="text-xs text-slate-400">Output format</label>
-                  <select
+                  <Select
                     id="tts-format"
                     value={prefs.outputFormat}
-                    onChange={(ev) => updatePrefs((p) => ({ ...p, outputFormat: ev.target.value }))}
-                    className={`${field} cursor-default`}
-                  >
-                    {OUTPUT_FORMATS.map((f) => (
-                      <option key={f.id} value={f.id} className="bg-slate-900">{f.label}</option>
-                    ))}
-                  </select>
+                    onChange={(v) => updatePrefs((p) => ({ ...p, outputFormat: v }))}
+                    className="w-full"
+                    options={OUTPUT_FORMATS.map((f) => ({ value: f.id, label: f.label, description: f.hint }))}
+                  />
                   {formatHint && <p className="text-[11px] text-slate-500">{formatHint}.</p>}
                 </div>
                 {engine === 'elevenlabs' && (

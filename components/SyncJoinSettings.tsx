@@ -23,6 +23,7 @@ import { AudioSegment } from '../types';
 import { JOIN_SETTING_RANGES } from '../server/lib/syncSettings.js';
 import { reportError } from '../services/errorPopup';
 import { isOwnCustom, lengthPresetOf } from '../services/syncAutoFit';
+import { Select, type SelectOption } from './Select';
 
 /**
  * How Sync joins its lines: a preset, and the settings it fills in, one
@@ -221,20 +222,12 @@ const SelectRow: React.FC<{
   /** Shown while the value differs from the default, to put it back. */
   reset?: { show: boolean; label: string; onClick: () => void };
   onChange: (value: string) => void;
-  children: React.ReactNode;
-}> = ({ id, label, hint, badge, value, disabled, reset, onChange, children }) => (
+  options: SelectOption[];
+}> = ({ id, label, hint, badge, value, disabled, reset, onChange, options }) => (
   <div className={rowClass(disabled)}>
     <RowText htmlFor={id} label={label} hint={hint} badge={badge} />
     <div className="flex items-center gap-2.5">
-      <select
-        id={id}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={disabled}
-        className="flex-1 min-w-0 h-9 bg-slate-950 border border-slate-700 rounded-lg px-2 text-[13px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-default disabled:cursor-not-allowed"
-      >
-        {children}
-      </select>
+      <Select id={id} value={String(value)} onChange={onChange} disabled={disabled} className="flex-1" options={options} />
       <ResetOne show={Boolean(reset?.show) && !disabled} label={reset?.label ?? ''} onClick={() => reset?.onClick()} />
     </div>
   </div>
@@ -1085,12 +1078,13 @@ export const SyncJoinSectionControls: React.FC<{
             disabled={disabled}
             reset={{ show: join.tailFloorDb !== D.tailFloorDb, label: `${D.tailFloorDb} dB`, onClick: () => set('tailFloorDb', D.tailFloorDb) }}
             onChange={(v) => set('tailFloorDb', Number(v))}
-          >
-            {![-60, -70, -80].includes(join.tailFloorDb) && <option value={join.tailFloorDb}>{join.tailFloorDb} dB, custom</option>}
-            <option value={-60} className="bg-slate-900">-60 dB, shortest tail</option>
-            <option value={-70} className="bg-slate-900">-70 dB, keeps the full decay</option>
-            <option value={-80} className="bg-slate-900">-80 dB, longest tail</option>
-          </SelectRow>
+            options={[
+              ...(![-60, -70, -80].includes(join.tailFloorDb) ? [{ value: String(join.tailFloorDb), label: `${join.tailFloorDb} dB`, hint: 'custom' }] : []),
+              { value: '-60', label: '-60 dB', hint: 'shortest tail' },
+              { value: '-70', label: '-70 dB', hint: 'keeps the full decay' },
+              { value: '-80', label: '-80 dB', hint: 'longest tail' },
+            ]}
+          />
           <Slider id="sync-tail-hold" label="Tail hold" value={join.tailHold} {...bounds('tailHold')} step={0.005} format={ms} disabled={disabled}
             def={D.tailHold} onChange={(v) => set('tailHold', v)} hint="Extra silence kept after the last word before the line counts as finished." />
           <SelectRow
@@ -1101,12 +1095,13 @@ export const SyncJoinSectionControls: React.FC<{
             disabled={disabled}
             reset={{ show: join.edgeFade !== D.edgeFade, label: D.edgeFade === 0 ? 'Off' : ms(D.edgeFade), onClick: () => set('edgeFade', D.edgeFade) }}
             onChange={(v) => set('edgeFade', Number(v))}
-          >
-            {![0, 0.01, 0.02].includes(join.edgeFade) && <option value={join.edgeFade}>{ms(join.edgeFade)}, custom</option>}
-            <option value={0} className="bg-slate-900">Off, 3 ms micro-fade only where needed</option>
-            <option value={0.01} className="bg-slate-900">10 ms</option>
-            <option value={0.02} className="bg-slate-900">20 ms</option>
-          </SelectRow>
+            options={[
+              ...(![0, 0.01, 0.02].includes(join.edgeFade) ? [{ value: String(join.edgeFade), label: ms(join.edgeFade), hint: 'custom' }] : []),
+              { value: '0', label: 'Off', hint: '3 ms micro-fade only where needed' },
+              { value: '0.01', label: '10 ms' },
+              { value: '0.02', label: '20 ms' },
+            ]}
+          />
         </SettingsCard>
       );
     case 'fit':
@@ -1137,10 +1132,11 @@ export const SyncJoinSectionControls: React.FC<{
               reset={{ show: strict, label: 'Warn', onClick: () => onOptionsChange((o) => ({ ...o, timingProtection: 'warn' })) }}
               // Not a line-join setting: changing it keeps the preset.
               onChange={(v) => onOptionsChange((o) => ({ ...o, timingProtection: v === 'strict' ? 'strict' : 'warn' }))}
-            >
-              <option value="warn" className="bg-slate-900">Warn: list lines that start later than this</option>
-              <option value="strict" className="bg-slate-900">Strict: keep every line within this</option>
-            </SelectRow>
+              options={[
+                { value: 'warn', label: 'Warn', hint: 'list lines that start later than this' },
+                { value: 'strict', label: 'Strict', hint: 'keep every line within this' },
+              ]}
+            />
           </SettingsCard>
           <SettingsCard title="Anchors and the end">
             <Slider id="sync-anchor-weight" label="Lines that must start on time" value={join.anchorWeight} {...bounds('anchorWeight')} step={1}

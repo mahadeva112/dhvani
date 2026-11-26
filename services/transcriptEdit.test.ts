@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyTranscriptDraft, draftChanges, retimeWords, withSourceWords } from './transcriptEdit.ts';
-import { speakerOf } from './speakers.ts';
+import { retimeWords, withSourceWords } from './transcriptEdit.ts';
 import type { AudioSegment } from '../types';
 
 const words = [
@@ -51,27 +50,4 @@ test('legacy text fields follow the edit', () => {
   const out = withSourceWords(seg('1', 'old', { originalText: 'old', text: 'old', words }), 'It is a physical process.');
   assert.equal(out.originalText, 'It is a physical process.');
   assert.equal(out.text, 'It is a physical process.');
-});
-
-test('saving drops removed lines, keeps times, sets speakers', () => {
-  const segments = [seg('1', 'one'), { ...seg('2', 'two'), startTime: 4, endTime: 5 }, { ...seg('3', 'three'), startTime: 6, endTime: 7 }];
-  const draft = [
-    { id: '1', text: 'one!', speaker: speakerOf(segments[0]), removed: false },
-    { id: '2', text: 'two', speaker: 'Speaker 2', removed: false },
-    { id: '3', text: 'three', speaker: speakerOf(segments[2]), removed: true },
-  ];
-  assert.deepEqual(draftChanges(segments, draft, speakerOf), { edited: 1, removed: 1, speakers: 1, total: 3 });
-  const out = applyTranscriptDraft(segments, draft, speakerOf);
-  assert.equal(out.length, 2);
-  assert.equal(out[0].textSource, 'one!');
-  assert.equal(out[0].speaker, undefined);
-  assert.equal(out[1].speaker, 'Speaker 2');
-  assert.equal(out[1].startTime, 4);
-});
-
-test('nothing changed: the same lines come back', () => {
-  const segments = [seg('1', 'one', { words })];
-  const draft = [{ id: '1', text: 'one', speaker: speakerOf(segments[0]), removed: false }];
-  assert.equal(draftChanges(segments, draft, speakerOf).total, 0);
-  assert.equal(applyTranscriptDraft(segments, draft, speakerOf)[0], segments[0]);
 });

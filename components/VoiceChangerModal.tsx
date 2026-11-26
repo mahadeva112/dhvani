@@ -64,6 +64,7 @@ import { EditRenderChip, KEEP, LineLanes, LineRunSummary, SpeakerVoiceRows } fro
 import { reportError } from '../services/errorPopup';
 import { PageScrollLock } from './usePageScrollLock';
 import { ToolWindow, toolPrimaryButton } from './ToolWindow';
+import { Select } from './Select';
 
 /** Formats the whole-file voice change is asked again in when the plan refuses one (as a dub's are). */
 const STS_FALLBACK: Record<string, string> = { wav_48000: 'mp3_44100_192', mp3_44100_192: 'mp3_44100_128' };
@@ -1019,26 +1020,33 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                 <div className="grid sm:grid-cols-2 gap-4 items-end">
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="sts-model" className="text-xs text-slate-400">Model</label>
-                    <select id="sts-model" value={stsModelId} onChange={(e) => setStsModelId(e.target.value)} className={`${field} cursor-default`}>
-                      <option value="eleven_multilingual_sts_v2" className="bg-slate-900">Multilingual (29 languages)</option>
-                      <option value="eleven_english_sts_v2" className="bg-slate-900">English only</option>
-                    </select>
+                    <Select
+                      id="sts-model"
+                      value={stsModelId}
+                      onChange={setStsModelId}
+                      className="w-full"
+                      options={[
+                        { value: 'eleven_multilingual_sts_v2', label: 'Multilingual', hint: '29 languages' },
+                        { value: 'eleven_english_sts_v2', label: 'English only' },
+                      ]}
+                    />
                   </div>
                   {lineMode ? (
                     <p className="text-[11.5px] text-slate-400 pb-2">Each line comes back in the dub's own format and rate; nothing is resampled.</p>
                   ) : (
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="sts-output-format" className="text-xs text-slate-400">Output Format</label>
-                    <select
+                    <Select
                       id="sts-output-format"
                       value={stsOutputFormat}
-                      onChange={(e) => setStsOutputFormat(e.target.value)}
-                      className={`${field} cursor-default`}
-                    >
-                      {STS_OUTPUT_FORMATS.map((f) => (
-                        <option key={f.id} value={f.id} className="bg-slate-900">{f.label}</option>
-                      ))}
-                    </select>
+                      onChange={setStsOutputFormat}
+                      className="w-full"
+                      options={STS_OUTPUT_FORMATS.map((f) => {
+                        // "WAV 44.1 kHz · Pro+": the plan it needs sits dimmer after the format.
+                        const [label, plan] = f.label.split(' · ');
+                        return { value: f.id, label, hint: plan };
+                      })}
+                    />
                   </div>
                   )}
                 </div>

@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pro Home Mocks</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script>
+  tailwind.config = {
+    theme: { extend: { colors: {
+      slate: { 50:'#f6f6f7',100:'#ececef',200:'#dcdde1',300:'#c6c8ce',400:'#abadb5',500:'#8b8e98',600:'#5a5d66',700:'#34363c',800:'#232529',900:'#18191c',950:'#111214' },
+      indigo: { 200:'#c9cefa',300:'#a5adf5',400:'#7b86ec',500:'#5866e0',600:'#4c59d0',950:'#23253a' },
+      edge: '#27292d',
+    } } },
+  };
+</script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#0b0c0e; font-family: Inter, system-ui, "Noto Sans Bengali", "Noto Sans Devanagari", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  button, select, input[type=range] { cursor:default; }
+  .seg button.on { background:#5866e0; color:#fff; }
+  .sw { width:30px; height:17px; border-radius:999px; background:#34363c; position:relative; flex-shrink:0; display:inline-block; }
+  .sw::after { content:''; position:absolute; top:3px; left:3px; width:11px; height:11px; border-radius:50%; background:#fff; }
+  .sw.on { background:#5866e0; } .sw.on::after { left:16px; }
+  .dash { background-image: url("data:image/svg+xml,%3csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='100%25' height='100%25' fill='none' rx='16' ry='16' stroke='%235a5d66' stroke-width='2' stroke-dasharray='8%2c 9' stroke-linecap='round'/%3e%3c/svg%3e"); }
+  .scroll { scrollbar-width: thin; scrollbar-color: #34363c transparent; }
+  input[type=range] { accent-color:#5866e0; height:4px; }
+  .pill { font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid #27292d; color:#abadb5; background:#111214; white-space:nowrap; }
+  .pill.on { border-color:#5866e0; color:#c9cefa; background:rgba(88,102,224,.14); }
+
+  /* Mock A · seam between two lines */
+  .row { transition: background .12s, box-shadow .12s; }
+  .row.pairTop { background: rgba(88,102,224,.10); box-shadow: inset 3px 0 0 #7b86ec; border-bottom-color: transparent !important; }
+  .row.pairBot { background: rgba(88,102,224,.10); box-shadow: inset 3px 0 0 #7b86ec; }
+  .seam { position:relative; height:0; z-index:6; }
+  .seam .hit { position:absolute; left:0; right:0; top:-8px; height:16px; }
+  .seam .line { position:absolute; left:16px; right:16px; top:-1px; height:2px; border-radius:2px; background:#7b86ec; opacity:0; transition:opacity .12s; }
+  .seam .join { position:absolute; left:50%; top:-13px; transform:translateX(-50%); opacity:0; transition:opacity .12s, transform .12s; }
+  .seam:hover .line, .seam.show .line { opacity:1; }
+  .seam:hover .join, .seam.show .join { opacity:1; }
+  .seam.blocked .line { background:#34363c; }
+  .seam .faint { position:absolute; left:50%; top:-3px; width:6px; height:6px; margin-left:-3px; border-radius:50%; background:#34363c; transition:opacity .12s; }
+  .seam:hover .faint, .seam.show .faint { opacity:0; }
+
+  /* Mock C · gutter bracket */
+  .gut { position:relative; height:0; z-index:6; }
+  .gut .lk { position:absolute; left:22px; top:-11px; width:22px; height:22px; border-radius:7px; display:grid; place-items:center; background:#18191c; border:1px solid #34363c; color:#8b8e98; opacity:.0; transition:opacity .12s; }
+  .doc:hover .gut .lk { opacity:.55; }
+  .gut:hover .lk, .gut.show .lk { opacity:1 !important; border-color:#7b86ec; color:#c9cefa; background:#23253a; }
+  .gut .tip { position:absolute; right:12px; top:-11px; opacity:0; pointer-events:none; transition:opacity .12s; }
+  .gut:hover .tip, .gut.show .tip { opacity:1; }
+  .crow.br { box-shadow: inset 2px 0 0 #7b86ec; background: rgba(88,102,224,.07); }
+
+  .word { border-radius:3px; }
+  .gap { white-space:pre; border-radius:3px; cursor:col-resize; padding:0 1px; }
+  .gap:hover { background:rgba(123,134,236,.6); }
+  .toast { animation: up .25s ease-out; }
+  @keyframes up { from { transform: translate(-50%, 8px); opacity:0 } to { transform: translate(-50%, 0); opacity:1 } }
+  .pulse { animation: pl 1.6s ease-in-out infinite; }
+  @keyframes pl { 0%,100% { opacity:.55 } 50% { opacity:1 } }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-3 sm:p-5">
+
+<div class="max-w-[92rem] mx-auto mb-3 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+  <span class="seg inline-flex rounded-lg border border-edge overflow-hidden" id="mockSeg">
+    <button data-m="a" class="px-3 py-1.5">A · Studio (৩ কলাম)</button>
+    <button data-m="b" class="px-3 py-1.5">B · কার্ড</button>
+    <button data-m="c" class="px-3 py-1.5">C · ডকুমেন্ট</button>
+    <button data-m="d" class="px-3 py-1.5">D · টাইমলাইন</button>
+  </span>
+  <span class="seg inline-flex rounded-lg border border-edge overflow-hidden" id="frameSeg">
+    <button data-f="1" class="px-3 py-1.5">১ · Home</button>
+    <button data-f="2" class="px-3 py-1.5">২ · আপলোডের পর</button>
+    <button data-f="3" class="px-3 py-1.5">৩ · Transcript তৈরি</button>
+    <button data-f="4" class="px-3 py-1.5">৪ · Edit + Join</button>
+  </span>
+  <button id="reset" class="ml-auto px-2.5 py-1.5 rounded-lg border border-edge hover:bg-slate-800 text-slate-300">লাইনগুলো আগের মতো</button>
+</div>
+<p id="note" class="max-w-[92rem] mx-auto mb-3 text-[13px] leading-relaxed text-slate-300"></p>
+
+<div id="stage" class="max-w-[92rem] mx-auto rounded-2xl border border-edge bg-slate-950 overflow-hidden relative" style="height:min(860px, calc(100vh - 7.5rem)); min-height:640px"></div>
+
+<script>
+/* ---------- data ---------- */
+const DUR = 36.8;
+const SEGS0 = [
+  { s:0.0,  e:4.2,  sp:1, t:"When you sit quietly, the mind slowly settles on its own." },
+  { s:4.2,  e:7.9,  sp:1, t:"You don't have to fight it," },
+  { s:7.9,  e:11.6, sp:1, t:"just stop feeding it." },
+  { s:12.4, e:15.8, sp:2, t:"So is that why mornings feel easier?" },
+  { s:16.3, e:21.0, sp:1, t:"Yes. In the early hours the body is still and the air is fresh." },
+  { s:21.0, e:24.1, sp:1, t:"Use that time well." },
+  { s:24.9, e:29.5, sp:1, t:"Even ten minutes of stillness changes how the whole day goes." },
+  { s:30.2, e:33.0, sp:2, t:"I'll try it tomorrow." },
+  { s:33.4, e:36.8, sp:1, t:"Don't try. Just do it." },
+];
+const SPK = { 1:{ name:'Speaker 1', c:'#7b86ec', bg:'rgba(123,134,236,.16)' }, 2:{ name:'Speaker 2', c:'#e0a458', bg:'rgba(224,164,88,.16)' } };
+const VOICES = [
+  { id:'meera', n:'Meera', tags:'Woman · warm · Hindi', fav:true },
+  { id:'kabir', n:'Kabir', tags:'Man · deep · Hindi', fav:true },
+  { id:'aarav', n:'Aarav', tags:'Man · calm · narrator' },
+  { id:'ishita', n:'Ishita', tags:'Woman · bright · young' },
+  { id:'rohan', n:'Rohan', tags:'Man · steady · news' },
+  { id:'tara', n:'Tara', tags:'Woman · soft · story' },
+];
+const RECENT = [
+  { n:'morning-talk_ep11', d:'42:10', l:'EN → HI', st:'Review', when:'Today' },
+  { n:'q-and-a_satsang_03', d:'18:44', l:'EN → BN', st:'Dub', when:'Yesterday' },
+  { n:'yoga-intro_short', d:'1:58', l:'EN → TA', st:'Translation', when:'24 Nov' },
+  { n:'podcast_guest_12', d:'55:02', l:'EN → HI', st:'Transcript', when:'22 Nov' },
+];
+const clone = (x) => JSON.parse(JSON.stringify(x));
+const S = { m:'a', f:1, segs:clone(SEGS0), editing:false, hist:[], saved:null, typing:null, voice:'meera', castFor:1, cast:{1:'meera',2:'kabir'}, sel:[], toast:null, bound:2 };
+
+/* ---------- helpers ---------- */
+const ic = (n, c='w-4 h-4') => `<i data-lucide="${n}" class="${c}"></i>`;
+const ft = (t) => { const m = Math.floor(t/60), s = (t - m*60); return `${m}:${s.toFixed(1).padStart(4,'0')}`; };
+const n2 = (i) => String(i+1).padStart(2,'0');
+function rnd(seed){ let s = seed; return () => { s = (s*9301 + 49297) % 233280; return s/233280; }; }
+function spAt(t){ const g = S.segs.find(x => t >= x.s && t < x.e); return g ? g.sp : 0; }
+function wave({ w=640, h=44, n=150, seed=7, tint=false, hi=null }={}){
+  const r = rnd(seed); const bw = w/n; let out = '';
+  for (let i=0;i<n;i++){
+    const t = (i+.5)/n*DUR; const sp = spAt(t);
+    let a = sp ? .25 + r()*.75 : .05 + r()*.08; if (sp && r() < .12) a *= .4;
+    const bh = Math.max(2, a*h*.92);
+    let col = '#5a5d66';
+    if (tint && sp) col = SPK[sp].c;
+    let op = 1; if (hi && !(t >= hi[0] && t < hi[1])) op = .3;
+    out += `<rect x="${(i*bw).toFixed(2)}" y="${((h-bh)/2).toFixed(2)}" width="${Math.max(1,bw-1).toFixed(2)}" height="${bh.toFixed(2)}" rx="1" fill="${col}" opacity="${op}"/>`;
+  }
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" class="w-full block" style="height:${h}px">${out}</svg>`;
+}
+function stepsBar(active){
+  const steps = ['Setup','Translation','Dub','Review'];
+  return `<nav class="flex items-center gap-1 text-[12px]">${steps.map((s,i)=>{
+    const done = i < active, on = i === active;
+    return `<span class="flex items-center gap-1.5 px-2.5 h-7 rounded-md ${on?'bg-slate-800 text-slate-100':'text-slate-500'}">
+      <span class="w-4 h-4 rounded-full grid place-items-center text-[9.5px] font-bold ${done?'bg-emerald-500/25 text-emerald-300':on?'bg-indigo-500 text-white':'bg-slate-800 text-slate-500'}">${done?'✓':i+1}</span>${s}</span>${i<steps.length-1?`<span class="text-slate-700">›</span>`:''}`;
+  }).join('')}</nav>`;
+}
+function appBar({ home=false, step=0 }={}){
+  return `<header class="h-12 shrink-0 flex items-center gap-3 px-4 border-b border-edge bg-[#0e0f11]">
+    <div class="flex items-center gap-2 font-semibold text-[14px]"><span class="w-6 h-6 rounded-md bg-indigo-500 grid place-items-center text-[12px] text-white">ध</span>Dhvani</div>
+    <span class="text-slate-700">/</span>
+    ${home ? `<span class="text-[13px] text-slate-300">Home</span>` : `<span class="text-[13px] text-slate-200 flex items-center gap-1.5">${ic('house','w-3.5 h-3.5 text-slate-500')}<span class="text-slate-500">Home ›</span> morning-talk_ep12</span>`}
+    ${home ? '' : `<div class="mx-auto hidden md:block">${stepsBar(step)}</div>`}
+    <div class="${home?'ml-auto':''} flex items-center gap-1.5">
+      <button class="h-8 px-2.5 rounded-lg border border-edge text-[12px] text-slate-300 flex items-center gap-1.5 hover:bg-slate-800">${ic('wrench','w-3.5 h-3.5')}Tools <span class="mono text-[10px] text-slate-500">Ctrl K</span></button>
+      <span class="h-8 px-2.5 rounded-lg border border-edge text-[11.5px] text-slate-400 flex items-center gap-1.5">${ic('gauge','w-3.5 h-3.5')}41,200 credits</span>
+      <button class="w-8 h-8 rounded-lg border border-edge grid place-items-center text-slate-400 hover:bg-slate-800">${ic('settings','w-4 h-4')}</button>
+    </div>
+  </header>`;
+}
+function seg(opts, on, cls=''){
+  return `<span class="seg inline-flex rounded-lg border border-edge overflow-hidden text-[12px] ${cls}">${opts.map(o=>`<button class="px-2.5 h-7 ${o===on?'on':'text-slate-300 hover:bg-slate-800'}">${o}</button>`).join('')}</span>`;
+}
+function selectBox(label, val, w='w-full'){
+  return `<label class="block ${w}"><span class="block text-[11px] text-slate-500 mb-1">${label}</span>
+    <span class="h-8 px-2.5 rounded-lg border border-edge bg-slate-950 flex items-center justify-between text-[12.5px] text-slate-200">${val}${ic('chevron-down','w-3.5 h-3.5 text-slate-500')}</span></label>`;
+}
+function fileCard({ compact=false }={}){
+  return `<div class="rounded-xl border border-edge bg-slate-900/70 ${compact?'p-2.5':'p-3'}">
+    <div class="flex items-center gap-2.5">
+      <span class="w-8 h-8 rounded-lg bg-slate-800 grid place-items-center text-slate-300">${ic('file-audio','w-4 h-4')}</span>
+      <div class="min-w-0 flex-1"><div class="text-[13px] font-medium truncate">morning-talk_ep12.mp4</div>
+        <div class="text-[11px] text-slate-500 mono">0:36.8 · 48 kHz · stereo</div></div>
+      <button class="w-7 h-7 rounded-full bg-slate-800 hover:bg-slate-700 grid place-items-center">${ic('play','w-3.5 h-3.5')}</button>
+      <button class="text-[11.5px] text-slate-400 hover:text-slate-200 px-1.5">Replace</button>
+    </div>
+    <div class="mt-2.5">${wave({ h: compact?28:40, tint: S.f>=3 })}</div>
+  </div>`;
+}
+function transcribeForm({ done=false, inline=false }={}){
+  const btn = done
+    ? `<div class="flex items-center gap-2 text-[12px]"><span class="flex items-center gap-1.5 text-emerald-300">${ic('check','w-3.5 h-3.5')}Transcribed · ${S.segs.length} lines</span><button class="ml-auto text-slate-400 hover:text-slate-200 flex items-center gap-1">${ic('rotate-ccw','w-3.5 h-3.5')}Transcribe again</button></div>`
+    : `<button class="w-full h-9 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white text-[13px] font-semibold flex items-center justify-center gap-2">${ic('audio-lines','w-4 h-4')}Transcribe</button>
+       <p class="text-[11px] text-slate-500 text-center mt-1.5">Writes down what is said, in the spoken language. Never translates.</p>`;
+  if (inline) return `<div class="flex flex-wrap items-end gap-3">
+      ${selectBox('Spoken language','Auto-detect (English)','w-44')}
+      <div><span class="block text-[11px] text-slate-500 mb-1">Speakers</span>${seg(['1','2','3','4+','Detect'],'2')}</div>
+      <div><span class="block text-[11px] text-slate-500 mb-1">Model</span>${seg(['Scribe v2','v3'],'Scribe v2')}</div>
+      <label class="flex items-center gap-2 text-[12px] text-slate-300 h-8"><span class="sw"></span>Mark laughs &amp; music</label>
+      <div class="ml-auto">${done ? `<span class="h-8 flex items-center gap-1.5 text-[12px] text-emerald-300">${ic('check','w-3.5 h-3.5')}Transcribed · ${S.segs.length} lines <button class="ml-2 text-slate-400">Again</button></span>` : `<button class="h-8 px-4 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white text-[13px] font-semibold flex items-center gap-2">${ic('audio-lines','w-4 h-4')}Transcribe</button>`}</div>
+    </div>`;
+  return `<div class="space-y-3">
+    ${selectBox('Spoken language','Auto-detect (English)')}
+    <div><span class="block text-[11px] text-slate-500 mb-1">Speakers</span>${seg(['1','2','3','4+','Detect'],'2')}</div>
+    <div><span class="block text-[11px] text-slate-500 mb-1">Model</span>${seg(['Scribe v2','Scribe v3'],'Scribe v2')}</div>
+    <label class="flex items-center justify-between text-[12px] text-slate-300"><span>Mark laughs &amp; music</span><span class="sw"></span></label>
+    <label class="flex items-center justify-between text-[12px] text-slate-300"><span>Cut at pauses</span><span class="sw on"></span></label>
+    <div class="pt-1">${btn}</div>
+  </div>`;
+}
+function voiceCards(cols=2){
+  return `<div class="grid ${cols===2?'grid-cols-2':'grid-cols-1'} gap-1.5">${VOICES.map(v=>{
+    const on = S.cast[S.castFor] === v.id;
+    return `<button data-voice="${v.id}" class="text-left rounded-lg border ${on?'border-indigo-500 bg-indigo-500/10':'border-edge hover:border-slate-600 bg-slate-950'} p-2 flex items-center gap-2">
+      <span class="w-7 h-7 shrink-0 rounded-full ${on?'bg-indigo-500 text-white':'bg-slate-800 text-slate-300'} grid place-items-center">${ic('play','w-3 h-3')}</span>
+      <span class="min-w-0 flex-1"><span class="block text-[12.5px] font-medium truncate">${v.n}${v.fav?' <span class="text-amber-300">★</span>':''}</span><span class="block text-[10.5px] text-slate-500 truncate">${v.tags}</span></span>
+      ${on?ic('check','w-3.5 h-3.5 text-indigo-300'):''}
+    </button>`;}).join('')}</div>`;
+}
+function castRows(){
+  return `<div class="space-y-1">${[1,2].map(sp=>{
+    const v = VOICES.find(x=>x.id===S.cast[sp]); const on = S.castFor===sp;
+    return `<button data-cast="${sp}" class="w-full flex items-center gap-2 h-9 px-2.5 rounded-lg border ${on?'border-indigo-500/70 bg-indigo-500/[.07]':'border-edge bg-slate-950 hover:border-slate-600'} text-left">
+      <span class="w-2 h-2 rounded-full" style="background:${SPK[sp].c}"></span>
+      <span class="text-[12px] text-slate-300 w-[4.6rem]">${SPK[sp].name}</span>
+      <span class="text-[12.5px] font-medium flex-1 truncate">${v.n}</span>
+      <span class="text-[10.5px] text-slate-500">${sp===1?'78%':'22%'}</span>${ic('chevron-right','w-3.5 h-3.5 text-slate-500')}
+    </button>`;}).join('')}</div>`;
+}
+function voiceSettings({ tight=false }={}){
+  const v = VOICES.find(x=>x.id===S.cast[S.castFor]);
+  const sl = (l, val, pct) => `<label class="block"><span class="flex justify-between text-[11px] text-slate-400 mb-0.5"><span>${l}</span><span class="mono text-slate-300">${val}</span></span><input type="range" class="w-full" value="${pct}"></label>`;
+  return `<div class="rounded-xl border border-edge bg-slate-900/60 p-3">
+    <div class="flex items-center gap-2 mb-2.5"><span class="text-[12px] text-slate-400">Settings for</span><span class="text-[12.5px] font-semibold">${v.n}</span><span class="text-[11px] text-slate-500">· ${SPK[S.castFor].name}</span>
+      <span class="ml-auto">${selectBox('', 'Eleven v3', 'w-28').replace('<span class="block text-[11px] text-slate-500 mb-1"></span>','')}</span></div>
+    <div class="grid ${tight?'grid-cols-2':'grid-cols-2'} gap-x-4 gap-y-2.5">
+      ${sl('Speed','1.00×',50)}${sl('Stability','50',50)}${sl('Similarity','75',75)}${sl('Style','0',0)}
+    </div>
+    <button class="mt-3 w-full h-8 rounded-lg border border-edge hover:bg-slate-800 text-[12px] flex items-center justify-center gap-1.5">${ic('headphones','w-3.5 h-3.5')}Hear line 01 in this voice</button>
+  </div>`;
+}
+function voicePanel({ cols=2, title=true }={}){
+  return `<div class="space-y-3">
+    ${title?`<div class="flex items-center gap-2"><h3 class="text-[13.5px] font-semibold">Voice</h3><span class="ml-auto text-[11.5px] text-slate-400">Dub into</span>${selectBox('','Hindi','w-24').replace('<span class="block text-[11px] text-slate-500 mb-1"></span>','')}</div>`:''}
+    ${castRows()}
+    <div class="relative">${ic('search','w-4 h-4 absolute left-2.5 top-2 text-slate-500')}<input class="w-full h-8 pl-8 pr-2 rounded-lg border border-edge bg-slate-950 text-[12.5px] placeholder:text-slate-500 focus:outline-none focus:border-indigo-500" placeholder="Search 5,254 voices — name, accent, style"></div>
+    <div class="flex flex-wrap gap-1"><span class="pill on">Hindi</span><span class="pill">Man</span><span class="pill">Woman</span><span class="pill">Calm</span><span class="pill">★ Favourites</span><span class="pill">Recent</span></div>
+    ${voiceCards(cols)}
+    ${voiceSettings()}
+  </div>`;
+}
+function translateBtn(label='Go to translation', big=false){
+  return `<button data-go class="${big?'h-11 px-5 text-[14px]':'h-9 px-4 text-[13px]'} rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold flex items-center gap-2 shrink-0">${label}${ic('arrow-right','w-4 h-4')}</button>`;
+}
+
+/* ---------- transcript list (shared) ---------- */
+function words(t, i){
+  const w = t.split(' ');
+  return w.map((x,k)=> (k?`<span class="gap" data-split="${i}:${k}" title="Split here"> </span>`:'') + `<span class="word">${x}</span>`).join('');
+}
+function textCell(g, i){
+  if (S.editing && S.typing === i) return `<input data-type="${i}" class="w-full bg-slate-950 border border-indigo-500 rounded-md px-2 py-1 text-[13px] focus:outline-none" value="${g.t.replace(/"/g,'&quot;')}">`;
+  if (S.editing) return `<span class="text-[13px] leading-[1.85] text-slate-200" data-dbl="${i}" title="Double-click to type">${words(g.t,i)}</span>`;
+  return `<span class="text-[13px] leading-snug text-slate-200">${g.t}</span>`;
+}
+function spkPill(sp, edit){
+  return `<span class="inline-flex items-center gap-1 h-5 px-1.5 rounded-md text-[10.5px] font-medium" style="background:${SPK[sp].bg};color:${SPK[sp].c}">${SPK[sp].name.replace('Speaker ','S')}${edit?ic('chevron-down','w-3 h-3'):''}</span>`;
+}
+function rowsA(){
+  return S.segs.map((g,i)=>{
+    const changed = S.saved && !S.saved.some(x => x.s===g.s && x.e===g.e && x.t===g.t);
+    const row = `<div class="row grid grid-cols-[2rem_7.2rem_2.8rem_minmax(0,1fr)_1.5rem] gap-2.5 items-baseline px-4 py-2.5 border-b border-edge/70 ${changed?'bg-indigo-500/[.05]':''}" data-row="${i}">
+      <span class="mono text-[11px] text-slate-500">${n2(i)}</span>
+      <span class="mono text-[11px] text-slate-400">${ft(g.s)}–${ft(g.e)}</span>
+      ${spkPill(g.sp, S.editing)}
+      ${textCell(g,i)}
+      ${S.editing?`<button class="text-slate-600 hover:text-rose-300" title="Remove line">${ic('trash-2','w-3.5 h-3.5')}</button>`:'<span></span>'}
+    </div>`;
+    let seam = '';
+    if (S.editing && i < S.segs.length-1){
+      const b = S.segs[i+1]; const blocked = g.sp !== b.sp;
+      const show = S.f===4 && i===1 && S.m==='a' ? 'show' : '';
+      seam = `<div class="seam ${blocked?'blocked':''} ${show}" data-seam="${i}">
+        <div class="hit"></div><div class="faint"></div><div class="line"></div>
+        ${blocked
+          ? `<span class="join h-6 px-2.5 rounded-full border border-edge bg-slate-900 text-[11px] text-slate-500 flex items-center gap-1.5 whitespace-nowrap">${ic('users','w-3 h-3')}Different speakers — can't join</span>`
+          : `<button data-join="${i}" class="join h-6 px-3 rounded-full bg-indigo-500 hover:bg-indigo-400 text-white text-[11.5px] font-semibold flex items-center gap-1.5 whitespace-nowrap shadow-lg shadow-black/50">${ic('fold-vertical','w-3.5 h-3.5')}Join ${n2(i)} + ${n2(i+1)} <span class="font-normal opacity-80 mono text-[10.5px]">${ft(g.s)}–${ft(b.e)}</span></button>`}
+      </div>`;
+    }
+    return row + seam;
+  }).join('');
+}
+function editBar(hint){
+  const ch = changes();
+  return `<div class="shrink-0 flex items-center gap-2 px-4 h-12 border-b border-indigo-500/40 bg-indigo-500/[.08] whitespace-nowrap">
+    <span class="flex items-center gap-1.5 text-[12.5px] font-semibold text-indigo-200">${ic('pencil','w-3.5 h-3.5')}Editing</span>
+    <span class="text-[11.5px] text-slate-400 truncate min-w-0" title="${hint}">${hint}</span>
+    <span class="ml-auto text-[11.5px] text-slate-400">${ch} change${ch===1?'':'s'}</span>
+    <button data-undo class="h-7 px-2 rounded-md text-[12px] text-slate-300 hover:bg-slate-800 flex items-center gap-1 ${S.hist.length?'':'opacity-40'}">${ic('undo-2','w-3.5 h-3.5')}Undo</button>
+    <button data-cancel class="h-7 px-2.5 rounded-md border border-edge text-[12px] text-slate-300 hover:bg-slate-800">Cancel</button>
+    <button data-save class="h-7 px-3 rounded-md bg-indigo-500 hover:bg-indigo-400 text-white text-[12px] font-semibold">Save changes</button>
+  </div>`;
+}
+function readHead(extra=''){
+  return `<div class="flex items-center gap-2.5 px-4 h-12 border-b border-edge shrink-0">
+    ${ic('file-text','w-4 h-4 text-slate-400')}<h2 class="text-[14px] font-semibold">Transcript</h2>
+    <span class="text-[11.5px] text-slate-500 mono">${S.segs.length} lines · 0:36.8 · English</span>
+    <div class="ml-auto flex items-center gap-1.5">${extra}
+      <button data-edit class="h-8 px-3 rounded-lg border border-edge bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium flex items-center gap-1.5">${ic('pencil','w-3.5 h-3.5 text-slate-400')}Edit</button>
+      <button class="h-8 px-2.5 rounded-lg border border-edge bg-slate-900 hover:bg-slate-800 text-[12.5px] flex items-center gap-1.5">${ic('download','w-3.5 h-3.5 text-slate-400')}Export ${ic('chevron-down','w-3 h-3 text-slate-500')}</button>
+    </div>
+  </div>`;
+}
+function changes(){ return S.hist.length; }
+function emptyTranscript(msg='Press Transcribe to write down what is said.'){
+  return `<div class="flex-1 grid place-items-center p-8 text-center"><div>
+    <div class="w-11 h-11 mx-auto rounded-xl bg-slate-900 border border-edge grid place-items-center text-slate-500 mb-3">${ic('file-text','w-5 h-5')}</div>
+    <p class="text-[13.5px] font-semibold text-slate-300">No transcript yet</p><p class="text-[12px] text-slate-500 mt-1">${msg}</p></div></div>`;
+}
+
+/* ---------- Home variants ---------- */
+function dropZone({ tall=true, big=false }={}){
+  return `<div class="dash rounded-2xl ${tall?'py-14':'py-9'} px-6 text-center hover:bg-slate-900/40">
+    <div class="w-12 h-12 mx-auto rounded-2xl bg-indigo-500/15 text-indigo-300 grid place-items-center mb-3">${ic('upload','w-6 h-6')}</div>
+    <p class="${big?'text-[20px]':'text-[16px]'} font-semibold">Drop audio or video to start a dub</p>
+    <p class="text-[12.5px] text-slate-400 mt-1">MP3 · WAV · M4A · MP4 · MOV — only the sound is used here</p>
+    <div class="mt-4 flex justify-center gap-2">
+      <button data-upload class="h-9 px-4 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white text-[13px] font-semibold flex items-center gap-2">${ic('folder-open','w-4 h-4')}Choose file</button>
+      <button class="h-9 px-3 rounded-lg border border-edge hover:bg-slate-800 text-[13px] flex items-center gap-2">${ic('package-open','w-4 h-4 text-slate-400')}Open .dhvani</button>
+    </div>
+  </div>`;
+}
+function recentTable(){
+  return `<div class="rounded-xl border border-edge overflow-hidden">
+    <div class="grid grid-cols-[minmax(0,1fr)_5rem_5.5rem_6.5rem_5.5rem] gap-3 px-4 h-9 items-center text-[11px] text-slate-500 border-b border-edge bg-slate-900/50"><span>Project</span><span>Length</span><span>Languages</span><span>Where</span><span>Edited</span></div>
+    ${RECENT.map((r,i)=>`<button data-upload class="w-full grid grid-cols-[minmax(0,1fr)_5rem_5.5rem_6.5rem_5.5rem] gap-3 px-4 h-12 items-center text-left text-[12.5px] hover:bg-slate-900 ${i?'border-t border-edge/70':''}">
+      <span class="flex items-center gap-2.5 min-w-0"><span class="w-16 shrink-0 opacity-70">${wave({ w:120, h:20, n:40, seed:i*11+3 })}</span><span class="truncate font-medium">${r.n}</span></span>
+      <span class="mono text-slate-400">${r.d}</span><span class="text-slate-300">${r.l}</span>
+      <span><span class="pill">${r.st}</span></span><span class="text-slate-500">${r.when}</span></button>`).join('')}
+  </div>`;
+}
+function defaultsCard(){
+  return `<div class="rounded-xl border border-edge bg-slate-900/50 p-4 space-y-3">
+    <div class="flex items-center gap-2"><h3 class="text-[13.5px] font-semibold">New dub starts with</h3><span class="ml-auto text-[11px] text-slate-500">Change any time</span></div>
+    ${selectBox('Dub into','Hindi')}
+    ${selectBox('Main voice','Meera ★ · warm')}
+    <div><span class="block text-[11px] text-slate-500 mb-1">Transcribe with</span>${seg(['Scribe v2','Scribe v3'],'Scribe v2')}</div>
+    <label class="flex items-center justify-between text-[12px] text-slate-300"><span>Transcribe as soon as a file is added</span><span class="sw"></span></label>
+  </div>`;
+}
+
+/* ---------- Mock A · Studio ---------- */
+function mockA(){
+  if (S.f===1) return `${appBar({home:true})}
+    <div class="flex-1 min-h-0 overflow-auto scroll p-6"><div class="max-w-6xl mx-auto grid lg:grid-cols-[minmax(0,1fr)_20rem] gap-5">
+      <div class="space-y-5">${dropZone()}<div><div class="flex items-center mb-2"><h3 class="text-[13.5px] font-semibold">Recent projects</h3><button class="ml-auto text-[12px] text-slate-400 hover:text-slate-200">All projects ›</button></div>${recentTable()}</div></div>
+      <div class="space-y-4">${defaultsCard()}
+        <div class="rounded-xl border border-edge p-4 space-y-1.5"><h3 class="text-[13px] font-semibold mb-1">Other ways in</h3>
+          ${[['clipboard-paste','Paste a script you already have'],['list-checks','Batch queue — many files'],['mic','Text to speech, no source']].map(([i,t])=>`<button class="w-full h-9 px-2.5 rounded-lg hover:bg-slate-800 text-[12.5px] text-slate-300 flex items-center gap-2">${ic(i,'w-4 h-4 text-slate-500')}${t}</button>`).join('')}
+        </div></div>
+    </div></div>`;
+  const done = S.f>=3;
+  const center = !done
+    ? `<div class="flex items-center gap-2.5 px-4 h-12 border-b border-edge">${ic('file-text','w-4 h-4 text-slate-400')}<h2 class="text-[14px] font-semibold">Transcript</h2></div>${emptyTranscript()}`
+    : `${S.editing ? editBar('Click between words to split · hover between two lines to Join · double-click to type') : readHead()}
+       <div class="flex-1 min-h-0 overflow-y-auto scroll pb-4" id="listA">${rowsA()}</div>
+       ${!S.editing?`<div class="shrink-0 border-t border-edge px-4 py-3 flex items-center gap-3 bg-[#0e0f11]">
+          <span class="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-300 grid place-items-center">${ic('check','w-4 h-4')}</span>
+          <div class="min-w-0"><div class="text-[13px] font-semibold">Transcript ready</div><div class="text-[11.5px] text-slate-500">Nothing is translated until you go on.</div></div>
+          <button class="ml-auto h-9 px-3 rounded-lg border border-edge hover:bg-slate-800 text-[12.5px] flex items-center gap-1.5">${ic('clipboard-paste','w-3.5 h-3.5 text-slate-400')}Paste my script</button>
+          ${translateBtn('Go to translation')}</div>`:''}`;
+  return `${appBar({ step:0 })}
+    <div class="flex-1 min-h-0 grid grid-cols-[19rem_minmax(0,1fr)_22rem]">
+      <aside class="border-r border-edge p-3.5 overflow-y-auto scroll space-y-4">
+        <div><div class="text-[11px] uppercase tracking-wide text-slate-500 mb-1.5">File</div>${fileCard()}</div>
+        <div><div class="text-[11px] uppercase tracking-wide text-slate-500 mb-1.5">Transcribe</div>${transcribeForm({ done })}</div>
+      </aside>
+      <section class="flex flex-col min-h-0 bg-[#0d0e10]">${center}</section>
+      <aside class="border-l border-edge p-3.5 overflow-y-auto scroll">${voicePanel({ cols:1 })}</aside>
+    </div>`;
+}
+
+/* ---------- Mock B · Cards ---------- */
+function sideNav(){
+  return `<aside class="w-52 shrink-0 border-r border-edge p-3 space-y-1 bg-[#0e0f11]">
+    ${[['house','Home',1],['folder','Projects'],['audio-lines','Voices'],['wrench','Tools'],['history','Batch queue'],['settings','API settings']].map(([i,t,on])=>`<button class="w-full h-9 px-2.5 rounded-lg ${on?'bg-slate-800 text-slate-100':'text-slate-400 hover:bg-slate-900'} text-[12.5px] flex items-center gap-2">${ic(i,'w-4 h-4')}${t}</button>`).join('')}
+    <div class="pt-4 text-[11px] uppercase tracking-wide text-slate-600 px-2.5">Pinned</div>
+    ${RECENT.slice(0,3).map(r=>`<button data-upload class="w-full h-8 px-2.5 rounded-lg text-slate-400 hover:bg-slate-900 text-[12px] text-left truncate">${r.n}</button>`).join('')}
+  </aside>`;
+}
+function rowsB(){
+  return S.segs.map((g,i)=>{
+    const sel = S.sel.includes(i);
+    return `<div class="grid grid-cols-[1.4rem_2rem_7.2rem_2.8rem_minmax(0,1fr)] gap-2.5 items-baseline px-4 py-2.5 border-b border-edge/70 ${sel?'bg-indigo-500/[.12]':''}" data-row="${i}">
+      ${S.editing?`<button data-pick="${i}" class="w-4 h-4 self-center rounded border ${sel?'bg-indigo-500 border-indigo-500 text-white':'border-slate-600'} grid place-items-center">${sel?ic('check','w-3 h-3'):''}</button>`:'<span></span>'}
+      <span class="mono text-[11px] text-slate-500">${n2(i)}</span><span class="mono text-[11px] text-slate-400">${ft(g.s)}–${ft(g.e)}</span>
+      ${spkPill(g.sp, S.editing)}${textCell(g,i)}
+    </div>`;
+  }).join('');
+}
+function selBar(){
+  const s = [...S.sel].sort((a,b)=>a-b);
+  const adj = s.length>=2 && s.every((x,k)=>k===0||x===s[k-1]+1);
+  const same = adj && s.every(x=>S.segs[x].sp===S.segs[s[0]].sp);
+  if (!s.length) return `<div class="absolute left-1/2 -translate-x-1/2 bottom-4 text-[11.5px] text-slate-500 bg-slate-900 border border-edge rounded-full px-3 h-8 flex items-center gap-1.5">${ic('mouse-pointer-click','w-3.5 h-3.5')}Tick lines next to each other to join them</div>`;
+  const a = S.segs[s[0]], b = S.segs[s[s.length-1]];
+  return `<div class="absolute left-1/2 -translate-x-1/2 bottom-4 w-[min(42rem,92%)] rounded-2xl border border-edge bg-slate-900 shadow-2xl shadow-black/70 p-2.5">
+    ${same?`<div class="px-2 pb-2 mb-2 border-b border-edge"><div class="text-[10.5px] text-slate-500 mb-0.5 flex items-center gap-1.5">${ic('eye','w-3 h-3')}After joining · <span class="mono">${ft(a.s)}–${ft(b.e)}</span></div><div class="text-[12.5px] text-slate-200">${s.map(x=>S.segs[x].t).join(' ')}</div></div>`:''}
+    <div class="flex items-center gap-1.5">
+      <span class="text-[12px] text-slate-300 px-2">${s.length} line${s.length>1?'s':''}</span>
+      <button ${same?`data-joinsel`:''} class="h-8 px-3 rounded-lg ${same?'bg-indigo-500 hover:bg-indigo-400 text-white':'bg-slate-800 text-slate-500'} text-[12.5px] font-semibold flex items-center gap-1.5">${ic('fold-vertical','w-3.5 h-3.5')}Join ${same?s.length+' lines':''}</button>
+      ${!adj&&s.length>1?'<span class="text-[11px] text-amber-300">Only lines next to each other</span>':''}
+      ${adj&&!same?'<span class="text-[11px] text-amber-300">Different speakers — change one first</span>':''}
+      <button class="h-8 px-2.5 rounded-lg hover:bg-slate-800 text-[12.5px] text-slate-300 flex items-center gap-1.5">${ic('user-round','w-3.5 h-3.5')}Speaker ${ic('chevron-down','w-3 h-3')}</button>
+      <button class="h-8 px-2.5 rounded-lg hover:bg-slate-800 text-[12.5px] text-rose-300 flex items-center gap-1.5">${ic('trash-2','w-3.5 h-3.5')}Remove</button>
+      <button data-clearsel class="ml-auto h-8 w-8 rounded-lg hover:bg-slate-800 grid place-items-center text-slate-400">${ic('x','w-4 h-4')}</button>
+    </div></div>`;
+}
+function mockB(){
+  if (S.f===1) return `${appBar({home:true})}<div class="flex-1 min-h-0 flex">${sideNav()}
+    <div class="flex-1 overflow-auto scroll p-6"><div class="max-w-5xl mx-auto space-y-6">
+      <div><h1 class="text-[22px] font-semibold">Start a dub</h1><p class="text-[13px] text-slate-400">Add the sound, transcribe it, pick the voice — all on one page.</p></div>
+      ${dropZone({ tall:false })}
+      <div class="grid sm:grid-cols-3 gap-3">${[['clipboard-paste','Paste a script','Already have the words'],['package-open','Open .dhvani','A project from someone else'],['list-checks','Batch queue','Many files, same settings']].map(([i,t,d])=>`<button class="rounded-xl border border-edge hover:border-slate-600 bg-slate-900/50 p-3.5 text-left flex gap-3"><span class="w-9 h-9 rounded-lg bg-slate-800 grid place-items-center text-slate-300">${ic(i,'w-4 h-4')}</span><span><span class="block text-[13px] font-medium">${t}</span><span class="block text-[11.5px] text-slate-500">${d}</span></span></button>`).join('')}</div>
+      <div><h3 class="text-[13.5px] font-semibold mb-2">Continue</h3><div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">${RECENT.map((r,i)=>`<button data-upload class="rounded-xl border border-edge hover:border-slate-600 bg-slate-900/40 p-3 text-left"><div class="h-14 rounded-lg bg-slate-950 px-2 grid items-center">${wave({w:200,h:36,n:50,seed:i*7+5})}</div><div class="mt-2 text-[12.5px] font-medium truncate">${r.n}</div><div class="text-[11px] text-slate-500 flex justify-between"><span>${r.l} · ${r.d}</span><span>${r.st}</span></div></button>`).join('')}</div></div>
+    </div></div></div>`;
+  const done = S.f>=3;
+  const top = `<div class="px-5 pt-4">${fileCard({ compact:done })}</div>`;
+  if (!done) return `${appBar({ step:0 })}<div class="flex-1 min-h-0 overflow-auto scroll">${top}
+    <div class="p-5 grid lg:grid-cols-2 gap-4">
+      <div class="rounded-2xl border border-edge bg-slate-900/40 p-4"><div class="flex items-center gap-2 mb-3"><span class="w-7 h-7 rounded-lg bg-indigo-500/15 text-indigo-300 grid place-items-center">${ic('audio-lines','w-4 h-4')}</span><h3 class="text-[14px] font-semibold">Transcribe</h3><span class="ml-auto text-[11px] text-slate-500">≈ 1 min of credits</span></div>${transcribeForm()}</div>
+      <div class="rounded-2xl border border-edge bg-slate-900/40 p-4"><div class="flex items-center gap-2 mb-3"><span class="w-7 h-7 rounded-lg bg-emerald-500/15 text-emerald-300 grid place-items-center">${ic('mic','w-4 h-4')}</span><h3 class="text-[14px] font-semibold">Voice</h3><span class="ml-auto text-[11.5px] text-slate-400">Dub into <b class="text-slate-200">Hindi</b></span></div>${voicePanel({ title:false })}</div>
+    </div></div>`;
+  const v = VOICES.find(x=>x.id===S.cast[1]), v2 = VOICES.find(x=>x.id===S.cast[2]);
+  return `${appBar({ step:0 })}<div class="flex-1 min-h-0 flex flex-col">${top}
+    <div class="flex-1 min-h-0 p-5 grid lg:grid-cols-[minmax(0,1fr)_19rem] gap-4">
+      <div class="rounded-2xl border border-edge bg-[#0d0e10] flex flex-col min-h-0 overflow-hidden relative">
+        ${S.editing ? editBar('Tick lines to join · click between words to split') : readHead()}
+        <div class="flex-1 min-h-0 overflow-y-auto scroll pb-28">${rowsB()}</div>
+        ${S.editing?selBar():''}
+      </div>
+      <div class="flex flex-col gap-3 min-h-0">
+        <div class="rounded-2xl border border-edge bg-slate-900/40 p-3.5"><div class="flex items-center mb-2"><h3 class="text-[13px] font-semibold">Voice</h3><button class="ml-auto text-[12px] text-indigo-300">Change</button></div>
+          ${[[1,v],[2,v2]].map(([sp,x])=>`<div class="flex items-center gap-2 h-9 text-[12.5px]"><span class="w-2 h-2 rounded-full" style="background:${SPK[sp].c}"></span><span class="text-slate-400 w-20">${SPK[sp].name}</span><b class="font-medium">${x.n}</b><button class="ml-auto w-7 h-7 rounded-full bg-slate-800 grid place-items-center">${ic('play','w-3 h-3')}</button></div>`).join('')}
+          <div class="text-[11px] text-slate-500 mt-1">Eleven v3 · Speed 1.00× · Stability 50</div></div>
+        <div class="rounded-2xl border border-emerald-500/30 bg-emerald-500/[.06] p-4 mt-auto">
+          <div class="text-[13.5px] font-semibold">Next: Translation</div>
+          <p class="text-[12px] text-slate-400 mt-1 mb-3">${S.segs.length} lines into Hindi. Starts only when you press it.</p>
+          ${translateBtn('Go to translation', true).replace('shrink-0','w-full justify-center')}
+          <button class="w-full mt-2 h-8 text-[12px] text-slate-400 hover:text-slate-200">or paste my own script</button>
+        </div>
+      </div>
+    </div></div>`;
+}
+
+/* ---------- Mock C · Document ---------- */
+function rowsC(){
+  let out = '', prev = 0;
+  S.segs.forEach((g,i)=>{
+    if (g.sp !== prev) out += `<div class="${i?'mt-5':''} mb-1 flex items-center gap-2 pl-[108px]"><span class="w-2 h-2 rounded-full" style="background:${SPK[g.sp].c}"></span><span class="text-[12px] font-semibold" style="color:${SPK[g.sp].c}">${SPK[g.sp].name}</span>${S.editing?`<button class="text-[11px] text-slate-500 hover:text-slate-300 flex items-center">change ${ic('chevron-down','w-3 h-3')}</button>`:''}</div>`;
+    prev = g.sp;
+    out += `<div class="crow grid grid-cols-[96px_minmax(0,1fr)] gap-3 py-1.5 pr-4 rounded-md" data-row="${i}">
+      <span class="mono text-[10.5px] text-slate-600 text-right pt-1">${ft(g.s)}</span>
+      <div class="text-[15px] leading-[1.75] text-slate-200 ${S.editing?'':'hover:text-white'}">${S.editing && S.typing===i ? textCell(g,i) : S.editing ? `<span data-dbl="${i}">${words(g.t,i)}</span>` : g.t}</div>
+    </div>`;
+    if (S.editing && i < S.segs.length-1 && S.segs[i+1].sp === g.sp){
+      const show = S.f===4 && i===1 ? 'show' : '';
+      out += `<div class="gut ${show}" data-gut="${i}"><button data-join="${i}" class="lk" title="Join with the line below">${ic('link-2','w-3.5 h-3.5')}</button>
+        <span class="tip h-[22px] px-2 rounded-md bg-slate-900 border border-edge text-[11px] text-slate-300 flex items-center gap-1.5 whitespace-nowrap">${ic('link-2','w-3 h-3 text-indigo-300')}Join ${n2(i)} + ${n2(i+1)} <span class="mono text-slate-500">${ft(g.s)}–${ft(S.segs[i+1].e)}</span></span></div>`;
+    }
+  });
+  return out;
+}
+function mockC(){
+  if (S.f===1) return `${appBar({home:true})}<div class="flex-1 min-h-0 overflow-auto scroll grid place-items-center p-6"><div class="w-full max-w-2xl">
+      <h1 class="text-[26px] font-semibold text-center">What are we dubbing today?</h1>
+      <p class="text-[13px] text-slate-400 text-center mt-1 mb-6">Hindi · Meera ★ · Scribe v2 <button class="text-indigo-300 ml-1">change</button></p>
+      ${dropZone({ big:true })}
+      <div class="mt-6 space-y-1">${RECENT.slice(0,3).map((r,i)=>`<button data-upload class="w-full flex items-center gap-3 h-11 px-3 rounded-xl hover:bg-slate-900 text-left"><span class="w-20 opacity-70">${wave({w:140,h:20,n:44,seed:i*5+2})}</span><span class="text-[13px] font-medium flex-1 truncate">${r.n}</span><span class="text-[11.5px] text-slate-500">${r.l} · ${r.st} · ${r.when}</span></button>`).join('')}</div>
+    </div></div>`;
+  const done = S.f>=3;
+  const strip = `<div class="shrink-0 border-b border-edge px-5 py-3 bg-[#0e0f11]">
+     <div class="flex items-center gap-3 mb-3"><span class="w-8 h-8 rounded-lg bg-slate-800 grid place-items-center">${ic('file-audio','w-4 h-4')}</span><div><div class="text-[13px] font-medium">morning-talk_ep12.mp4</div><div class="text-[11px] text-slate-500 mono">0:36.8 · 48 kHz</div></div>
+       <div class="flex-1 px-3">${wave({h:30, tint:done})}</div><button class="w-8 h-8 rounded-full bg-slate-800 grid place-items-center">${ic('play','w-3.5 h-3.5')}</button></div>
+     ${transcribeForm({ inline:true, done })}</div>`;
+  const doc = !done ? emptyTranscript('Set the language and speakers above, then press Transcribe.')
+    : `<div class="flex-1 min-h-0 overflow-y-auto scroll"><div class="doc max-w-3xl mx-auto py-6">
+        ${rowsC()}
+        ${!S.editing?`<div class="mt-10 ml-[108px] mr-4 rounded-2xl border border-edge bg-slate-900/50 p-4 flex items-center gap-3">
+          <span class="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-300 grid place-items-center">${ic('check','w-4 h-4')}</span>
+          <div><div class="text-[13.5px] font-semibold">End of transcript · ${S.segs.length} lines</div><div class="text-[12px] text-slate-500">Read it through, fix it, then translate. Nothing is translated yet.</div></div>
+          <div class="ml-auto">${translateBtn('Go to translation')}</div></div>`:''}
+      </div></div>`;
+  return `${appBar({ step:0 })}<div class="flex-1 min-h-0 flex">
+    <div class="flex-1 min-w-0 flex flex-col">${strip}
+      ${done ? (S.editing ? editBar('Type straight into the text · Enter splits · Backspace at a line start joins · or the link in the margin') : `<div class="shrink-0 flex items-center gap-2 px-5 h-11 border-b border-edge"><span class="text-[13px] font-semibold">Transcript</span><span class="text-[11.5px] text-slate-500">English · 2 speakers</span><div class="ml-auto flex gap-1.5"><button data-edit class="h-8 px-3 rounded-lg border border-edge bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium flex items-center gap-1.5">${ic('pencil','w-3.5 h-3.5 text-slate-400')}Edit</button><button class="h-8 px-2.5 rounded-lg border border-edge bg-slate-900 text-[12.5px] flex items-center gap-1.5">${ic('download','w-3.5 h-3.5 text-slate-400')}Export</button>${translateBtn('Translation')}</div></div>`) : ''}
+      ${doc}</div>
+    <aside class="w-[21rem] shrink-0 border-l border-edge p-3.5 overflow-y-auto scroll bg-[#0e0f11]">${voicePanel({ cols:1 })}</aside>
+  </div>`;
+}
+
+/* ---------- Mock D · Timeline ---------- */
+function timeline(){
+  const W = 1000;
+  const blocks = S.segs.map((g,i)=>{
+    const x = g.s/DUR*100, w = (g.e-g.s)/DUR*100;
+    return `<div class="absolute top-2 bottom-2 rounded-md border px-1.5 py-1 overflow-hidden text-[10.5px] leading-tight" style="left:calc(${x}% + 1px);width:calc(${w}% - 2px);background:${SPK[g.sp].bg};border-color:${SPK[g.sp].c}55;color:#dcdde1" data-row="${i}"><span class="mono" style="color:${SPK[g.sp].c}">${n2(i)}</span> ${g.t}</div>`;
+  }).join('');
+  let bounds = '';
+  if (S.editing) S.segs.forEach((g,i)=>{
+    if (i === S.segs.length-1) return; const b = S.segs[i+1];
+    if (b.s - g.e > 1.0) return;
+    const x = g.e/DUR*100; const same = g.sp===b.sp; const on = S.bound===i;
+    bounds += `<button data-bound="${i}" class="absolute top-0 bottom-0 w-3 -ml-1.5 z-10 group" style="left:${x}%"><span class="absolute left-1/2 -translate-x-1/2 top-1 bottom-1 w-[3px] rounded ${on?'bg-indigo-400':'bg-slate-500/0 group-hover:bg-indigo-400/70'}"></span></button>
+      ${on?`<div class="absolute z-20 -translate-x-1/2 -top-11" style="left:${x}%"><div class="flex items-center gap-1 rounded-xl border border-edge bg-slate-900 shadow-xl shadow-black/60 p-1">
+        ${same?`<button data-join="${i}" class="h-7 px-2.5 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white text-[12px] font-semibold flex items-center gap-1.5">${ic('fold-horizontal','w-3.5 h-3.5')}Join ${n2(i)} + ${n2(i+1)}</button>`:`<span class="h-7 px-2 text-[11.5px] text-slate-500 flex items-center gap-1">${ic('users','w-3.5 h-3.5')}Different speakers</span>`}
+        <button data-bound="-1" class="h-7 w-7 rounded-lg hover:bg-slate-800 grid place-items-center text-slate-400">${ic('x','w-3.5 h-3.5')}</button></div>
+        <div class="w-2 h-2 bg-slate-900 border-r border-b border-edge rotate-45 mx-auto -mt-1"></div></div>`:''}`;
+  });
+  const ph = 9.3/DUR*100;
+  return `<div class="relative">
+    <div class="flex text-[10px] mono text-slate-600 h-5 items-end">${[0,5,10,15,20,25,30,35].map(t=>`<span class="absolute" style="left:${t/DUR*100}%">${ft(t).replace('.0','')}</span>`).join('')}</div>
+    <div class="relative h-14 mt-1 rounded-lg bg-slate-950 border border-edge overflow-hidden">${wave({h:56,n:220,tint:true})}</div>
+    <div class="relative h-16 mt-1.5 rounded-lg bg-slate-950 border border-edge">${blocks}${bounds}</div>
+    <div class="absolute top-5 bottom-0 w-px bg-rose-400 z-10 pointer-events-none" style="left:${ph}%"><span class="absolute -top-1 -left-[5px] w-[11px] h-[11px] rotate-45 bg-rose-400 rounded-[2px]"></span></div>
+  </div>`;
+}
+function mockD(){
+  if (S.f===1) return `${appBar({home:true})}<div class="flex-1 min-h-0 overflow-auto scroll p-6"><div class="max-w-6xl mx-auto">
+      <div class="flex items-center mb-4"><h1 class="text-[20px] font-semibold">Projects</h1><div class="ml-auto flex items-center gap-2"><div class="relative">${ic('search','w-4 h-4 absolute left-2.5 top-2 text-slate-500')}<input class="h-8 w-56 pl-8 rounded-lg border border-edge bg-slate-950 text-[12.5px]" placeholder="Find a project"></div>${seg(['Recent','Name','Language'],'Recent')}</div></div>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <button data-upload class="dash rounded-2xl min-h-[170px] grid place-items-center text-center hover:bg-slate-900/40"><div><div class="w-11 h-11 mx-auto rounded-2xl bg-indigo-500/15 text-indigo-300 grid place-items-center mb-2">${ic('plus','w-5 h-5')}</div><div class="text-[14px] font-semibold">New dub</div><div class="text-[11.5px] text-slate-500">Drop audio or video here</div></div></button>
+        ${RECENT.concat(RECENT.slice(0,2).map(r=>({...r,n:r.n.replace(/\d+$/,m=>String(+m-3).padStart(2,'0')),when:'Earlier'}))).map((r,i)=>`<button data-upload class="rounded-2xl border border-edge hover:border-slate-600 bg-slate-900/40 p-3.5 text-left">
+          <div class="h-[88px] rounded-xl bg-slate-950 border border-edge px-3 grid items-center">${wave({w:300,h:56,n:70,seed:i*13+1})}</div>
+          <div class="mt-2.5 flex items-center gap-2"><span class="text-[13px] font-medium truncate flex-1">${r.n}</span><span class="pill">${r.st}</span></div>
+          <div class="text-[11.5px] text-slate-500 mt-0.5">${r.l} · ${r.d} · ${r.when}</div></button>`).join('')}
+      </div></div></div>`;
+  const done = S.f>=3;
+  const toolbar = `<div class="flex flex-wrap items-center gap-2 px-4 h-12 border-b border-edge bg-[#0e0f11] shrink-0">
+      <span class="text-[13px] font-medium flex items-center gap-2">${ic('file-audio','w-4 h-4 text-slate-400')}morning-talk_ep12.mp4</span><span class="text-[11px] text-slate-500 mono">0:36.8</span>
+      <span class="w-px h-5 bg-edge mx-1"></span>
+      <button class="w-8 h-8 rounded-full bg-slate-800 grid place-items-center">${ic('play','w-3.5 h-3.5')}</button><span class="mono text-[12px] text-slate-300">0:09.3</span>
+      <div class="ml-auto flex items-center gap-1.5">${done?`<button data-edit class="h-8 px-3 rounded-lg border ${S.editing?'border-indigo-500 bg-indigo-500/15 text-indigo-200':'border-edge bg-slate-900 hover:bg-slate-800'} text-[12.5px] font-medium flex items-center gap-1.5">${ic('pencil','w-3.5 h-3.5')}Edit</button><button class="h-8 px-2.5 rounded-lg border border-edge bg-slate-900 text-[12.5px] flex items-center gap-1.5">${ic('download','w-3.5 h-3.5 text-slate-400')}Export</button>${translateBtn('Translation')}`:''}</div></div>`;
+  const tw = `<div class="px-4 pt-3 pb-4 border-b border-edge shrink-0">${done ? timeline() : `<div class="rounded-lg bg-slate-950 border border-edge p-2">${wave({h:70,n:220})}</div>
+      <div class="mt-3 rounded-xl border border-edge bg-slate-900/50 p-3">${transcribeForm({ inline:true })}</div>`}</div>`;
+  const list = !done ? emptyTranscript('The lines show up on the timeline and here.') :
+    `${S.editing ? editBar('Click a line edge on the timeline to Join · S splits at the playhead · double-click to type') : ''}
+     <div class="flex-1 min-h-0 overflow-y-auto scroll">${S.segs.map((g,i)=>{
+       const hl = S.editing && (S.bound===i || S.bound===i-1) && S.bound>=0;
+       return `<div class="grid grid-cols-[2rem_7.2rem_2.8rem_minmax(0,1fr)] gap-2.5 items-baseline px-4 py-2 border-b border-edge/70 ${hl?'bg-indigo-500/10 shadow-[inset_3px_0_0_#7b86ec]':''}"><span class="mono text-[11px] text-slate-500">${n2(i)}</span><span class="mono text-[11px] text-slate-400">${ft(g.s)}–${ft(g.e)}</span>${spkPill(g.sp,S.editing)}${textCell(g,i)}</div>`;}).join('')}</div>`;
+  return `${appBar({ step:0 })}<div class="flex-1 min-h-0 flex">
+    <div class="flex-1 min-w-0 flex flex-col">${toolbar}${tw}${list}</div>
+    <aside class="w-[21rem] shrink-0 border-l border-edge p-3.5 overflow-y-auto scroll bg-[#0e0f11]">
+      ${done?`<div class="rounded-xl border border-edge bg-slate-900/50 p-3 mb-4 text-[12px]"><div class="flex items-center gap-2 text-emerald-300 mb-1">${ic('check','w-3.5 h-3.5')}Transcribed · ${S.segs.length} lines</div><div class="text-slate-500">English · 2 speakers · Scribe v2</div><button class="mt-2 text-slate-400 hover:text-slate-200 flex items-center gap-1">${ic('rotate-ccw','w-3.5 h-3.5')}Transcribe again</button></div>`:''}
+      ${voicePanel({ cols:1 })}</aside>
+  </div>`;
+}
+
+/* ---------- notes ---------- */
+const NOTES = {
+  a: ['<b>A · Studio।</b> Home-এ ভিডিওর ছবি নেই — বড় drop জায়গা, Recent projects টেবিল, আর ডানে "New dub starts with" (ভাষা, voice, Scribe) — pro-দের জন্য ডিফল্ট আগে থেকে ঠিক করা থাকে।',
+      'ফাইল দিলেই এক পাতায় তিন কলাম: বাঁয়ে ফাইলের ওয়েভ + Transcribe-এর সব সেটিং, মাঝে transcript, ডানে voice খোঁজা (৫,২৫৪টা থেকে search + chip) আর তার Speed/Stability/Style। কোনো ধাপ বদলাতে হয় না।',
+      'Transcript তৈরি হলে মাথায় একটাই <b>Edit</b> বোতাম (আগের দুটো বোতাম — Edit transcript আর Edit segments — একসাথে)। নিচে সবুজ <b>Go to translation</b>; চাপার আগে কিছু অনুবাদ হয় না।',
+      'Edit চাপলে লেখা বদলানো, শব্দের মাঝে ক্লিক করে ভাগ, স্পিকার বদল, লাইন বাদ — সব এক জায়গায়। <b>Join:</b> দুই লাইনের মাঝে মাউস আনলে নীল রেখা + "Join 02 + 03" পিল, আর দুটো লাইন একসাথে জ্বলে ওঠে — জোড়ার পর সময়ও দেখায়। আলাদা স্পিকার হলে ধূসর "can\'t join"। চাপলে সত্যিই জোড়া লাগে, Undo আছে।'],
+  b: ['<b>B · কার্ড।</b> বাঁয়ে স্থায়ী মেনু (Projects, Voices, Tools, Batch), মাঝে "Start a dub" — drop জায়গা, তিনটে অন্য পথ, আর Continue-তে ওয়েভ-থাম্বনেইলসহ প্রজেক্ট। ভিডিওর ছবি নেই।',
+      'আপলোডের পর ওপরে ফাইলের ওয়েভ, নিচে দুটো সমান কার্ড পাশাপাশি: <b>Transcribe</b> আর <b>Voice</b>। দুটোই একসাথে দেখা যায়, স্ক্রল কম।',
+      'Transcribe শেষে Voice কার্ড ছোট হয়ে ডানে সারাংশ হয় (কে কোন voice), নিচে বড় সবুজ "Next: Translation" কার্ড। Transcript-এ একটাই Edit।',
+      'Edit-এ প্রতিটা লাইনের পাশে টিক। পাশাপাশি দুই-তিনটে টিক দিলে নিচে ভাসমান বার: <b>জোড়ার পর লেখাটা কেমন হবে আগেই দেখায়</b>, তারপর Join · Speaker · Remove। টিক দিয়ে চেষ্টা করুন — আলাদা স্পিকার বা দূরের লাইন হলে কারণ লিখে দেয়।'],
+  c: ['<b>C · ডকুমেন্ট।</b> সবচেয়ে শান্ত Home: মাঝখানে একটা প্রশ্ন, drop জায়গা, নিচে শেষ তিনটে প্রজেক্ট। ডিফল্ট এক লাইনে ("Hindi · Meera · Scribe v2 — change")।',
+      'ওপরে একটা স্ট্রিপে ফাইল + ওয়েভ + Transcribe-এর সেটিং এক সারিতে; ডানে Voice প্যানেল। Transcript বই পড়ার মতো বড় অক্ষরে।',
+      'Transcript একটা লেখার মতো পড়া যায় — স্পিকারের নামে অনুচ্ছেদ, বাঁ মার্জিনে সময়। শেষে "End of transcript → Go to translation" কার্ড।',
+      'Edit চাপলে Google Docs-এর মতো: সোজা লেখা, <b>Enter = ভাগ, লাইনের শুরুতে Backspace = উপরের লাইনের সাথে Join</b>। মাউসে করতে চাইলে বাঁ মার্জিনে ছোট 🔗 বোতাম — হোভারে কোন দুটো লাইন জুড়বে আর জোড়ার পর সময় দেখায়।'],
+  d: ['<b>D · টাইমলাইন।</b> Home = প্রজেক্টের গ্রিড, প্রতিটায় ওয়েভ (ভিডিওর ছবি নয়), প্রথম ঘরটা "New dub" drop।',
+      'আপলোডের পর বড় ওয়েভ ওপরে, তার নিচে Transcribe-এর সেটিং এক সারিতে; ডানে Voice। DAW/DaVinci-র মতো লাগে।',
+      'Transcribe হলে ওয়েভের নিচে লাইনগুলো ব্লক হয়ে বসে (স্পিকারের রঙে), নিচে তালিকা। টুলবারে একটাই Edit আর সবুজ Translation।',
+      'Edit-এ টাইমলাইনে দুই ব্লকের সীমানায় ক্লিক করলে ওপরে ছোট বাবল: <b>Join 02 + 03</b> (আলাদা স্পিকার হলে ধূসর "Different speakers")। তালিকাতেও ওই দুটো লাইন জ্বলে ওঠে। S = প্লেহেডে ভাগ। যারা কানে-চোখে টাইমিং দেখে কাজ করেন তাদের জন্য।'],
+};
+
+/* ---------- render + events ---------- */
+function render(){
+  document.querySelectorAll('#mockSeg button').forEach(b=>b.classList.toggle('on', b.dataset.m===S.m));
+  document.querySelectorAll('#frameSeg button').forEach(b=>b.classList.toggle('on', +b.dataset.f===S.f));
+  document.getElementById('note').innerHTML = NOTES[S.m][S.f-1];
+  const st = document.getElementById('stage');
+  const body = { a:mockA, b:mockB, c:mockC, d:mockD }[S.m]();
+  st.innerHTML = `<div class="h-full flex flex-col">${body}</div>${S.toast?`<div class="toast absolute left-1/2 bottom-5 -translate-x-1/2 z-50 h-9 px-3 rounded-xl bg-slate-100 text-slate-900 text-[12.5px] font-medium flex items-center gap-3 shadow-2xl">${S.toast}<button data-undo class="font-semibold text-indigo-600">Undo</button></div>`:''}`;
+  lucide.createIcons();
+  // pair highlight for seams (A) and gutter (C)
+  st.querySelectorAll('.seam').forEach(sm=>{
+    const i = +sm.dataset.seam; const lit = (on)=>{ const a = st.querySelector(`.row[data-row="${i}"]`), b = st.querySelector(`.row[data-row="${i+1}"]`); a&&a.classList.toggle('pairTop',on); b&&b.classList.toggle('pairBot',on); };
+    if (sm.classList.contains('show')) lit(true);
+    sm.addEventListener('mouseenter',()=>{ if(!sm.classList.contains('blocked')) lit(true); });
+    sm.addEventListener('mouseleave',()=>{ if(!sm.classList.contains('show')) lit(false); });
+  });
+  st.querySelectorAll('.gut').forEach(gt=>{
+    const i = +gt.dataset.gut; const lit = (on)=>[i,i+1].forEach(k=>{ const r = st.querySelector(`.crow[data-row="${k}"]`); r&&r.classList.toggle('br',on); });
+    if (gt.classList.contains('show')) lit(true);
+    gt.addEventListener('mouseenter',()=>lit(true)); gt.addEventListener('mouseleave',()=>{ if(!gt.classList.contains('show')) lit(false); });
+  });
+  const inp = st.querySelector('[data-type]'); if (inp){ inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+}
+function snap(){ S.hist.push(clone(S.segs)); }
+function join(i){
+  const a = S.segs[i], b = S.segs[i+1]; if (!a || !b || a.sp!==b.sp) return;
+  snap(); S.segs.splice(i, 2, { s:a.s, e:b.e, sp:a.sp, t:(a.t+' '+b.t).replace(/\s+/g,' ') });
+  S.toast = `Joined ${n2(i)} and ${n2(i+1)}`; S.sel = []; S.bound = -1; render(); flash();
+}
+let tt; function flash(){ clearTimeout(tt); tt = setTimeout(()=>{ S.toast=null; render(); }, 2600); }
+function split(i, k){
+  const g = S.segs[i]; const w = g.t.split(' '); const left = w.slice(0,k).join(' '), right = w.slice(k).join(' ');
+  const at = +(g.s + (g.e-g.s) * left.length/(g.t.length)).toFixed(1);
+  snap(); S.segs.splice(i, 1, { s:g.s, e:at, sp:g.sp, t:left }, { s:at, e:g.e, sp:g.sp, t:right });
+  S.toast = `Split ${n2(i)} at ${ft(at)}`; render(); flash();
+}
+function startEdit(){ S.editing = true; S.saved = clone(S.segs); S.hist = []; S.sel = S.m==='b' && S.f===4 ? [1,2] : []; S.bound = S.m==='d' && S.f===4 ? 1 : -1; }
+document.addEventListener('click', (e)=>{
+  const t = e.target.closest('button, .gap'); if (!t) return;
+  const d = t.dataset;
+  if (d.m){ S.m = d.m; S.segs = clone(SEGS0); setFrame(S.f); return; }
+  if (d.f){ setFrame(+d.f); return; }
+  if (t.id==='reset'){ S.segs = clone(SEGS0); setFrame(S.f); return; }
+  if (d.upload !== undefined){ setFrame(2); return; }
+  if (d.edit !== undefined){ if (S.editing && S.m==='d'){ S.editing=false; } else { startEdit(); if (S.f===3) S.f=4; } render(); return; }
+  if (d.cancel !== undefined){ if (S.saved) S.segs = S.saved; S.editing=false; S.typing=null; S.f=3; render(); return; }
+  if (d.save !== undefined){ const n = S.hist.length; S.editing=false; S.typing=null; S.f=3; S.toast = n ? `Saved ${n} change${n>1?'s':''} — one Undo step` : 'No changes'; render(); flash(); return; }
+  if (d.undo !== undefined){ if (S.hist.length){ S.segs = S.hist.pop(); S.toast=null; render(); } return; }
+  if (d.join !== undefined){ join(+d.join); return; }
+  if (d.joinsel !== undefined){ const s=[...S.sel].sort((a,b)=>a-b); snap(); const a=S.segs[s[0]], b=S.segs[s[s.length-1]]; S.segs.splice(s[0], s.length, { s:a.s, e:b.e, sp:a.sp, t:s.map(x=>S.segs[x].t).join(' ') }); S.toast=`Joined ${s.length} lines`; S.sel=[]; render(); flash(); return; }
+  if (d.pick !== undefined){ const i=+d.pick; S.sel = S.sel.includes(i) ? S.sel.filter(x=>x!==i) : [...S.sel, i]; render(); return; }
+  if (d.clearsel !== undefined){ S.sel=[]; render(); return; }
+  if (d.bound !== undefined){ S.bound = +d.bound===S.bound ? -1 : +d.bound; render(); return; }
+  if (d.split){ const [i,k] = d.split.split(':').map(Number); split(i,k); return; }
+  if (d.cast){ S.castFor = +d.cast; render(); return; }
+  if (d.voice){ S.cast[S.castFor] = d.voice; render(); return; }
+  if (d.go !== undefined){ S.toast = 'Opens Translation — nothing is translated until you press Translate there'; render(); flash(); return; }
+});
+document.addEventListener('dblclick', (e)=>{ const t = e.target.closest('[data-dbl]'); if (!t || e.target.classList.contains('gap')) return; S.typing = +t.dataset.dbl; render(); });
+document.addEventListener('keydown', (e)=>{
+  const inp = e.target.closest && e.target.closest('[data-type]'); if (!inp) return;
+  if (e.key==='Enter'){ commitType(inp); }
+  if (e.key==='Escape'){ S.typing=null; render(); }
+});
+document.addEventListener('focusout', (e)=>{ const inp = e.target.closest && e.target.closest('[data-type]'); if (inp) commitType(inp); });
+function commitType(inp){ const i = +inp.dataset.type; const v = inp.value.trim(); if (S.typing===null) return; S.typing=null; if (v && v!==S.segs[i].t){ snap(); S.segs[i].t = v; } render(); }
+function setFrame(f){
+  S.f = f; S.typing = null; S.toast = null;
+  if (f===4){ startEdit(); } else { S.editing = false; S.hist = []; S.sel=[]; }
+  render();
+}
+setFrame(1);
+</script>
+</body>
+</html>

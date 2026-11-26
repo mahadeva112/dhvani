@@ -11,6 +11,8 @@ interface MediaStripProps {
   action?: React.ReactNode;
   /** Stretches of the wave drawn in their own colour (seconds), such as each speaker's lines. */
   spans?: { from: number; to: number; color: string }[];
+  /** For a narrow column: the file's name and Replace on one row, its waveform under them. */
+  stacked?: boolean;
 }
 
 const formatDuration = (seconds: number) => {
@@ -84,7 +86,7 @@ export const MiniWaveform: React.FC<{ buffer: import('../services/waveform').Wav
  * Slim media bar at the top of step 1: a drop target before a file is loaded,
  * then the loaded file's name, length and waveform with a Replace button.
  */
-export const MediaStrip: React.FC<MediaStripProps> = ({ file, audioBuffer, onFileSelect, onLoadSample, action, spans }) => {
+export const MediaStrip: React.FC<MediaStripProps> = ({ file, audioBuffer, onFileSelect, onLoadSample, action, spans, stacked = false }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -122,6 +124,47 @@ export const MediaStrip: React.FC<MediaStripProps> = ({ file, audioBuffer, onFil
       audioBuffer ? `${Math.round(audioBuffer.sampleRate / 1000)} kHz ${audioBuffer.numberOfChannels > 1 ? 'stereo' : 'mono'}` : null,
       formatSize(file.size),
     ].filter(Boolean);
+
+    if (stacked) {
+      return (
+        <section
+          {...dropHandlers}
+          aria-label="Loaded media"
+          className={`shrink-0 flex flex-col gap-2.5 p-3 rounded-2xl border bg-slate-900/90 transition-colors ${
+            isDragOver ? 'border-indigo-400 bg-indigo-950/30' : 'border-edge'
+          }`}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center shrink-0">
+              {isVideo ? <Film className="w-4 h-4" /> : <Music className="w-4 h-4" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-semibold text-slate-100 truncate" title={file.name}>
+                {file.name}
+              </p>
+              <p className="text-[11px] font-mono text-slate-400 truncate tabular-nums">{meta.join(' · ')}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              className="shrink-0 px-2 py-1 rounded-lg text-[11.5px] font-medium text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-default"
+            >
+              Replace
+            </button>
+          </div>
+          <div className="h-10 min-w-0">
+            {audioBuffer ? (
+              <MiniWaveform buffer={audioBuffer} spans={spans} />
+            ) : (
+              <div className="h-full flex items-center gap-2 text-xs text-slate-500">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Reading audio…
+              </div>
+            )}
+          </div>
+          {fileInput}
+        </section>
+      );
+    }
 
     return (
       <section

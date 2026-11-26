@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import type { SyncOptions } from '../services/syncService';
+import { Select } from './Select';
 
 type SavedPreset = { name: string; options: SyncOptions };
 const KEY = 'dhvani_named_sync_presets';
@@ -40,15 +41,13 @@ export const SyncPresetLibrary: React.FC<{
       <p className="text-[11.5px] text-slate-400">Save these sync settings with a name. Settings are also remembered separately for each project.</p>
       <p className="text-[11.5px] text-slate-400">Saved presets stay on this computer. To use them on another one, Export them here and Import the file there.</p>
       <label htmlFor="sync-saved-preset" className="text-[12px] text-slate-400">Saved preset</label>
-      <select id="sync-saved-preset" value={selected} disabled={disabled} className="h-9 bg-slate-950 border border-edge rounded-lg px-2 text-[13px] text-slate-200"
-        onChange={(e) => {
-          setSelected(e.target.value);
-          const preset = presets.find((p) => p.name === e.target.value);
+      <Select id="sync-saved-preset" value={selected} disabled={disabled} placeholder="Choose a saved preset" className="w-full"
+        options={presets.map((preset) => ({ value: preset.name, label: preset.name }))}
+        onChange={(v) => {
+          setSelected(v);
+          const preset = presets.find((p) => p.name === v);
           if (preset) { onChange(normalize(preset.options)); setMessage(`Applied ${preset.name}.`); }
-        }}>
-        <option value="">Choose a saved preset</option>
-        {presets.map((preset) => <option key={preset.name} value={preset.name}>{preset.name}</option>)}
-      </select>
+        }} />
       <label htmlFor="sync-preset-name" className="text-[12px] text-slate-400">New preset name</label>
       <input id="sync-preset-name" value={name} maxLength={60} disabled={disabled} onChange={(e) => setName(e.target.value)}
         placeholder="e.g. Bengali narration" className="h-9 bg-slate-950 border border-edge rounded-lg px-2 text-[13px] text-slate-200" />

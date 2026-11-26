@@ -6,6 +6,7 @@ import { mergeSuggestions, type VoiceMatch } from '../services/voiceMatch';
 import type { Voice } from '../services/elevenLabsService';
 import type { VoiceRateState } from '../services/voiceRate';
 import { PLAYHEAD_RED } from './TimelineControls';
+import { Select } from './Select';
 
 /**
  * The pieces of the wizard that deal with several speakers: who speaks when
@@ -331,19 +332,15 @@ const SpeakerManageRow: React.FC<{ speaker: SpeakerSummary; others: SpeakerSumma
       <span className="text-xs text-slate-500 tabular-nums whitespace-nowrap">
         {speaker.cues} cues · {Math.round(speaker.seconds)} s
       </span>
-      <select
+      <Select
         value=""
-        onChange={(e) => e.target.value && onRename(speaker.name, e.target.value)}
-        aria-label={`Merge ${speaker.name} into another speaker`}
-        className="h-8 bg-slate-950 border border-edge rounded-lg px-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 cursor-default"
-      >
-        <option value="">Merge into…</option>
-        {others.map((o) => (
-          <option key={o.name} value={o.name} className="bg-slate-900">
-            {o.name}
-          </option>
-        ))}
-      </select>
+        onChange={(v) => v && onRename(speaker.name, v)}
+        ariaLabel={`Merge ${speaker.name} into another speaker`}
+        placeholder="Merge into…"
+        size="sm"
+        className="w-full"
+        options={others.map((o) => ({ value: o.name, label: o.name, color: o.color }))}
+      />
     </div>
   );
 };
@@ -409,22 +406,19 @@ export const SpeakerPicker: React.FC<{
   const speaker = speakers.find((s) => s.name === value);
   if (!onChange) return <SpeakerChip speaker={speaker} name={value} />;
   return (
-    <label className="relative inline-flex cursor-default" title="Who says this line">
-      <SpeakerChip speaker={speaker} name={value} suffix="▾" />
-      <select
+    <span className="inline-flex max-w-full">
+      <Select
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        aria-label="Who says this line"
-        className="absolute inset-0 opacity-0 cursor-default"
-      >
-        {speakers.map((s) => (
-          <option key={s.name} value={s.name}>
-            {s.name}
-          </option>
-        ))}
-        {newSpeaker && <option value={newSpeaker}>+ New speaker ({newSpeaker})</option>}
-      </select>
-    </label>
+        onChange={onChange}
+        ariaLabel="Who says this line"
+        title="Who says this line"
+        size="sm"
+        options={[
+          ...speakers.map((s) => ({ value: s.name, label: s.name, color: s.color })),
+          ...(newSpeaker ? [{ value: newSpeaker, label: '+ New speaker', hint: newSpeaker }] : []),
+        ]}
+      />
+    </span>
   );
 };
 

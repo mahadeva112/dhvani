@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dropdown Mocks</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script>
+  tailwind.config = { theme: { extend: { colors: {
+    slate: { 50:'#f6f6f7',100:'#ececef',200:'#dcdde1',300:'#c6c8ce',400:'#abadb5',500:'#8b8e98',600:'#5a5d66',700:'#34363c',800:'#232529',900:'#18191c',950:'#111214' },
+    indigo: { 200:'#c9cefa',300:'#a5adf5',400:'#7b86ec',500:'#5866e0',600:'#4c59d0',950:'#23253a' },
+    edge: '#27292d',
+  } } } };
+</script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#0b0c0e; font-family: Inter, system-ui, "Noto Sans Bengali", "Noto Sans Devanagari", "Noto Sans Tamil", "Noto Sans Telugu", sans-serif; }
+  button, select { cursor: default; }
+  .seg button.on { background:#5866e0; color:#fff; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .menu { animation: pop .12s ease-out; transform-origin: top center; }
+  @keyframes pop { from { opacity:0; transform: translateY(-4px) scale(.98) } to { opacity:1; transform:none } }
+  .glass { background: rgba(30,31,35,.78); backdrop-filter: blur(22px) saturate(160%); -webkit-backdrop-filter: blur(22px) saturate(160%); }
+  .scroll { scrollbar-width: thin; scrollbar-color: #34363c transparent; }
+  mark { background: transparent; color: #c9cefa; font-weight: 600; }
+  .hl { background: rgba(88,102,224,.14); }
+  .kbd { font-size:10px; padding:1px 5px; border-radius:4px; border:1px solid #34363c; color:#8b8e98; background:#111214; }
+  select.native { color-scheme: light; }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6">
+
+<div class="max-w-6xl mx-auto mb-3 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+  <span class="seg inline-flex rounded-lg border border-edge overflow-hidden" id="mockSeg">
+    <button data-m="a" class="px-3 py-1.5">A · Graphite মেনু</button>
+    <button data-m="b" class="px-3 py-1.5">B · বিবরণসহ সারি</button>
+    <button data-m="c" class="px-3 py-1.5">C · macOS-এর মতো</button>
+    <button data-m="d" class="px-3 py-1.5">D · খোঁজা যায় (palette)</button>
+  </span>
+  <label class="ml-auto flex items-center gap-2 text-slate-400"><input id="cmp" type="checkbox" class="accent-indigo-500"> এখনকারটাও দেখাও</label>
+</div>
+<p id="note" class="max-w-6xl mx-auto mb-4 text-[13px] leading-relaxed text-slate-300"></p>
+
+<div class="max-w-6xl mx-auto rounded-2xl border border-edge bg-[#111214] overflow-visible">
+  <div class="h-11 px-4 flex items-center gap-2 border-b border-edge text-[13px] font-semibold"><i data-lucide="sliders-horizontal" class="w-4 h-4 text-slate-400"></i>Dub settings <span class="ml-2 text-[11.5px] font-normal text-slate-500">— অ্যাপের আসল চারটে ড্রপডাউন</span></div>
+  <div id="stage" class="p-5 grid sm:grid-cols-2 lg:grid-cols-4 gap-x-5 gap-y-6 pb-[26rem]"></div>
+</div>
+
+<div id="nowRow" class="hidden max-w-6xl mx-auto mt-4 rounded-2xl border border-edge bg-[#111214] p-5">
+  <div class="text-[12px] text-slate-400 mb-3">এখন অ্যাপে যা আছে (ব্রাউজারের নিজস্ব &lt;select&gt;) — খুললে Windows-এর সাদা তালিকা আসে</div>
+  <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-5" id="nowStage"></div>
+</div>
+
+<script>
+const LANGS = [
+  ['Assamese','অসমীয়া'],['Bengali','বাংলা'],['Gujarati','ગુજરાતી'],['Hindi','हिन्दी'],['Kannada','ಕನ್ನಡ'],['Malayalam','മലയാളം'],
+  ['Marathi','मराठी'],['Nepali','नेपाली'],['Odia','ଓଡ଼ିଆ'],['Punjabi','ਪੰਜਾਬੀ'],['Tamil','தமிழ்'],['Telugu','తెలుగు'],
+].map(([v,n]) => ({ v, label:v, native:n }));
+const FIELDS = [
+  { id:'lang', label:'Dub into', value:'Hindi', recent:['Hindi','Bengali'],
+    items: LANGS },
+  { id:'model', label:'Voice model', value:'eleven_v4',
+    items: [
+      { v:'eleven_v4', label:'Eleven v4', desc:'Most natural, 90+ languages. Pace from tags, not the speed slider.', tags:['Tags','No speed'], badge:'Recommended' },
+      { v:'eleven_v4_turbo', label:'Eleven v4 Turbo', desc:'Faster v4 with tags.', tags:['Tags','Fast'] },
+      { v:'eleven_v3', label:'Eleven v3', desc:'Very expressive, 70+ languages. Speed slider has no effect.', tags:['Tags','No speed'] },
+      { v:'eleven_multilingual_v2', label:'Multilingual v2', desc:'Steady, 29 languages. Speed slider works.', tags:['Speed'] },
+      { v:'eleven_flash_v2_5', label:'Flash v2.5', desc:'Quickest and half the credits.', tags:['½ credits'] },
+    ] },
+  { id:'spk', label:'Who says line 04', value:'Speaker 2', small:true,
+    items: [
+      { v:'Speaker 1', label:'Speaker 1', desc:'Host · 63%', color:'#7b86ec' },
+      { v:'Speaker 2', label:'Speaker 2', desc:'Guest · 37%', color:'#e0a458' },
+      { sep:true },
+      { v:'__new', label:'New speaker', icon:'user-plus', action:true },
+    ] },
+  { id:'file', label:'File', value:'wav48',
+    items: [
+      { v:'wav48', label:'WAV 48 kHz', desc:'Lossless, as voiced', badge:'Best' },
+      { v:'mp3192', label:'MP3 192', desc:'Smaller file' },
+      { v:'mp3128', label:'MP3 128', desc:'Smallest' },
+    ] },
+];
+const S = { m:'a', open:'lang', q:'', hi:0 };
+const ic = (n, c='w-4 h-4') => `<i data-lucide="${n}" class="${c}"></i>`;
+const real = (f) => f.items.filter(i => !i.sep);
+const cur = (f) => real(f).find(i => i.v === f.value) || real(f)[0];
+const langLine = (i) => i.native ? `${i.label} <span class="text-slate-500">${i.native}</span>` : i.label;
+const dot = (i) => i.color ? `<span class="w-2 h-2 rounded-full shrink-0" style="background:${i.color}"></span>` : '';
+
+const NOTES = {
+  a: '<b>A · Graphite মেনু।</b> বোতামটা আগের মতোই, শুধু খুললে Windows-এর সাদা তালিকার বদলে অ্যাপের রঙের গাঢ় মেনু: গোল কোণ, নরম ছায়া, বাছা জিনিসে ✓, ওপরে-নিচে তীর দিয়ে চলে। সবচেয়ে সাধারণ, সব জায়গায় একরকম বসবে।',
+  b: '<b>B · বিবরণসহ সারি।</b> প্রতিটা বিকল্পের নিচে এক লাইনে কী করে তা লেখা, ডানে ছোট ছাপ (Tags, No speed, ½ credits)। ভাষায় নিজের হরফ বড় করে। বাছা সারির বাঁয়ে নীল দাগ। ৮টার বেশি হলে ওপরে খোঁজার ঘর আসে। Model-এর মতো ড্রপডাউনে কোনটা নেব বোঝা সহজ হয়।',
+  c: '<b>C · macOS-এর মতো।</b> মেনু বোতামের ওপরেই খোলে, আর এখন যেটা বাছা সেটা ঠিক বোতামের জায়গায় বসে (Mac-এর pop-up button যেমন)। কাচের মতো ঝাপসা পেছন, ছোট সারি, মাউস আনলে পুরো সারি নীল। হালকা আর দ্রুত লাগে।',
+  d: '<b>D · খোঁজা যায় (palette)।</b> খুললেই টাইপ করে খোঁজা যায় ("ma" লিখলে Malayalam, Marathi), ওপরে "Recent", মিল পাওয়া অক্ষর রঙিন, নিচে কী চাপতে হবে লেখা। ৪টে বা কম বিকল্প হলে ড্রপডাউনই থাকে না — সোজা বোতামের সারি (File দেখুন)। লম্বা তালিকায় সবচেয়ে দ্রুত।',
+};
+
+/* ---------- triggers ---------- */
+function trigger(f, style){
+  const i = cur(f); const open = S.open === f.id;
+  const base = `data-open="${f.id}" class="w-full flex items-center gap-2 text-left`;
+  if (style === 'c') return `<button ${base} h-8 px-2.5 rounded-md bg-gradient-to-b from-slate-700/70 to-slate-800 border border-black/40 shadow-[inset_0_1px_0_rgba(255,255,255,.08),0_1px_2px_rgba(0,0,0,.5)] text-[13px]">${dot(i)}<span class="flex-1 truncate">${i.label}</span><span class="w-5 h-5 -mr-1 rounded bg-indigo-500 grid place-items-center">${ic('chevrons-up-down','w-3 h-3 text-white')}</span></button>`;
+  if (style === 'd') return `<button ${base} h-9 px-3 rounded-lg border ${open?'border-indigo-500 ring-2 ring-indigo-500/20':'border-edge hover:border-slate-600'} bg-slate-950 text-[13px]">${dot(i)}<span class="flex-1 truncate">${f.id==='lang'?langLine(i):i.label}</span>${ic('search','w-3.5 h-3.5 text-slate-500')}</button>`;
+  if (style === 'b') return `<button ${base} min-h-[42px] py-1.5 px-3 rounded-xl border ${open?'border-indigo-500/70 bg-indigo-500/[.06]':'border-edge hover:border-slate-600 bg-slate-950'}">${dot(i)}<span class="flex-1 min-w-0"><span class="block text-[13px] font-medium truncate">${i.native?`${i.native} <span class="text-slate-400 font-normal">· ${i.label}</span>`:i.label}</span>${i.desc?`<span class="block text-[11px] text-slate-500 truncate">${i.desc}</span>`:''}</span>${ic('chevron-down',`w-4 h-4 text-slate-500 transition-transform ${open?'rotate-180':''}`)}</button>`;
+  return `<button ${base} h-9 px-3 rounded-lg border ${open?'border-indigo-500 bg-slate-900':'border-edge hover:border-slate-600 bg-slate-950'} text-[13px]">${dot(i)}<span class="flex-1 truncate">${f.id==='lang'?langLine(i):i.label}</span>${ic('chevron-down',`w-4 h-4 text-slate-500 transition-transform ${open?'rotate-180 text-indigo-300':''}`)}</button>`;
+}
+
+/* ---------- menus ---------- */
+function menuA(f){
+  let k = -1;
+  const rows = f.items.map(i => {
+    if (i.sep) return `<div class="my-1 h-px bg-edge mx-2"></div>`;
+    k++; const on = i.v === f.value; const hi = k === S.hi;
+    return `<button data-pick="${f.id}|${i.v}" class="w-full h-8 px-2.5 rounded-md flex items-center gap-2 text-[13px] text-left ${hi?'bg-slate-800 text-white':'text-slate-200 hover:bg-slate-800'}">
+      ${i.icon?ic(i.icon,'w-3.5 h-3.5 text-slate-400'):dot(i)}<span class="flex-1 truncate ${i.action?'text-indigo-300':''}">${f.id==='lang'?langLine(i):i.label}</span>${i.badge?`<span class="text-[10px] text-slate-500">${i.badge}</span>`:''}${on?ic('check','w-4 h-4 text-indigo-300'):''}</button>`;
+  }).join('');
+  return `<div class="menu absolute left-0 right-0 top-[calc(100%+6px)] z-30 rounded-xl border border-edge bg-[#18191c] shadow-[0_18px_50px_-10px_rgba(0,0,0,.9),inset_0_1px_0_rgba(255,255,255,.04)] p-1">
+    ${f.id==='lang'?`<div class="px-2.5 pt-1.5 pb-1 text-[10px] uppercase tracking-wider text-slate-500">Indian languages</div>`:''}
+    <div class="max-h-72 overflow-y-auto scroll">${rows}</div>
+    <div class="mt-1 pt-1.5 pb-0.5 px-2.5 border-t border-edge flex gap-2 text-[10.5px] text-slate-500"><span class="kbd">↑↓</span>move <span class="kbd">Enter</span>pick <span class="kbd">Esc</span>close</div>
+  </div>`;
+}
+function menuB(f){
+  const list = real(f); const search = f.items.length > 8;
+  const q = S.q.toLowerCase();
+  const shown = search && q ? f.items.filter(i => !i.sep && (i.label+' '+(i.native||'')).toLowerCase().includes(q)) : f.items;
+  const rows = shown.map(i => {
+    if (i.sep) return `<div class="my-1 h-px bg-edge"></div>`;
+    const on = i.v === f.value;
+    if (f.id === 'lang') return `<button data-pick="${f.id}|${i.v}" class="relative text-left rounded-lg px-3 py-2 ${on?'bg-indigo-500/10':'hover:bg-slate-800/70'}">
+        ${on?'<span class="absolute left-0 top-2 bottom-2 w-[3px] rounded-r bg-indigo-400"></span>':''}
+        <span class="block text-[16px] leading-tight ${on?'text-white':'text-slate-100'}">${i.native}</span><span class="block text-[11px] text-slate-500">${i.label}</span></button>`;
+    return `<button data-pick="${f.id}|${i.v}" class="relative w-full text-left rounded-lg px-3 py-2 flex items-start gap-2.5 ${on?'bg-indigo-500/10':'hover:bg-slate-800/70'}">
+      ${on?'<span class="absolute left-0 top-2 bottom-2 w-[3px] rounded-r bg-indigo-400"></span>':''}
+      <span class="mt-1">${i.icon?ic(i.icon,'w-4 h-4 text-indigo-300'):i.color?dot(i):ic(on?'circle-dot':'circle','w-3.5 h-3.5 '+(on?'text-indigo-300':'text-slate-600'))}</span>
+      <span class="flex-1 min-w-0"><span class="flex items-center gap-1.5"><span class="text-[13px] font-medium ${i.action?'text-indigo-300':'text-slate-100'}">${i.label}</span>${i.badge?`<span class="text-[9.5px] font-semibold px-1.5 py-px rounded-full bg-emerald-500/15 text-emerald-300">${i.badge}</span>`:''}</span>
+        ${i.desc?`<span class="block text-[11.5px] text-slate-500 leading-snug mt-0.5">${i.desc}</span>`:''}
+        ${i.tags?`<span class="flex gap-1 mt-1.5">${i.tags.map(t=>`<span class="text-[10px] px-1.5 py-px rounded border border-edge text-slate-400">${t}</span>`).join('')}</span>`:''}</span>
+    </button>`;
+  }).join('');
+  const wide = f.id === 'model' || f.id === 'lang';
+  return `<div class="menu absolute left-0 ${wide?'w-[22rem]':'right-0'} top-[calc(100%+6px)] z-30 rounded-2xl border border-edge bg-[#18191c] shadow-[0_24px_60px_-12px_rgba(0,0,0,.95)] p-1.5">
+    ${search?`<div class="relative mb-1.5">${ic('search','w-4 h-4 absolute left-2.5 top-2 text-slate-500')}<input data-q value="${S.q}" class="w-full h-8 pl-8 pr-2 rounded-lg bg-slate-950 border border-edge text-[12.5px] focus:outline-none focus:border-indigo-500" placeholder="Find a language"></div>`:''}
+    <div class="max-h-80 overflow-y-auto scroll ${f.id==='lang'?'grid grid-cols-2 gap-0.5':'flex flex-col gap-0.5'}">${rows || '<div class="px-3 py-4 text-[12px] text-slate-500">No language by that name</div>'}</div>
+  </div>`;
+}
+function menuC(f){
+  // Opens over the trigger, the picked row sitting where the trigger is.
+  const idx = f.items.findIndex(i => i.v === f.value);
+  const before = f.items.slice(0, idx).reduce((h,i)=>h+(i.sep?9:26),0);
+  const top = -before - 4;
+  const rows = f.items.map(i => {
+    if (i.sep) return `<div class="my-1 mx-2.5 h-px bg-white/10"></div>`;
+    const on = i.v === f.value;
+    return `<button data-pick="${f.id}|${i.v}" class="group w-full h-[26px] pl-1.5 pr-3 rounded-[5px] flex items-center gap-1.5 text-[13px] text-left text-slate-100 hover:bg-indigo-500 hover:text-white">
+      <span class="w-4 grid place-items-center">${on?ic('check','w-3.5 h-3.5'):''}</span>${i.icon?ic(i.icon,'w-3.5 h-3.5 opacity-80'):dot(i)}<span class="flex-1 truncate">${f.id==='lang'?`${i.label} <span class="opacity-50 group-hover:opacity-80">${i.native}</span>`:i.label}</span>${i.desc&&!f.small?`<span class="text-[11px] opacity-40 group-hover:opacity-80 truncate max-w-[45%]">${i.desc.split('.')[0]}</span>`:''}</button>`;
+  }).join('');
+  return `<div class="menu glass absolute -left-1 -right-1 z-30 rounded-[9px] border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,.7)] p-[5px]" style="top:${top}px">${rows}</div>`;
+}
+function hilite(text, q){ if (!q) return text; const i = text.toLowerCase().indexOf(q); return i<0?text:text.slice(0,i)+'<mark>'+text.slice(i,i+q.length)+'</mark>'+text.slice(i+q.length); }
+function menuD(f){
+  const q = S.q.toLowerCase();
+  const list = real(f).filter(i => !q || (i.label+' '+(i.native||'')+' '+(i.desc||'')).toLowerCase().includes(q));
+  const groups = [];
+  if (!q && f.recent) groups.push(['Recent', list.filter(i => f.recent.includes(i.v))]);
+  groups.push([q ? `${list.length} found` : (f.id==='lang'?'All languages':'All'), list]);
+  let k = -1;
+  const body = groups.map(([g, items]) => `<div class="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-slate-500">${g}</div>` + items.map(i => {
+    k++; const on = i.v === f.value; const hi = k === S.hi;
+    return `<button data-pick="${f.id}|${i.v}" class="w-full h-9 px-3 flex items-center gap-2.5 text-left text-[13px] ${hi?'hl':''} hover:bg-slate-800/70">
+      ${i.icon?ic(i.icon,'w-4 h-4 text-indigo-300'):i.color?dot(i):f.id==='lang'?`<span class="w-7 text-[12px] text-slate-400">${i.native.slice(0,2)}</span>`:ic('box','w-3.5 h-3.5 text-slate-500')}
+      <span class="flex-1 truncate">${hilite(i.label,q)}${i.native?` <span class="text-slate-500">${hilite(i.native,q)}</span>`:''}${i.desc&&f.id==='model'?` <span class="text-slate-500 text-[11.5px]">— ${i.desc.split('.')[0]}</span>`:''}</span>
+      ${on?`<span class="text-[10.5px] text-indigo-300 flex items-center gap-1">${ic('check','w-3.5 h-3.5')}Picked</span>`:hi?'<span class="kbd">Enter</span>':''}</button>`;
+  }).join('')).join('');
+  return `<div class="menu absolute left-0 ${f.id==='model'?'w-[26rem]':'right-0'} top-[calc(100%+6px)] z-30 rounded-xl border border-edge bg-[#16171a] shadow-[0_24px_60px_-12px_rgba(0,0,0,.95)] overflow-hidden">
+    <div class="flex items-center gap-2 px-3 h-10 border-b border-edge">${ic('search','w-4 h-4 text-slate-500')}<input data-q autofocus value="${S.q}" class="flex-1 bg-transparent text-[13px] focus:outline-none placeholder:text-slate-500" placeholder="Type to find… (try “ma”)"><span class="kbd">Esc</span></div>
+    <div class="max-h-72 overflow-y-auto scroll py-1">${body || ''}${list.length?'':'<div class="px-3 py-4 text-[12px] text-slate-500">Nothing matches</div>'}</div>
+    <div class="px-3 h-8 border-t border-edge flex items-center gap-2 text-[10.5px] text-slate-500"><span class="kbd">↑↓</span>move <span class="kbd">Enter</span>pick <span class="ml-auto">${real(f).length} ${f.id==='lang'?'languages':'options'}</span></div>
+  </div>`;
+}
+function segmented(f){
+  return `<div class="flex rounded-lg border border-edge bg-slate-950 p-0.5 gap-0.5">${real(f).map(i=>`<button data-pick="${f.id}|${i.v}" title="${i.desc||''}" class="flex-1 h-8 rounded-md text-[12px] font-medium ${i.v===f.value?'bg-slate-700 text-white shadow':'text-slate-400 hover:text-slate-200'}">${i.label}</button>`).join('')}</div>
+    <div class="mt-1 text-[11px] text-slate-500">${cur(f).desc}</div>`;
+}
+
+function render(){
+  document.querySelectorAll('#mockSeg button').forEach(b=>b.classList.toggle('on', b.dataset.m===S.m));
+  document.getElementById('note').innerHTML = NOTES[S.m];
+  const menu = { a:menuA, b:menuB, c:menuC, d:menuD }[S.m];
+  document.getElementById('stage').innerHTML = FIELDS.map(f => {
+    const inline = S.m==='d' && real(f).length <= 3;
+    return `<div class="relative">
+      <div class="text-[11.5px] text-slate-400 mb-1.5">${f.label}</div>
+      ${inline ? segmented(f) : trigger(f, S.m) + (S.open===f.id ? menu(f) : '')}
+    </div>`;
+  }).join('');
+  document.getElementById('nowStage').innerHTML = FIELDS.map(f => `<label class="block"><span class="block text-[11.5px] text-slate-400 mb-1.5">${f.label}</span>
+    <span class="relative block"><select class="appearance-none w-full h-9 bg-slate-950 border border-edge rounded-lg pl-3 pr-8 text-[13px] text-slate-100">${real(f).map(i=>`<option ${i.v===f.value?'selected':''} class="bg-slate-900">${i.native?`${i.label} (${i.native})`:i.label}</option>`).join('')}</select>${ic('chevron-down','pointer-events-none absolute right-2.5 top-2.5 w-4 h-4 text-slate-500')}</span></label>`).join('');
+  lucide.createIcons();
+  const q = document.querySelector('[data-q]'); if (q){ q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+}
+function openList(){ const f = FIELDS.find(x=>x.id===S.open); if (!f) return []; if (S.m==='d'){ const q=S.q.toLowerCase(); const l=real(f).filter(i=>!q||(i.label+' '+(i.native||'')+' '+(i.desc||'')).toLowerCase().includes(q)); return (!q&&f.recent?l.filter(i=>f.recent.includes(i.v)):[]).concat(l); } return real(f); }
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('button, input');
+  if (t && t.dataset.m){ S.m = t.dataset.m; S.open = 'lang'; S.q=''; S.hi=0; render(); return; }
+  if (t && t.dataset.open){ S.open = S.open === t.dataset.open ? null : t.dataset.open; S.q=''; S.hi=0; render(); return; }
+  if (t && t.dataset.pick){ const [id, v] = t.dataset.pick.split('|'); const f = FIELDS.find(x=>x.id===id); if (v !== '__new') f.value = v; S.open = null; S.q=''; render(); return; }
+  if (t && t.matches('[data-q]')) return;
+  if (!e.target.closest('.menu') && S.open){ S.open = null; render(); }
+});
+document.addEventListener('input', (e) => { if (e.target.matches('[data-q]')){ S.q = e.target.value; S.hi = 0; render(); } });
+document.addEventListener('keydown', (e) => {
+  if (!S.open) return; const list = openList();
+  if (e.key==='Escape'){ S.open=null; render(); }
+  else if (e.key==='ArrowDown'){ e.preventDefault(); S.hi=Math.min(list.length-1,S.hi+1); render(); }
+  else if (e.key==='ArrowUp'){ e.preventDefault(); S.hi=Math.max(0,S.hi-1); render(); }
+  else if (e.key==='Enter' && list[S.hi]){ const f=FIELDS.find(x=>x.id===S.open); if (list[S.hi].v!=='__new') f.value=list[S.hi].v; S.open=null; S.q=''; render(); }
+});
+document.getElementById('cmp').addEventListener('change', (e) => document.getElementById('nowRow').classList.toggle('hidden', !e.target.checked));
+render();
+</script>
+</body>
+</html>

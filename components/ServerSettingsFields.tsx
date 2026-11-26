@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { ChevronDown, RotateCcw, Settings2 } from 'lucide-react';
 import { SettingOrigin } from '../services/apiClient';
 import { Popover } from './ApiSettingsParts';
+import { Select } from './Select';
 
 export interface ServerField {
   /** Matches the key in `values`, and the field name the backend saves. */
@@ -111,21 +112,13 @@ export const ServerSettingsFields: React.FC<ServerSettingsFieldsProps> = ({
                 )}
               </div>
               {field.options ? (
-                <div className="relative">
-                  <select
-                    id={`dhvani-setting-${field.key}`}
-                    value={values[field.key] ?? ''}
-                    onChange={(e) => onChange(field.key, e.target.value)}
-                    className="appearance-none w-full h-9 bg-slate-950/60 border border-slate-700 focus:border-indigo-500 rounded-[9px] pl-3 pr-9 text-[12.5px] text-slate-100 focus:outline-none font-mono transition-all cursor-default"
-                  >
-                    {choicesFor(field, values[field.key] ?? '').map((option) => (
-                      <option key={option.value} value={option.value} className="bg-slate-900">
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                </div>
+                <Select
+                  id={`dhvani-setting-${field.key}`}
+                  value={values[field.key] ?? ''}
+                  onChange={(v) => onChange(field.key, v)}
+                  className="w-full font-mono"
+                  options={choicesFor(field, values[field.key] ?? '')}
+                />
               ) : (
                 <input
                   id={`dhvani-setting-${field.key}`}

@@ -16,6 +16,7 @@ import {
 import { polishIndicDialogueWithAI } from '../services/geminiService';
 import { AudioSegment } from '../types';
 import { ToolWindow, toolPrimaryButton } from './ToolWindow';
+import { Select } from './Select';
 
 interface PhoneticKeyboardModalProps {
   isOpen: boolean;
@@ -265,21 +266,15 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
       titleId="keyboard-title"
       headerExtra={
         <div className="flex flex-wrap items-center gap-3">
-          <select
+          <Select
             value={selectedLang}
-            onChange={(e) => {
-              setSelectedLang(e.target.value);
-              onLanguageChange?.(e.target.value);
+            onChange={(v) => {
+              setSelectedLang(v);
+              onLanguageChange?.(v);
             }}
-            aria-label="Script"
-            className="h-[34px] bg-slate-950/60 border border-slate-700 rounded-[9px] px-2.5 text-[12.5px] text-slate-100 focus:outline-none focus:border-indigo-500 cursor-default"
-          >
-            {Object.keys(INDIC_LANGUAGES).map((l) => (
-              <option key={l} value={l} className="bg-slate-900">
-                {INDIC_LANGUAGES[l].nativeName} {l}
-              </option>
-            ))}
-          </select>
+            ariaLabel="Script"
+            options={Object.keys(INDIC_LANGUAGES).map((l) => ({ value: l, label: l, hint: INDIC_LANGUAGES[l].nativeName }))}
+          />
           <button
             type="button"
             role="switch"

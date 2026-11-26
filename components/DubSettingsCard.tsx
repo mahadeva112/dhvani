@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ChevronRight, Gauge, Mic, MoveHorizontal, Pause, Play, RotateCcw, SlidersHorizontal, Volume2, type LucideIcon } from 'lucide-react';
 import { SelectedVoiceSummary } from './VoiceSelectorCard';
 import { ResetDefaultsButton } from './ResetDefaultsButton';
+import { Select } from './Select';
 import { applyJoinPreset, AUTO_LENGTH_HINT, describeChange, isAutoLength, joinPresetOf, pickAutoLength, pickLengthByHand, presetName } from './SyncJoinSettings';
 import { isOwnCustom, lengthPresetOf } from '../services/syncAutoFit';
 import { syncJoinPreset } from '../services/syncPresets';
@@ -624,21 +625,24 @@ export const DubSettingsCard: React.FC<DubSettingsCardProps> = ({
           )}
           <Row name="Model" note={paceDirection ? 'Reads tags; the speed setting is ignored, so a faster read is a pace direction.' : undefined}>
             {modelId && onModelChange && models.length > 0 ? (
-              <select
+              <Select
                 value={modelId}
-                onChange={(e) => onModelChange(e.target.value)}
+                onChange={onModelChange}
                 disabled={disabled}
-                aria-label="Model"
-                className="max-w-[14rem] h-8 bg-slate-950 border border-edge hover:border-slate-600 rounded-[10px] px-2.5 text-[12.5px] font-semibold text-slate-100 truncate focus:outline-none focus:border-indigo-500 cursor-default disabled:opacity-60"
-              >
-                {!models.some((m) => m.model_id === modelId) && <option value={modelId} className="bg-slate-900">{modelName}</option>}
-                {models.map((m) => (
-                  <option key={m.model_id} value={m.model_id} className="bg-slate-900">
-                    {m.name}
-                    {m.token_cost_factor && m.token_cost_factor !== 1 ? ` · ${m.token_cost_factor}× credits` : ''}
-                  </option>
-                ))}
-              </select>
+                ariaLabel="Model"
+                size="sm"
+                className="max-w-[14rem]"
+                menuWidth={320}
+                options={[
+                  ...(!models.some((m) => m.model_id === modelId) ? [{ value: modelId, label: modelName }] : []),
+                  ...models.map((m) => ({
+                    value: m.model_id,
+                    label: m.name,
+                    hint: m.token_cost_factor && m.token_cost_factor !== 1 ? `${m.token_cost_factor}× credits` : undefined,
+                    description: m.description,
+                  })),
+                ]}
+              />
             ) : (
               <span className="text-[12.5px] font-semibold text-slate-200 truncate">{modelName}</span>
             )}

@@ -991,8 +991,8 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
       className={`w-full flex flex-col bg-slate-900/90 border border-edge rounded-2xl overflow-hidden ${className}`}
     >
       {/* Heading */}
-      <div className="flex items-start justify-between gap-3 px-4 sm:px-5 pt-4">
-        <div className="min-w-0">
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 px-4 sm:px-5 pt-4">
+        <div className="min-w-[11rem] flex-1">
           <h2 id="voice-library-heading" className="flex items-center gap-2 text-[15px] font-semibold text-slate-100 leading-tight">
             {heading ?? 'Dubbing voice'}
           </h2>
