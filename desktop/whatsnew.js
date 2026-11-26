@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.20',
+    changes: [
+      'Translation now marks every short pause the speaker makes (0.3 s or more), not only stops of over a second, so Sync can cut the dub there and each piece sits under its piece of the original.',
+      'Review, Bars: a line with "No pause marks" now has a ‖ Mark pauses button, and Mark pauses beside Check grammar does every such line. It only adds the pauses: no word changes, and Undo takes them off.',
+    ],
+  },
+  {
     version: '1.5.19',
     changes: [
       'The app opens on Source & voice again, as before: no separate Home page. New dub puts the upload right at the top of that page, and Projects lists your other dubs.',
