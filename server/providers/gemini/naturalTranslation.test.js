@@ -20,17 +20,17 @@ const cue = (id, text, startTime, endTime, extra = {}) => {
 
 const talk = [
   cue('c1', 'This one way of', 90.34, 91.34),
-  cue('c2', 'handling', 92.11, 92.68),
+  cue('c2', 'handling', 91.5, 92.68),
   cue('c3', 'the fear and the resistance that you have.', 93.94, 97.02),
   cue('c4', 'Another way is', 98.94, 99.92),
-  cue('c5', 'you know some mantra.', 100.86, 101.92),
+  cue('c5', 'you know some mantra.', 100.1, 101.92),
 ];
 
-test('cues are joined until the English sentence ends, and only pauses of 1.2 s or more bind the wording', () => {
+test('cues are joined until the English sentence ends, and every pause of 0.3 s or more is a stop', () => {
   const units = buildNaturalUnits(talk);
   assert.deepEqual(units.map((u) => u.cues.map((c) => c.id)), [['c1', 'c2', 'c3'], ['c4', 'c5']]);
   const [first, second] = units;
-  // 91.34 → 92.11 is 0.77 s (free); 92.68 → 93.94 is 1.26 s (a stop).
+  // 91.34 → 91.5 is 0.16 s (no stop); 92.68 → 93.94 is 1.26 s (a stop).
   assert.equal(first.pauses.length, 1);
   assert.equal(first.pausedText, 'This one way of handling ‖ the fear and the resistance that you have.');
   assert.equal(second.pauses.length, 0);
@@ -99,6 +99,23 @@ test('a stop inside one cue becomes a pause mark for the voice only', () => {
   const { lines, paused } = cutUnit(unit, 'तो मैं वहाँ गया ‖ और बैठ गया।');
   assert.equal(lines[0], 'तो मैं वहाँ गया और बैठ गया।');
   assert.equal(paused[0], 'तो मैं वहाँ गया [pause 1.5s] और बैठ गया।');
+});
+
+test('a short breath inside a cue (0.3 s or more) is a stop too, so Sync can cut the dub there', () => {
+  const one = { ...cue('y', 'But these are great beings and, uh, being here and', 0, 4), words: [
+    { text: 'But', start: 0.3, end: 0.5 }, { text: 'these', start: 0.55, end: 0.8 }, { text: 'are', start: 0.85, end: 1 }, { text: 'great', start: 1.05, end: 1.4 },
+    { text: 'beings', start: 1.45, end: 1.9 }, { text: 'and,', start: 1.95, end: 2.2 }, { text: 'uh,', start: 2.3, end: 2.6 },
+    { text: 'being', start: 3.1, end: 3.4 }, { text: 'here', start: 3.45, end: 3.7 }, { text: 'and', start: 3.75, end: 4.06 },
+  ] };
+  const [unit] = buildNaturalUnits([one]);
+  assert.deepEqual(unit.pauses.map((p) => +p.toFixed(1)), [0.5]);
+  assert.equal(unit.markedText, 'But these are great beings and, uh, ‖ being here and');
+  const { lines, paused } = cutUnit(unit, 'लेकिन ये महान विभूतियाँ हैं और, ‖ यहाँ आकर,');
+  assert.equal(lines[0], 'लेकिन ये महान विभूतियाँ हैं और, यहाँ आकर,');
+  assert.equal(paused[0], 'लेकिन ये महान विभूतियाँ हैं और, [pause 0.5s] यहाँ आकर,');
+  // A gap under 0.3 s is no stop.
+  const [smooth] = buildNaturalUnits([{ ...one, words: one.words.map((w, i) => (i >= 7 ? { ...w, start: w.start - 0.25, end: w.end - 0.25 } : w)) }]);
+  assert.equal(smooth.pauses.length, 0);
 });
 
 test('split is kept only when it has the same words as natural', () => {

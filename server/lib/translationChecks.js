@@ -220,7 +220,7 @@ const describeIssue = (issue) => {
     return `- id ${issue.id}: the pieces between the marks do not line up with the English: ${issue.problem}. Say the sentence again in a natural spoken order where each piece says what the same piece of the English says (speech allows an afterthought: "most people run every day, ${LINE_SPLIT} without knowing where they go"), with the same marks, the same meaning and everyday words. Only where the language cannot say it in that order, keep the order it needs.`;
   }
   if (issue.kind === 'pauses') {
-    return `- id ${issue.id}: the English has ${issue.want} "${PAUSE_SPLIT}" (where the speaker stops for over a second) and the line has ${issue.have}. Put exactly ${issue.want} "${PAUSE_SPLIT}" in the line, each between the same ideas as in the English, as near as the language's word order allows.`;
+    return `- id ${issue.id}: the English has ${issue.want} "${PAUSE_SPLIT}" (where the speaker stops) and the line has ${issue.have}. Put exactly ${issue.want} "${PAUSE_SPLIT}" in the line, each between the same ideas as in the English, as near as the language's word order allows.`;
   }
   if (issue.kind === 'end') return `- id ${issue.id}: the English sentence ends in this cue; end the sentence here too.`;
   if (issue.kind === 'open') return `- id ${issue.id}: the English sentence carries on into the next cue; do not end the sentence here.`;

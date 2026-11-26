@@ -21,9 +21,8 @@ import {
   briefBlock,
   dubSyllables,
 } from '../../lib/translationChecks.js';
-import { PAUSE_SPLIT, cuePauses } from '../../lib/translationPauses.js';
+import { PAUSE_SPLIT, TRANSLATION_PAUSE_SECONDS, cuePauses } from '../../lib/translationPauses.js';
 import { normalizePauses, stripPauses } from '../../lib/linePauses.js';
-import { HARD_ANCHOR_GAP_SECONDS } from '../../lib/syncUnits.js';
 import { cleanSpeakerGenders, genderOfCue, speakerField, speakerGenderRule } from '../../lib/speakerGender.js';
 import {
   sentenceBatches,
@@ -47,9 +46,12 @@ import {
  * English sentence: cues are joined until the sentence ends (across pauses up
  * to MAX_JOIN_GAP, one speaker), and the model writes each sentence the way a
  * native speaker says it ("natural"), then the same words again with a "‖"
- * where the speaker stops for HARD_ANCHOR_GAP_SECONDS or more ("split"),
- * the same pauses Sync treats as hard anchors (syncUnits.js). Shorter pauses
- * don't bind the wording. Code then cuts each sentence onto its cues: at the
+ * where the speaker stops for TRANSLATION_PAUSE_SECONDS or more ("split"),
+ * the same pauses Review's Bars split the original at and Sync cuts the dub
+ * at (sourceCuts.js), so each piece of the dub lands under its piece of the
+ * original. (Until 2026-11-26 only stops of 1.2 s or more were marked, so the
+ * shorter ones had nowhere to cut.) The marks never bind the wording: the
+ * model writes "natural" first. Code then cuts each sentence onto its cues: at the
  * "‖" marks first, the rest by each cue's share of the speaking time, at a
  * nearby comma where there is one. No word is changed by the cut.
  *
@@ -104,7 +106,7 @@ const timedWords = (cue) => {
  * `parts` are the unit's pieces between hard pauses, each `{ text, talk, cues: [{ index, talk }] }`
  * with the speaking seconds of each of its cues; `pauses` their lengths.
  */
-export const buildNaturalUnits = (cues, { hardPause = HARD_ANCHOR_GAP_SECONDS, maxJoinGap = MAX_JOIN_GAP } = {}) => {
+export const buildNaturalUnits = (cues, { hardPause = TRANSLATION_PAUSE_SECONDS, maxJoinGap = MAX_JOIN_GAP } = {}) => {
   const units = [];
   for (const cue of cues) {
     const unit = units.at(-1);
@@ -445,7 +447,7 @@ HOW TO WRITE EACH SENTENCE
 9. Indian-English turns of phrase are said by what they mean, never word for word: "somewhere" in "somewhere I felt it was wrong" means "deep down, in some way", not a place; "simply" means "just, for no other reason"; "what to do" means "nothing can be done"; "itself" and "only" often just stress a word. Say that meaning the way a ${targetLanguage} speaker would.
 ${examples ? `\n${examples}\n(These examples show cue lines; here you write the whole sentence, so the same idea applies to the whole sentence.)\n` : ''}${marked ? `
 MARKS IN THE ENGLISH
-- "${PAUSE_SPLIT}" is where the speaker stops for over a second; the dub voice stops at the same moments, so before each stop it should be saying what the speaker said before it.
+- "${PAUSE_SPLIT}" is where the speaker stops, even for a short breath; the dub voice stops at the same moments, so before each stop it should be saying what the speaker said before it.
 - "${SOFT_SPLIT}" is where a subtitle line ends while the speaker talks on. It only says where the line breaks: it never binds the wording.
 - "split" is "natural" again, with exactly the same words in the same order, plus the same marks as the English, the same number of each in the same order. Put each "${PAUSE_SPLIT}" where what comes before it says what came before it in the English, as near as ${targetLanguage}'s order allows. Put each "${SOFT_SPLIT}" at the natural phrase break nearest to the same point of the meaning, never between a word and its postposition, case ending or helping verb, never inside a name or a fixed phrase, and never inside a pair joined by "and" or "or" ("fear and resistance", "a mantra or a god"), also when the language marks the pair on both words instead of with a word between them: the whole pair stays on one side, even if that moves the mark a few words.
 - Write "natural" first, freely; then place the marks. Never reword "natural" to make a mark fit. If the language's order moves an idea across a mark, put the mark at the nearest natural phrase break.${spokenFirst ? `
