@@ -1430,16 +1430,23 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
           <span className="font-mono text-[13px] text-slate-100 tabular-nums whitespace-nowrap">
             {formatTime(currentTime)} <span className="text-slate-500">/ {formatTime(total)}</span>
           </span>
+          {/*
+            The caption's place never depends on how long its words are: basis 0
+            beside the transport (basis auto measured the words on one line, so a
+            long line dropped to a row of its own and a short one came back up,
+            moving everything under the player), its own row on a narrow player,
+            and one height whatever it holds.
+          */}
           {caption ? (
-            <div className="order-last min-[1500px]:order-none basis-full min-[1500px]:basis-auto flex-1 min-w-0 flex items-center min-[1500px]:ml-1 min-[1500px]:pl-3 min-[1500px]:border-l min-[1500px]:border-edge">
+            <div className="order-last min-[1500px]:order-none basis-full min-[1500px]:basis-0 flex-1 min-w-0 flex items-center min-[1500px]:ml-1 min-[1500px]:pl-3 min-[1500px]:border-l min-[1500px]:border-edge">
               {caption}
             </div>
           ) : (
-          <div className="order-last md:order-none basis-full md:basis-auto flex-1 min-w-0 flex items-center gap-3 md:pl-1" aria-live="polite">
+          <div className="order-last md:order-none basis-full md:basis-0 flex-1 min-w-0 h-[58px] overflow-hidden flex items-center gap-3 md:pl-1" aria-live="polite">
             {activeCue ? (
               <>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[14px] leading-snug text-slate-100">
+                  <span className="block text-[14px] leading-snug text-slate-100 line-clamp-2">
                     {targetOf(activeCue) || <span className="text-slate-500">No {targetLanguage} line yet</span>}
                     {/* How it sits, right by its words */}
                     {targetOf(activeCue) && (
