@@ -31,5 +31,6 @@ contextBridge.exposeInMainWorld('dhvaniUpdates', {
 
 /** Export for DaVinci: picks a folder with the system dialog. Returns its path, or null. */
 contextBridge.exposeInMainWorld('dhvaniFiles', {
+  platform: process.platform,
   pickFolder: (start) => ipcRenderer.invoke('files:pick-folder', start),
 });

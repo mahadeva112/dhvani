@@ -176,6 +176,10 @@ export const openResolve = () => apiJson<{ opened: boolean; running: boolean }>(
 export const openInResolveStudio = (body: { timeline: string; srt?: string | null; name: string; fps: DavinciFps }) =>
   apiJson<{ project: string; subtitles: 'timeline' | 'pool' | 'failed' | 'none' }>('/davinci/open-in-studio', { body });
 
+/** Free Resolve: the DHVANI script in Workspace › Scripts makes a new project and imports the timeline and subtitles. */
+export const openInResolveFree = (body: { timeline: string; srt?: string | null; name: string; fps: DavinciFps }) =>
+  apiJson<{ project: string; subtitles: 'timeline' | 'pool' | 'failed' | 'none'; saved: boolean }>('/davinci/open-in-free', { body });
+
 const VIDEO_EXT = /\.(mp4|mov|mkv|m4v|mxf|avi|webm|mts|m2ts|mpe?g|ts|wmv|3gp|flv)$/i;
 
 /** True for a file with a picture: a video by its type or its name. */

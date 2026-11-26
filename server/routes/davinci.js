@@ -8,6 +8,8 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import { ApiError, badRequest } from '../errors.js';
 import { mediaReport } from '../lib/media.js';
 import { STUDIO_ERRORS, fcpxmlFormat, openInResolveStudio } from '../lib/resolveStudio.js';
+import { openInResolveFree } from '../lib/resolveFreeBridge.js';
+import { CONFIG_DIR } from '../env.js';
 import {
   buildFcpxml,
   framesToSeconds,
@@ -420,5 +422,48 @@ davinciRouter.post(
       throw new ApiError(STUDIO_ERRORS[result.code] || STUDIO_ERRORS.failed, { status: 424, code: `resolve_${result.code || 'failed'}` });
     }
     res.json({ project: result.project, subtitles: result.subtitles });
+  })
+);
+
+/**
+ * POST /davinci/open-in-free { timeline, srt?, name, fps }: Open in DaVinci,
+ * one click, for the free Resolve. Puts the DHVANI script in Resolve's
+ * Workspace › Scripts menu and its job beside DHVANI's settings, then on
+ * Windows runs it there: a new project at the timeline's rate and size, the
+ * timeline, its media and the subtitles (see resolveFreeBridge.js). Elsewhere,
+ * or if the press doesn't reach Resolve, it answers 424 click_needed and the
+ * person chooses Workspace › Scripts › DHVANI in Resolve.
+ */
+davinciRouter.post(
+  '/davinci/open-in-free',
+  asyncHandler(async (req, res) => {
+    localOnly(req);
+    const app = resolveApp();
+    if (!app) throw badRequest('DaVinci Resolve is not installed in its usual place on this computer.');
+    const timeline = typeof req.body?.timeline === 'string' ? path.resolve(req.body.timeline) : '';
+    if (!timeline || path.extname(timeline).toLowerCase() !== '.fcpxml' || !fs.existsSync(timeline)) throw badRequest('Export the timeline first.');
+    const srtRaw = typeof req.body?.srt === 'string' ? path.resolve(req.body.srt) : '';
+    const srt = srtRaw && path.extname(srtRaw).toLowerCase() === '.srt' && fs.existsSync(srtRaw) ? srtRaw : null;
+    const fps = String(req.body?.fps || '25');
+    rateOf(fps);
+    const name = safeFileName(req.body?.name, 'DHVANI dub');
+    const { width, height } = fcpxmlFormat(await fs.promises.readFile(timeline, 'utf8'));
+    let wait = 30;
+    if (!(await isRunning())) {
+      const child =
+        process.platform === 'darwin'
+          ? spawn('open', ['-a', app], { detached: true, stdio: 'ignore' })
+          : spawn(app, [], { detached: true, stdio: 'ignore', cwd: path.dirname(app) });
+      child.on('error', () => {});
+      child.unref();
+      // Resolve takes a while to start and open its project library.
+      wait = 150;
+    }
+    const result = await openInResolveFree({ configDir: CONFIG_DIR, timeline, srt, name, timelineName: name, fps, width, height, wait });
+    if (!result.ok) {
+      if (result.code === 'busy') throw new ApiError(result.message, { status: 409, code: 'resolve_busy' });
+      throw new ApiError(result.message || 'The DHVANI script in Resolve stopped.', { status: 424, code: `resolve_free_${result.code || 'failed'}` });
+    }
+    res.json({ project: result.project, subtitles: result.subtitles, saved: result.saved });
   })
 );

@@ -9,6 +9,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Open in DaVinci, one click, for the free Resolve (Windows, beta).** With "Open DaVinci
+  Resolve" on, Export for DaVinci puts a "DHVANI" script in Resolve's Workspace › Scripts menu
+  and runs it. Free Resolve takes no outside scripts, but one run from that menu gets the full
+  scripting API (Resolve 21.2), so it does what Studio's one click does: saves the open
+  project, makes a new one at the timeline's frame rate and size, imports the timeline and its
+  media, puts the subtitles on a subtitle track, opens the Edit page and saves. When Resolve
+  shows the Project Manager, DHVANI makes the project there first. If the menu press does not
+  reach Resolve, DHVANI says to choose Workspace › Scripts › DHVANI there; the export waits.
+
 - **Translation examples in every dub language.** Each of the 12 dub languages now has its own
   worked examples in the translation prompt: a line kept in English word order cue by cue, and
   the same line said the way a native speaker would, then split over the cues by their length.
@@ -244,6 +253,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and keeps it in view while playing.
 
 ### Changed
+
+- **Export for DaVinci window redesigned.** Export contents in three columns, Start timecode /
+  Frame rate / Audio tracks in one row, a timeline preview (hover a flag for the line's
+  problem), Save to with its options, and "Open DaVinci Resolve after export" beside one
+  Export package button. The steps by hand show after an export, and also when Resolve's own
+  import did not finish. Subtitles are off when the synced dub has none.
 
 - **Edit timing: Snap stops a moved line at the next one, and a cut trims like DaVinci.** With
   Snap on, a moved line (or a keyboard nudge) stops against the next line of the same speaker
