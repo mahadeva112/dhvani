@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.17',
+    changes: [
+      'A new Home page: your recent projects at a glance, with Upload and Import right there. After transcribing, the transcript shows on Setup beside the file and the voice.',
+      'Review, Bars: the original is split at every pause the speaker makes, and the dub at the same pause, so each piece of the original sits over its translation. Bars, Fit and Line numbers are now how the lanes start.',
+      'Dropdowns across the app are one new kind: type to search, recent picks on top. Short text in the lanes no longer shrinks when it fits.',
+    ],
+  },
+  {
     version: '1.5.16',
     changes: [
       'Export for DaVinci: the Original video row shows the name the video is saved under, the same as on the V1 track, not the long name of the file you imported.',
