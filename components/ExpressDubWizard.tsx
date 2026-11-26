@@ -5585,6 +5585,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           colorOf={davinciColorOf}
           subtitleLanguage={targetLanguage}
           pendingCount={syncPendingLines.length}
+          hasSubtitles={Boolean(activeJob.subtitleEdits?.[subtitleEditKey('target', 'synced')]?.cues?.length || syncedCues?.length)}
           source={activeJob.file?.size ? activeJob.file : null}
           reviewVideoName={reviewVideo.video?.name ?? null}
           loadReviewVideo={() => getReviewVideo(activeJob.id)}

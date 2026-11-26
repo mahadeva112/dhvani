@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.14',
+    changes: [
+      'Free DaVinci Resolve on Windows: with "Open DaVinci Resolve" on, the export opens in Resolve by itself: your open project is saved, then a new project at the right frame rate gets the timeline, its media and the subtitles on a subtitle track.',
+      'Export for DaVinci has a new, simpler window: what goes in the package in three columns, the timecode, frame rate and tracks in one row, a preview of the Resolve timeline, and one Export package button.',
+    ],
+  },
+  {
     version: '1.5.13',
     changes: [
       'Edit transcript: see the transcript beside the video, play any line, fix its words, remove it, or say who speaks it. Save is one Undo step.',
