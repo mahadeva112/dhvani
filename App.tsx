@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect, useCallback, useMemo, startTransiti
 import { RefreshCw, AlertTriangle, Languages, X } from 'lucide-react';
 import { ProHeader, DEFAULT_LANGUAGES, DEFAULT_TARGET_LANGUAGE, HeaderQuota } from './components/ProHeader';
 import { ExpressDubWizard, stepForJob } from './components/ExpressDubWizard';
-import { ProHome } from './components/ProHome';
 import { useTrackMixer } from './components/useTrackMixer';
 import { syncFraction } from './components/SyncPanel';
 import { VoiceSettingsModal } from './components/VoiceSettingsModal';
@@ -104,6 +103,8 @@ const slimVoice = (v: Voice): Voice => ({
     ...new Set(v.verified_languages.map((l) => l.language).filter(Boolean)),
   ].map((language) => ({ language })),
 });
+/** The project that was open, so a restart comes back to it. */
+const OPEN_PROJECT_STORAGE_KEY = 'dhvani_open_project';
 /**
  * Not working on a project: its audio, decoded again each time it opens, and
  * the step it is on. Changing these leaves when it was last worked on.
@@ -1201,7 +1202,12 @@ export default function App() {
           const saved = stored.map(reviveSavedJob);
           saved.sort(byNewest);
           setQueue(saved);
-          // The app opens on Home, with these listed there; a click opens one.
+          // Back to the project that was open, else the newest.
+          let lastOpen: string | null = null;
+          try {
+            lastOpen = localStorage.getItem(OPEN_PROJECT_STORAGE_KEY);
+          } catch {}
+          setActiveJobId(saved.some((j) => j.id === lastOpen) ? lastOpen : saved[0].id);
         }
       } catch (err) {
         console.warn('Could not load stored session:', err);
@@ -1209,6 +1215,13 @@ export default function App() {
     };
     loadStorage();
   }, []);
+
+  useEffect(() => {
+    if (!activeJobId) return;
+    try {
+      localStorage.setItem(OPEN_PROJECT_STORAGE_KEY, activeJobId);
+    } catch {}
+  }, [activeJobId]);
 
   // Update storage & state helper
   /** Changes a project, worked out from the project as it is now rather than as the last render saw it. */
@@ -5509,26 +5522,6 @@ export default function App() {
 
       {/* Main Express Dubbing Studio */}
       <main className="flex-1 flex flex-col px-4 py-4 sm:px-6 sm:py-6 lg:px-8 2xl:px-10 w-full mx-auto min-w-0">
-        {!activeJob ? (
-          <ProHome
-            projects={queue}
-            onOpenProject={handleSelectJob}
-            onFileSelect={handleFilesUpload}
-            onImportProject={(file) => void handleImportProject(file)}
-            onLoadSample={handleLoadSampleSession}
-            onOpenProjects={() => setIsQueueModalOpen(true)}
-            onOpenTextToSpeech={() => setIsTextToSpeechOpen(true)}
-            onOpenApiSettings={backendSettings?.canSaveKeys ? () => setIsApiSettingsOpen(true) : undefined}
-            targetLanguage={selectedLanguage}
-            languages={DEFAULT_LANGUAGES}
-            onTargetLanguageChange={handleLanguageChange}
-            voiceName={
-              availableVoices.find((voice) => voice.voice_id === elVoiceId)?.name ??
-              POPULAR_ELEVENLABS_VOICES.find((voice) => voice.id === elVoiceId)?.name ??
-              null
-            }
-          />
-        ) : (
         <ExpressDubWizard
           activeStep={activeStep}
           onStepChange={handleStepChange}
@@ -5687,7 +5680,6 @@ export default function App() {
           analysisSensitivity={activeJob?.analysisSensitivity ?? 50}
           onSensitivityChange={activeJobHasTranscript ? undefined : handleSensitivityChange}
         />
-        )}
       </main>
 
       {/* Voice Changer Studio Modal */}

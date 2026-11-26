@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.19',
+    changes: [
+      'The app opens on Source & voice again, as before: no separate Home page. New dub puts the upload right at the top of that page, and Projects lists your other dubs.',
+    ],
+  },
+  {
     version: '1.5.18',
     changes: [
       'Source & voice is back the way it was in 1.5.16: Transcribe takes you straight to the script page, with no extra step in between.',
