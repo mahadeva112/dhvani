@@ -133,15 +133,17 @@ test('with the video, it is the storyline on V1 and the dub hangs from it; the o
     guide: video,
   });
   assert.match(out, /<format id="r1" name="DHVANI 720p25" frameDuration="1\/25s" width="1280" height="720"\/>/);
-  assert.equal((out.match(/<asset id="s1"/g) || []).length, 1, 'one asset for picture and sound');
-  assert.match(out, /<asset id="s1" name="Talk - original.mp4" start="0s" duration="200\/25s" hasVideo="1" format="r1" hasAudio="1"/);
-  assert.match(out, /<asset-clip ref="s1" name="Talk - original.mp4" offset="90000\/25s" start="0s" duration="200\/25s" srcEnable="video">/);
+  // One file, two assets: Resolve ignores srcEnable and takes every stream an asset declares.
+  assert.match(out, /<asset id="s1" name="Talk - original.mp4" start="0s" duration="200\/25s" hasVideo="1" format="r1" hasAudio="0">/);
+  assert.match(out, /<asset id="s2" name="Talk - original.mp4" start="0s" duration="200\/25s" hasAudio="1" audioSources="1" audioChannels="2" audioRate="48000">/);
+  assert.doesNotMatch(out, /srcEnable/);
+  assert.match(out, /<asset-clip ref="s1" name="Talk - original.mp4" offset="90000\/25s" start="0s" duration="200\/25s">/);
   // The first line hangs from the video, in the video's own time (its first frame is 0).
   assert.match(out, /<asset-clip ref="a1" lane="-1" name="1 a" offset="0s" start="90000\/25s" duration="144\/25s"/);
   // The dub runs past the video's end: a gap carries it, in timeline time.
   assert.match(out, /<gap name="Gap" offset="90200\/25s" start="90200\/25s" duration="50\/25s">/);
   assert.match(out, /<asset-clip ref="a1" lane="-1" name="2 b" offset="144\/25s" start="90144\/25s" duration="106\/25s"/, 'starts inside the video, so hangs from it');
-  assert.match(out, /<asset-clip ref="s1" lane="-2" name="Original \(guide\)" offset="0s" start="0s" duration="200\/25s" srcEnable="audio" enabled="0"/);
+  assert.match(out, /<asset-clip ref="s2" lane="-2" name="Original \(guide\)" offset="0s" start="0s" duration="200\/25s" enabled="0"/);
   assert.match(out, /<sequence format="r1" duration="250\/25s"/);
 });
 

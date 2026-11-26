@@ -21,7 +21,7 @@ import { spawn } from 'node:child_process';
  */
 
 export const SCRIPT_NAME = 'DHVANI';
-export const SCRIPT_VERSION = 1;
+export const SCRIPT_VERSION = 2;
 
 /**
  * A Lua string literal for any text: printable ASCII as is, every other byte as
@@ -167,20 +167,34 @@ local ok, err = pcall(function()
   if not timeline then return fail("import_failed", "Resolve made the project but could not import the timeline. Use File > Import > Timeline.", { { "project", name } }) end
   try(function() return project:SetCurrentTimeline(timeline) end)
 
-  local subtitles = "none"
+  -- Subtitles: Resolve keeps an SRT's own times (its first cue's time is the item's Start TC), so
+  -- the item goes in at the timeline's start. Measured on 21.2: with no subtitle track yet,
+  -- AppendToTimeline makes one and ignores recordFrame (the cues land after the video), so the
+  -- track is added first, and where the first cue landed is checked before saying "timeline".
+  local subtitles, subtitleOffset = "none", nil
   if job.srt then
     local item = objects(try(function() return pool:ImportMedia({ job.srt }) end))[1]
     subtitles = item and "pool" or "failed"
     if item then
-      local placed = objects(try(function() return pool:AppendToTimeline({ { mediaPoolItem = item, recordFrame = timeline:GetStartFrame() } }) end))
-      local all_subtitle = #placed > 0
-      for _, clip in ipairs(placed) do
-        local a = try(function() return clip:GetTrackTypeAndIndex() end)
-        local kind = type(a) == "table" and (a[1] or a["1"]) or a
-        if kind ~= "subtitle" then all_subtitle = false end
+      local start = timeline:GetStartFrame()
+      if (try(function() return timeline:GetTrackCount("subtitle") end) or 0) == 0 then try(function() return timeline:AddTrack("subtitle") end) end
+      local placed = objects(try(function() return pool:AppendToTimeline({ { mediaPoolItem = item, recordFrame = start } }) end))
+      local cues = objects(try(function() return timeline:GetItemListInTrack("subtitle", 1) end))
+      local first
+      for _, cue in ipairs(cues) do
+        local at = try(function() return cue:GetStart() end)
+        if at and (not first or at < first) then first = at end
       end
-      if all_subtitle then subtitles = "timeline"
-      elseif #placed > 0 then try(function() return timeline:DeleteClips(placed) end) end
+      local fps = tonumber(job.fps) or 25
+      local h, m, sec, f = tostring(try(function() return item:GetClipProperty("Start TC") end) or ""):match("^(%d+):(%d+):(%d+)[:;](%d+)$")
+      local own = h and ((tonumber(h) * 60 + tonumber(m)) * 60 + tonumber(sec)) * math.floor(fps + 0.5) + tonumber(f) or 0
+      subtitleOffset = first and (first - start) or nil
+      if #placed > 0 and first and math.abs(first - start - own) <= 2 then
+        subtitles = "timeline"
+      else
+        if #cues > 0 then try(function() return timeline:DeleteClips(cues) end) end
+        if #placed > 0 then try(function() return timeline:DeleteClips(placed) end) end
+      end
     end
   end
 
@@ -190,7 +204,7 @@ local ok, err = pcall(function()
     { "id", job.id }, { "status", "ok" }, { "project", name }, { "timeline", try(function() return timeline:GetName() end) },
     { "fps", try(function() return timeline:GetSetting("timelineFrameRate") end) },
     { "video", try(function() return timeline:GetTrackCount("video") end) }, { "audio", try(function() return timeline:GetTrackCount("audio") end) },
-    { "subtitles", subtitles }, { "saved", saved and "yes" or "no" },
+    { "subtitles", subtitles }, { "subtitleOffset", subtitleOffset }, { "saved", saved and "yes" or "no" },
   })
   print("DHVANI: imported into the project " .. name .. ".")
 end)

@@ -171,15 +171,17 @@ export const buildFcpxml = ({ title, fps, startTimecode = '01:00:00:00', width =
   const length = Math.max(1, ...tracks.map((tr) => frames(tr.duration)), videoLen, guide ? frames(guide.duration) : 0);
   const picture = video ? { width: video.width || width, height: video.height || height } : { width, height };
 
-  // The original's files: one asset each, the same one when picture and sound are one file.
+  // The original's picture and its sound are separate assets, even from one file: Resolve
+  // ignores srcEnable and brings in every stream an asset declares (checked on 21.2, 2026-11-26),
+  // so one shared asset put the picture in twice and left the original's sound playing on A1.
   const media = [];
-  const mediaId = (m) => {
-    let found = media.find((x) => x.file === m.file);
-    if (!found) media.push((found = { ...m, id: `s${media.length + 1}` }));
-    return found.id;
+  const addMedia = (m, part) => {
+    const id = `s${media.length + 1}`;
+    media.push({ ...m, id, part });
+    return id;
   };
-  const videoId = video ? mediaId(video) : null;
-  const guideId = guide ? mediaId(guide) : null;
+  const videoId = video ? addMedia(video, 'picture') : null;
+  const guideId = guide ? addMedia(guide, 'sound') : null;
   const ownRate = video?.rate && video.rate !== String(fps) && FRAME_RATES[video.rate] ? video.rate : null;
   const formats = [`    <format id="r1" name="${xml(`DHVANI ${picture.height}p${fps}`)}" frameDuration="${t(1)}" width="${picture.width}" height="${picture.height}"/>`];
   if (ownRate) formats.push(`    <format id="r2" name="${xml(`DHVANI ${picture.height}p${ownRate}`)}" frameDuration="${fcpTime(1, ownRate)}" width="${picture.width}" height="${picture.height}"/>`);
@@ -191,8 +193,8 @@ export const buildFcpxml = ({ title, fps, startTimecode = '01:00:00:00', width =
       `    </asset>`
   );
   for (const m of media) {
-    const pic = m.hasVideo ? ` hasVideo="1" format="${ownRate && m.id === videoId ? 'r2' : 'r1'}"` : '';
-    const sound = m.hasAudio ? ` hasAudio="1" audioSources="1" audioChannels="${m.channels || 2}" audioRate="${m.sampleRate || 48000}"` : '';
+    const pic = m.part === 'picture' && m.hasVideo ? ` hasVideo="1" format="${ownRate ? 'r2' : 'r1'}" hasAudio="0"` : '';
+    const sound = m.part === 'sound' && m.hasAudio ? ` hasAudio="1" audioSources="1" audioChannels="${m.channels || 2}" audioRate="${m.sampleRate || 48000}"` : '';
     assets.push(
       `    <asset id="${m.id}" name="${xml(path.basename(m.file))}" start="${t(m.start || 0)}" duration="${t(Math.max(1, frames(m.duration)))}"${pic}${sound}>\n` +
         `      <media-rep kind="original-media" src="${xml(pathToFileURL(m.file).href)}"/>\n` +
@@ -230,7 +232,7 @@ export const buildFcpxml = ({ title, fps, startTimecode = '01:00:00:00', width =
   if (guide) {
     const { el, local } = anchor(0);
     el.children.push(
-      `<asset-clip ref="${guideId}" lane="${-(tracks.length + 1)}" name="Original (guide)" offset="${t(local)}" start="${t(guide.start || 0)}" duration="${t(Math.max(1, frames(guide.duration)))}" srcEnable="audio" enabled="0" audioRole="dialogue"/>`
+      `<asset-clip ref="${guideId}" lane="${-(tracks.length + 1)}" name="Original (guide)" offset="${t(local)}" start="${t(guide.start || 0)}" duration="${t(Math.max(1, frames(guide.duration)))}" enabled="0" audioRole="dialogue"/>`
     );
   }
 
@@ -238,7 +240,7 @@ export const buildFcpxml = ({ title, fps, startTimecode = '01:00:00:00', width =
   const spineXml = spine.map((el) => {
     const open =
       el.kind === 'video'
-        ? `            <asset-clip ref="${videoId}" name="${xml(path.basename(video.file))}" offset="${t(startFrames + el.at)}" start="${t(el.start)}" duration="${t(el.len)}" srcEnable="video">`
+        ? `            <asset-clip ref="${videoId}" name="${xml(path.basename(video.file))}" offset="${t(startFrames + el.at)}" start="${t(el.start)}" duration="${t(el.len)}">`
         : `            <gap name="Gap" offset="${t(startFrames + el.at)}" start="${t(el.start)}" duration="${t(el.len)}">`;
     return [open, ...el.children.map((c) => indent(c, '              ')), el.kind === 'video' ? '            </asset-clip>' : '            </gap>'].join('\n');
   });
