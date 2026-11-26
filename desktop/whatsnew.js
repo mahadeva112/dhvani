@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.16',
+    changes: [
+      'Export for DaVinci: the Original video row shows the name the video is saved under, the same as on the V1 track, not the long name of the file you imported.',
+    ],
+  },
+  {
     version: '1.5.15',
     changes: [
       'Export for DaVinci: the original video comes in once, on V1, and its own sound no longer plays under the dub; it stays as a muted guide track.',

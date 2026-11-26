@@ -158,7 +158,9 @@ export const DavinciExportWindow: React.FC<{
   const subtitlesOn = prefs.subtitles && hasSubtitles;
   const videoOn = prefs.timeline && prefs.video && Boolean(videoName);
   const guideOn = prefs.timeline && prefs.guide && Boolean(source);
-  const videoFileName = videoOn ? (sourceIsVideo && source ? originalFileName(fileStem, source, 'original') : originalFileName(fileStem, { name: reviewVideoName || '' , type: 'video/mp4' }, 'video')) : null;
+  /** The name the video is saved under (and shown on its row), not the imported file's name. */
+  const videoSavedName = videoName ? (sourceIsVideo && source ? originalFileName(fileStem, source, 'original') : originalFileName(fileStem, { name: reviewVideoName || '', type: 'video/mp4' }, 'video')) : null;
+  const videoFileName = videoOn ? videoSavedName : null;
   const guideFileName = guideOn && source ? originalFileName(fileStem, source, 'original') : null;
   const fpsAuto = videoOn && prefs.fpsAuto;
   const canOpenResolve = Boolean(resolve?.installed);
@@ -434,7 +436,7 @@ export const DavinciExportWindow: React.FC<{
         'Picture',
         <>
           {sw(prefs.timeline, () => set({ timeline: !prefs.timeline }), 'Timeline', 'Each line a clip in place', 'FCPXML')}
-          {videoName ? sw(videoOn, prefs.timeline ? () => set({ video: !prefs.video }) : null, 'Original video on V1', `${videoName}${sourceIsVideo ? '' : ' (review video)'}, copied as is`) : null}
+          {videoName ? sw(videoOn, prefs.timeline ? () => set({ video: !prefs.video }) : null, 'Original video on V1', `${videoSavedName}${sourceIsVideo ? '' : ' (from the review video)'}, copied as is`) : null}
           <div className="grid grid-cols-2 gap-2 pt-1">
             <label className="flex flex-col gap-1">
               <span className={sectionLabel}>Start</span>
