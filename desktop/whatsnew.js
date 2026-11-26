@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.15',
+    changes: [
+      'Export for DaVinci: the original video comes in once, on V1, and its own sound no longer plays under the dub; it stays as a muted guide track.',
+      'Free Resolve one click: the subtitles now start with the video instead of after it.',
+      'Export for DaVinci shows the timeline as Resolve will: subtitles, video, a track per speaker and the guide, with the lines to check flagged. Picture, Sound and Text settings sit under it, and After export picks Files only, Open Resolve or a new project in Resolve.',
+    ],
+  },
+  {
     version: '1.5.14',
     changes: [
       'Free DaVinci Resolve on Windows: with "Open DaVinci Resolve" on, the export opens in Resolve by itself: your open project is saved, then a new project at the right frame rate gets the timeline, its media and the subtitles on a subtitle track.',

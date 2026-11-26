@@ -121,6 +121,8 @@ export interface DavinciPrefs {
   guide: boolean;
   /** Start Resolve when the export is done. */
   openResolve: boolean;
+  /** With openResolve: Resolve also makes a new project and imports the export (Studio by script, free by the DHVANI menu script). */
+  oneClick: boolean;
   /** Put the timeline's path on the clipboard, for File › Import › Timeline. */
   copyPath: boolean;
   /** Export again writes over the same files; off, each export gets a new folder. */
@@ -128,7 +130,7 @@ export interface DavinciPrefs {
 }
 
 const PREFS_KEY = 'dhvani_davinci_export';
-export const DEFAULT_DAVINCI_PREFS: DavinciPrefs = { fps: '25', timecode: '01:00:00:00', perSpeaker: true, timeline: true, fullDub: true, subtitles: true, markers: true, video: true, fpsAuto: true, guide: true, openResolve: true, copyPath: true, sameFiles: true };
+export const DEFAULT_DAVINCI_PREFS: DavinciPrefs = { fps: '25', timecode: '01:00:00:00', perSpeaker: true, timeline: true, fullDub: true, subtitles: true, markers: true, video: true, fpsAuto: true, guide: true, openResolve: true, oneClick: true, copyPath: true, sameFiles: true };
 
 export const loadDavinciPrefs = (): DavinciPrefs => {
   try {

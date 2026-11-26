@@ -7,6 +7,28 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Export for DaVinci, timeline first (Mock B).** The window opens on the timeline as Resolve
+  will show it: a timecode ruler with the lines to check flagged, ST1 subtitles, V1 video, a
+  track per speaker with each line in place, and the guide (muted). Under it, Picture, Sound
+  and Text group the settings, and After export picks Files only, Open Resolve or New project
+  in Resolve (the one click, remembered apart from opening Resolve). A one-click export shows
+  its steps and what Resolve made in place of the settings. The folder sits in the footer.
+
+### Fixed
+
+- **Export for DaVinci: the original once, and silent.** Resolve's FCPXML import ignores
+  `srcEnable` and brings in every stream an asset declares, so the original came in twice (an
+  extra picture on V1 under the real one on V2) and its own sound played on A1 under the dub. The
+  original's picture and its sound are now separate assets of the same file: the picture on V1,
+  the dub from A1, the guide sound last and turned off, as the export window's preview shows.
+- **Free Resolve one click: subtitles at the start.** With no subtitle track yet, Resolve's
+  AppendToTimeline makes one and ignores the start frame, so the subtitles landed after the
+  video. The DHVANI script now adds the track first, and checks that the first subtitle sits at
+  the SRT's own time before it reports them on the timeline (otherwise they stay in the Media
+  Pool and DHVANI says so).
+
 ### Added
 
 - **Open in DaVinci, one click, for the free Resolve (Windows, beta).** With "Open DaVinci

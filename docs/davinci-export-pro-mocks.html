@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DaVinci Export Pro Mocks</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<script>
+  tailwind.config = {
+    theme: { extend: { colors: {
+      slate: { 50:'#f6f6f7',100:'#ececef',200:'#dcdde1',300:'#c6c8ce',400:'#abadb5',500:'#8b8e98',600:'#5a5d66',700:'#34363c',800:'#232529',900:'#18191c',950:'#111214' },
+      violet: { 200:'#ddd6fe',300:'#c4b5fd',400:'#a78bfa',500:'#8b5cf6',600:'#7c3aed' },
+      edge: '#27292d',
+    } } },
+  };
+</script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#111214; font-family: Inter, system-ui, "Noto Sans Bengali", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .pop { box-shadow: 0 24px 60px -12px rgba(0,0,0,.75); }
+  button, select, label { cursor:default; }
+  .lane { background: repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), #ffffff08 calc(10% - 1px) 10%); }
+  .clip:hover { filter: brightness(1.18); }
+  .tick { background:#34363c; }
+  .spin { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg) } }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6">
+
+<div class="max-w-[74rem] mx-auto mb-2 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+  <span id="mockSeg" class="inline-flex flex-wrap rounded-lg border border-edge overflow-hidden"></span>
+</div>
+<div class="max-w-[74rem] mx-auto mb-2 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-medium">অবস্থা</span>
+  <span id="stateSeg" class="inline-flex flex-wrap rounded-lg border border-edge overflow-hidden"></span>
+</div>
+<p id="note" class="max-w-[74rem] mx-auto mb-4 text-[13.5px] text-slate-300 leading-relaxed"></p>
+
+<div class="max-w-[74rem] mx-auto">
+  <div id="win" class="bg-slate-900 border border-edge rounded-2xl pop overflow-hidden flex flex-col"></div>
+</div>
+
+<script>
+// Tamannaah Asks Sadhguru: 16 dub lines, 25 fps, 70.04 s (1751 frames), two speakers.
+const FPS = 25, TOTAL = 1751;
+const OFF = [0,307,485,682,769,798,871,1037,1094,1181,1227,1293,1463,1604,1647,1688];
+const DUR = [307,178,197,87,29,73,166,57,87,46,66,170,141,43,41,61];
+const WHO = ['T','T','S','S','T','S','S','S','S','S','S','S','S','S','T','S'];
+const TXT = ['मैं लोगों से मिलती हूँ और, वो मुझे…','क्या ये कुछ ऐसा है जो हमें पहले से म…','किसी को जो जेनेटिक फ़ायदा मिल सकता…','सिर्फ वही सब कुछ तय नहीं करता।','हाँ।','ये कुछ पहलुओं को तय करता है,','पर बाकी इस बात पर निर्भर करता है कि…','क्योंकि','आपकी नाक या ठोड़ी कैसी भी हो,','लेकिन','अगर आप देखें,','देखें, तो एक आनंदित चेहरा ही हमेशा…','ये हम सब कर सकते हैं। देखिए, मैं भी…','इस सबके साथ।','आप सुंदर हैं, सद्गुरु।','आप सुंदर हैं।'];
+const FLAG = { 13:'too long by 0.2 s', 14:'too long by 0.4 s', 15:'early by 0.2 s' };
+const LINES = OFF.map((o, i) => ({ i, from: o, to: o + DUR[i], who: WHO[i], text: TXT[i], flag: FLAG[i] }));
+// Subtitles: 57 cues from frame 8, cut inside each line.
+const CUES = []; LINES.forEach(l => { const n = Math.max(1, Math.round((l.to - l.from) / 32)); for (let k = 0; k < n; k++) { const a = l.from + 8 + Math.round(k * (l.to - l.from - 10) / n); CUES.push([a, a + Math.round((l.to - l.from - 10) / n) - 3]); } });
+const pct = f => (f / TOTAL * 100).toFixed(3) + '%';
+const tc = f => { f = 90000 + f; const h = Math.floor(f / 90000), m = Math.floor(f / 1500) % 60, s = Math.floor(f / 25) % 60, fr = f % 25; return [h, m, s, fr].map(x => String(x).padStart(2, '0')).join(':'); };
+
+const I = (d, cls = 'w-4 h-4') => `<svg viewBox="0 0 24 24" class="${cls}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const ICON = {
+  film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>',
+  wave: '<path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 11v2"/>',
+  text: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 14h4M13 14h4M7 11h10"/>',
+  flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  check: '<path d="M5 12l5 5L20 7"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  out: '<path d="M12 3v12M7 8l5-5 5 5M5 21h14"/>',
+  dv: '<circle cx="12" cy="12" r="8.5"/><path d="M8 9.5c2.5-1.5 5.5-1.5 8 0M8 14.5c2.5 1.5 5.5 1.5 8 0"/>',
+  lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  dot: '<circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>',
+  chev: '<path d="M9 6l6 6-6 6"/>',
+};
+const loader = `<svg viewBox="0 0 24 24" class="w-4 h-4 spin"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5" fill="none" stroke-dasharray="40 20"/></svg>`;
+
+let mock = 'A', state = 'ready';
+
+// ── A Resolve-style timeline preview: track headers on the left, clips coloured like Resolve.
+function timeline({ tall = false } = {}) {
+  const h = tall ? 'h-9' : 'h-7';
+  const head = (code, name, color, extra = '') => `
+    <div class="w-36 shrink-0 flex items-center gap-2 px-2 border-r border-edge bg-slate-900">
+      <span class="mono text-[10.5px] px-1.5 py-px rounded ${color}">${code}</span>
+      <span class="text-[11.5px] text-slate-300 truncate flex-1">${name}</span>${extra}
+    </div>`;
+  const row = (header, inner, cls = '') => `<div class="flex ${h} border-b border-edge ${cls}">${header}<div class="relative flex-1 lane">${inner}</div></div>`;
+  const ruler = `<div class="flex h-6 border-b border-edge bg-slate-950">
+      <div class="w-36 shrink-0 border-r border-edge px-2 flex items-center mono text-[11px] text-slate-400">01:00:00:00</div>
+      <div class="relative flex-1">${[0, 350, 700, 1050, 1400].map(f => `<span class="absolute top-0 bottom-0 w-px tick" style="left:${pct(f)}"></span><span class="absolute top-1 mono text-[10px] text-slate-500" style="left:calc(${pct(f)} + 4px)">${tc(f)}</span>`).join('')}
+        ${LINES.filter(l => l.flag).map(l => `<span class="absolute bottom-0 text-amber-400" style="left:${pct(l.from)}" title="Line ${l.i + 1}: ${l.flag}">${I(ICON.flag, 'w-3 h-3')}</span>`).join('')}
+      </div></div>`;
+  const cues = CUES.map(([a, b]) => `<span class="clip absolute inset-y-[3px] rounded-[2px] bg-[#c8bc9a]" style="left:${pct(a)};width:${pct(b - a)}"></span>`).join('');
+  const video = `<span class="clip absolute inset-y-[2px] left-0 right-0 rounded bg-[#3e6b96] border border-[#5b8ab8] px-2 flex items-center text-[10.5px] text-blue-50 truncate">Tamannaah Asks Sadhguru - original.mp4</span>`;
+  const lane = who => LINES.filter(l => l.who === who).map(l => `<span class="clip absolute inset-y-[2px] rounded-[3px] ${who === 'T' ? 'bg-[#3f8a6a] border-[#5fb08c]' : 'bg-[#2f7d75] border-[#4ea89e]'} border px-1 flex items-center text-[10px] text-emerald-50 overflow-hidden whitespace-nowrap ${l.flag ? 'ring-1 ring-amber-400/80' : ''}" style="left:${pct(l.from)};width:${pct(l.to - l.from)}" title="${l.i + 1}. ${l.text}">${l.i + 1}</span>`).join('');
+  const guide = `<span class="absolute inset-y-[2px] left-0 right-0 rounded bg-slate-700/60 border border-slate-600 px-2 flex items-center text-[10.5px] text-slate-400 truncate">Original (guide) · off</span>`;
+  const mute = `<span class="mono text-[10px] px-1 rounded bg-rose-500/20 text-rose-300">M</span>`;
+  return `<div class="rounded-xl border border-edge overflow-hidden bg-slate-950/60">
+      ${ruler}
+      ${row(head('ST1', 'Subtitles · Hindi', 'bg-[#c8bc9a]/25 text-[#e3d9b8]'), cues)}
+      ${row(head('V1', 'Video', 'bg-[#3e6b96]/30 text-blue-200'), video)}
+      ${row(head('A1', 'Tamannaah', 'bg-emerald-500/20 text-emerald-200'), lane('T'))}
+      ${row(head('A2', 'Sadhguru', 'bg-teal-500/20 text-teal-200'), lane('S'))}
+      ${row(head('A3', 'Original guide', 'bg-slate-700 text-slate-300', mute), guide, 'opacity-80')}
+    </div>`;
+}
+
+const toggle = (on, label, sub = '') => `
+  <label class="flex items-start gap-2.5 py-1.5">
+    <span class="mt-0.5 w-7 h-4 rounded-full ${on ? 'bg-violet-500' : 'bg-slate-700'} relative shrink-0"><span class="absolute top-0.5 ${on ? 'left-3.5' : 'left-0.5'} w-3 h-3 rounded-full bg-white"></span></span>
+    <span class="min-w-0"><span class="block text-[12.5px] text-slate-200">${label}</span>${sub ? `<span class="block text-[11px] text-slate-500 leading-snug">${sub}</span>` : ''}</span>
+  </label>`;
+const field = (label, value, hint = '', mono = true) => `
+  <label class="flex flex-col gap-1">
+    <span class="text-[10.5px] uppercase tracking-wide text-slate-500 font-semibold">${label}</span>
+    <span class="h-8 px-2.5 rounded-md bg-slate-950/70 border border-edge flex items-center justify-between text-[12.5px] ${mono ? 'mono' : ''} text-slate-100">${value}${hint ? `<span class="text-[10.5px] text-violet-300 font-sans">${hint}</span>` : ''}</span>
+  </label>`;
+
+const FILES = [
+  ['Tamannaah Asks Sadhguru.fcpxml', 'Timeline', '38 KB', ICON.film],
+  ['Tamannaah - original.mp4', 'Video, as is', '41.2 MB', ICON.film],
+  ['Tamannaah - Tamannaah.wav', 'A1 · 48 kHz', '6.7 MB', ICON.wave],
+  ['Tamannaah - Sadhguru.wav', 'A2 · 48 kHz', '6.7 MB', ICON.wave],
+  ['Tamannaah - dub.wav', 'Full dub · bext 01:00:00:00', '6.7 MB', ICON.wave],
+  ['Tamannaah - Hindi.srt', '57 subtitles', '4 KB', ICON.text],
+];
+
+const STEPS = [
+  ['Files written', '6 files · 61.3 MB'],
+  ['DHVANI script started in Resolve', 'Workspace › Scripts › DHVANI'],
+  ['Open project saved, new project made', '"Tamannaah Asks Sadhguru dub" · 25 fps · 720×1280'],
+  ['Timeline and media imported', 'V1 video · A1–A2 dub · A3 guide off · 3 markers'],
+  ['Subtitles on ST1', 'first at 01:00:00:08'],
+  ['Edit page open, project saved', ''],
+];
+function steps(doneUpTo) {
+  return STEPS.map((s, i) => {
+    const st = i < doneUpTo ? 'done' : i === doneUpTo ? 'run' : 'wait';
+    return `<div class="flex items-start gap-2.5 py-1">
+      <span class="mt-0.5 w-4 h-4 shrink-0 ${st === 'done' ? 'text-emerald-400' : st === 'run' ? 'text-violet-300' : 'text-slate-600'}">${st === 'done' ? I(ICON.check) : st === 'run' ? loader : I(ICON.dot, 'w-4 h-4')}</span>
+      <span class="min-w-0"><span class="block text-[12.5px] ${st === 'wait' ? 'text-slate-500' : 'text-slate-200'}">${s[0]}</span>${s[1] && st !== 'wait' ? `<span class="block text-[11px] text-slate-500 truncate">${s[1]}</span>` : ''}</span>
+    </div>`;
+  }).join('');
+}
+
+const header = sub => `
+  <header class="flex items-center gap-3 px-5 py-3.5 border-b border-edge">
+    <span class="w-9 h-9 rounded-lg bg-violet-500/15 text-violet-300 flex items-center justify-center">${I(ICON.dv, 'w-5 h-5')}</span>
+    <span class="flex-1 min-w-0">
+      <h2 class="text-[15px] font-semibold">Export for DaVinci Resolve</h2>
+      <p class="text-[12px] text-slate-400 truncate">${sub}</p>
+    </span>
+    <span class="hidden sm:flex items-center gap-1.5 text-[11.5px] px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">${I(ICON.dot, 'w-2.5 h-2.5')} Resolve 21.2 · Free · open</span>
+    <button class="w-8 h-8 rounded-full text-slate-400 hover:bg-slate-800 flex items-center justify-center">${I(ICON.x)}</button>
+  </header>`;
+
+// ── Mock A: Deliver page. Presets on the left, settings by tab in the middle, the package on the right.
+function mockA() {
+  const presets = [
+    ['Open in Resolve', 'New project, one click', true, 'Free · beta'],
+    ['Files only', 'Import by hand', false, ''],
+  ];
+  const tabs = ['Timeline', 'Audio', 'Subtitles', 'Markers'];
+  const running = state === 'run', done = state === 'done';
+  const left = `
+    <aside class="w-56 shrink-0 border-r border-edge p-3 flex flex-col gap-1.5 bg-slate-950/30">
+      <span class="text-[10.5px] uppercase tracking-wide text-slate-500 font-semibold px-1 mb-1">Preset</span>
+      ${presets.map(([t, s, on, tag]) => `
+        <button class="text-left rounded-lg px-2.5 py-2 border ${on ? 'border-violet-500/60 bg-violet-500/10' : 'border-transparent hover:bg-slate-800/60'}">
+          <span class="flex items-center gap-1.5 text-[12.5px] ${on ? 'text-violet-100' : 'text-slate-300'}">${t}${tag ? `<span class="text-[9.5px] px-1 rounded ${tag === 'Later' ? 'bg-slate-700 text-slate-400' : 'bg-amber-500/15 text-amber-300'} uppercase tracking-wide">${tag}</span>` : ''}</span>
+          <span class="block text-[11px] text-slate-500">${s}</span>
+        </button>`).join('')}
+      <div class="mt-auto pt-3 border-t border-edge flex flex-col gap-1.5">
+        <span class="text-[10.5px] uppercase tracking-wide text-slate-500 font-semibold px-1">Destination</span>
+        <div class="rounded-md bg-slate-950/70 border border-edge px-2 py-1.5 text-[11px] mono text-slate-300 break-all leading-snug">Documents\\DHVANI\\For DaVinci\\Tamannaah Asks Sadhguru</div>
+        <button class="self-start text-[11.5px] text-violet-300 px-1">Change…</button>
+        ${toggle(true, 'Overwrite on export again', 'Resolve keeps its links')}
+      </div>
+    </aside>`;
+  const center = `
+    <section class="flex-1 min-w-0 p-4 flex flex-col gap-4">
+      <div class="flex items-center gap-1 border-b border-edge">
+        ${tabs.map((t, i) => `<button class="px-3 py-1.5 text-[12.5px] -mb-px border-b-2 ${i === 0 ? 'border-violet-400 text-slate-100' : 'border-transparent text-slate-400 hover:text-slate-200'}">${t}</button>`).join('')}
+      </div>
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        ${field('Project name', 'Tamannaah … dub', '', false)}
+        ${field('Start timecode', '01:00:00:00')}
+        ${field('Frame rate', '25', 'from video')}
+        ${field('Resolution', '720 × 1280', 'from video')}
+      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-6">
+        <div>${toggle(true, 'Original video on V1', 'Copied as is, no re-encode')}${toggle(true, 'One audio track per speaker', 'A1 Tamannaah · A2 Sadhguru')}</div>
+        <div>${toggle(true, 'Original sound as a guide track', 'Last track, turned off')}${toggle(true, 'Problem lines as markers', '3 lines flagged on the Dub page')}</div>
+      </div>
+      <div class="flex flex-col gap-1.5">
+        <span class="text-[10.5px] uppercase tracking-wide text-slate-500 font-semibold">How it lands in Resolve</span>
+        ${timeline()}
+      </div>
+    </section>`;
+  const right = `
+    <aside class="w-72 shrink-0 border-l border-edge p-3 flex flex-col gap-3 bg-slate-950/30">
+      ${done || running ? `
+        <div>
+          <span class="text-[10.5px] uppercase tracking-wide text-slate-500 font-semibold px-1">${done ? 'Opened in Resolve' : 'Working…'}</span>
+          <div class="mt-1.5 rounded-lg border border-edge bg-slate-900 px-2.5 py-1.5">${steps(done ? STEPS.length : 3)}</div>
+        </div>` : `
+        <div>
+          <span class="text-[10.5px] uppercase tracking-wide text-slate-500 font-semibold px-1">Package · 6 files</span>
+          <div class="mt-1.5 flex flex-col">
+            ${FILES.map(([n, s, size, ic]) => `
+              <div class="flex items-center gap-2 px-1 py-1.5 border-b border-edge/60">
+                <span class="w-4 h-4 text-slate-500 shrink-0">${I(ic)}</span>
+                <span class="min-w-0 flex-1"><span class="block text-[11.5px] text-slate-200 truncate">${n}</span><span class="block text-[10.5px] text-slate-500">${s}</span></span>
+                <span class="mono text-[10.5px] text-slate-400">${size}</span>
+              </div>`).join('')}
+            <div class="flex justify-between px-1 pt-2 text-[11.5px] text-slate-400"><span>Total</span><span class="mono text-slate-200">61.3 MB</span></div>
+          </div>
+        </div>
+        <div class="rounded-lg border border-violet-500/25 bg-violet-500/5 p-2.5 text-[11.5px] leading-snug text-slate-300">
+          <div class="font-semibold text-violet-200 mb-1">One click, in the free Resolve</div>
+          Your open project is saved, a new one is made at 25 fps, the timeline and subtitles come in, and the Edit page opens.
+        </div>`}
+    </aside>`;
+  const status = state === 'run' ? `${loader}<span>Importing into Resolve… leave Resolve alone</span>` : done ? `<span class="text-emerald-400">${I(ICON.check)}</span><span>In Resolve as "Tamannaah Asks Sadhguru dub" · subtitles on ST1</span><button class="ml-2 text-violet-300">Show folder</button>` : `<span class="text-slate-500">16 lines · 70 s · 2 speakers</span>`;
+  return `${header('Package and open in DaVinci, the free version included')}
+    <div class="flex min-h-[34rem]">${left}${center}${right}</div>
+    <footer class="flex items-center gap-3 px-5 py-3 border-t border-edge">
+      <span class="flex items-center gap-2 flex-1 min-w-0 text-[12px] text-slate-400">${status}</span>
+      <button class="h-9 px-4 rounded-lg border border-slate-700 text-[13px] text-slate-200 hover:bg-slate-800">${done ? 'Close' : 'Cancel'}</button>
+      <button class="h-9 px-5 rounded-lg ${running ? 'bg-slate-800 text-slate-500' : 'bg-violet-500 hover:bg-violet-400 text-white'} text-[13px] font-semibold flex items-center gap-2">${running ? loader : I(ICON.out)} ${done ? 'Export again' : 'Export and open'}</button>
+    </footer>`;
+}
+
+// ── Mock B: Timeline first. A big Resolve-style preview on top, an inspector of three groups under it,
+// and a mode switch for what happens after export.
+function mockB() {
+  const running = state === 'run', done = state === 'done';
+  const group = (icon, title, body) => `
+    <div class="rounded-xl border border-edge bg-slate-950/40 p-3 flex flex-col gap-2">
+      <div class="flex items-center gap-2 text-[12.5px] font-semibold text-slate-200"><span class="w-4 h-4 text-violet-300">${I(icon)}</span>${title}</div>
+      ${body}
+    </div>`;
+  const kv = (k, v, accent = '') => `<div class="flex items-center justify-between text-[12px] py-0.5"><span class="text-slate-400">${k}</span><span class="mono ${accent || 'text-slate-100'}">${v}</span></div>`;
+  const seg = (opts, on) => `<span class="inline-flex rounded-lg border border-edge overflow-hidden">${opts.map((o, i) => `<button class="px-2.5 py-1 text-[11.5px] ${i === on ? 'bg-violet-500/20 text-violet-100' : 'text-slate-400 hover:bg-slate-800'} ${i ? 'border-l border-edge' : ''}">${o}</button>`).join('')}</span>`;
+  const inspector = `
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      ${group(ICON.film, 'Picture', `
+        ${kv('Video on V1', 'original.mp4')}
+        ${kv('Start', '01:00:00:00')}
+        ${kv('Frame rate', '25 fps · from video', 'text-violet-200')}
+        ${kv('Resolution', '720 × 1280')}`)}
+      ${group(ICON.wave, 'Sound', `
+        <div class="flex items-center justify-between text-[12px] py-0.5"><span class="text-slate-400">Dub tracks</span>${seg(['One', 'Per speaker'], 1)}</div>
+        ${kv('Format', 'WAV 48 kHz · bext TC')}
+        ${kv('Guide (original)', 'A3 · off')}
+        ${kv('Full dub file', 'yes')}`)}
+      ${group(ICON.text, 'Text', `
+        ${kv('Subtitles', 'Hindi · 57 · ST1')}
+        ${kv('Markers', '3 problem lines', 'text-amber-300')}
+        ${kv('Punctuation', 'kept')}
+        <button class="self-start text-[11.5px] text-violet-300">Edit subtitles…</button>`)}
+    </div>`;
+  const after = `
+    <div class="flex flex-wrap items-center gap-3">
+      <span class="text-[10.5px] uppercase tracking-wide text-slate-500 font-semibold">After export</span>
+      ${seg(['Files only', 'Open Resolve', 'New project in Resolve'], 2)}
+      <span class="text-[11.5px] text-slate-500">Free version: DHVANI runs its script from Workspace › Scripts</span>
+    </div>`;
+  const progress = `
+    <div class="grid grid-cols-1 md:grid-cols-[1fr_18rem] gap-4">
+      <div class="rounded-xl border border-edge bg-slate-950/40 p-3">${steps(done ? STEPS.length : 3)}</div>
+      <div class="rounded-xl border border-edge bg-slate-950/40 p-3 flex flex-col gap-1.5 text-[12px]">
+        <span class="text-[10.5px] uppercase tracking-wide text-slate-500 font-semibold">In Resolve</span>
+        ${kv('Project', done ? 'Tamannaah … dub' : '…')}
+        ${kv('Timeline', done ? '01:00:00:00 – 01:01:10:01' : '…')}
+        ${kv('Tracks', done ? 'V1 · A1–A3 · ST1' : '…')}
+        ${done ? `<button class="mt-1 self-start text-[11.5px] text-violet-300">Show the package folder</button>` : ''}
+      </div>
+    </div>`;
+  return `${header('Tamannaah Asks Sadhguru · 16 lines · 70 s · 2 speakers')}
+    <div class="p-5 flex flex-col gap-4">
+      <div class="flex items-center gap-3">
+        <span class="text-[10.5px] uppercase tracking-wide text-slate-500 font-semibold">Timeline</span>
+        <span class="text-[11.5px] text-slate-500">exactly what Resolve will show</span>
+        <span class="ml-auto flex items-center gap-3 text-[11px] text-slate-500">
+          <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-[#3f8a6a]"></span>Tamannaah</span>
+          <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-[#2f7d75]"></span>Sadhguru</span>
+          <span class="flex items-center gap-1 text-amber-300">${I(ICON.flag, 'w-3 h-3')}to check</span>
+        </span>
+      </div>
+      ${timeline({ tall: true })}
+      ${running || done ? progress : inspector}
+      ${running || done ? '' : after}
+    </div>
+    <footer class="flex items-center gap-3 px-5 py-3 border-t border-edge">
+      <span class="flex items-center gap-2 min-w-0 flex-1 text-[11.5px] text-slate-400">
+        <span class="w-4 h-4 text-slate-500 shrink-0">${I(ICON.folder)}</span>
+        <span class="mono truncate">Documents\\DHVANI\\For DaVinci\\Tamannaah Asks Sadhguru</span>
+        <button class="text-violet-300 shrink-0">Change</button>
+        <span class="text-slate-600">·</span><span class="shrink-0">61.3 MB, 6 files</span>
+      </span>
+      <button class="h-9 px-4 rounded-lg border border-slate-700 text-[13px] text-slate-200 hover:bg-slate-800">${done ? 'Close' : 'Cancel'}</button>
+      <button class="h-9 px-5 rounded-lg ${running ? 'bg-slate-800 text-slate-500' : 'bg-violet-500 hover:bg-violet-400 text-white'} text-[13px] font-semibold flex items-center gap-2">${running ? loader + ' Working…' : done ? I(ICON.out) + ' Export again' : I(ICON.out) + ' Export to Resolve'}</button>
+    </footer>`;
+}
+
+const MOCKS = {
+  A: ['Mock A · Deliver page', 'Resolve-এর Deliver page-এর মতো: বাঁয়ে preset (Open in Resolve / Files only), মাঝে tab-এ সেটিং (Timeline · Audio · Subtitles · Markers) আর নিচে Resolve-এ কেমন দেখাবে, ডানে package-এর প্রতিটা ফাইল আর মাপ। Export চলার সময় ডান কলামটা ধাপের তালিকা হয়ে যায়।', mockA],
+  B: ['Mock B · Timeline first', 'উপরে বড় করে Resolve-এর মতো timeline (track header, রং, marker, subtitle), যেটা ঠিক Resolve-এ যা আসবে তাই দেখায়। নিচে তিনটে inspector দল: Picture · Sound · Text। শেষে "After export" তিন ধাপের বোতাম: Files only / Open Resolve / New project in Resolve। চলার সময় inspector-এর জায়গায় ধাপ আর Resolve-এ কী হলো।', mockB],
+};
+const STATES = { ready: 'তৈরি', run: 'চলছে', done: 'শেষ' };
+
+function seg(el, items, cur, on) {
+  el.innerHTML = Object.entries(items).map(([k, v], i) => `<button data-k="${k}" class="px-3 py-1 ${i ? 'border-l border-edge' : ''} ${k === cur ? 'bg-slate-700 text-slate-100' : 'hover:bg-slate-800'}">${Array.isArray(v) ? v[0] : v}</button>`).join('');
+  el.querySelectorAll('button').forEach(b => b.onclick = () => on(b.dataset.k));
+}
+function render() {
+  seg(document.getElementById('mockSeg'), MOCKS, mock, k => { mock = k; render(); });
+  seg(document.getElementById('stateSeg'), STATES, state, k => { state = k; render(); });
+  document.getElementById('note').textContent = MOCKS[mock][1];
+  document.getElementById('win').innerHTML = MOCKS[mock][2]();
+}
+render();
+</script>
+</body>
+</html>
