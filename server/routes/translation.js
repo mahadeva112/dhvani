@@ -3,6 +3,7 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import { ApiError } from '../errors.js';
 import { translateCueTexts, alignScriptToCuesDetailed, polishIndicText } from '../providers/gemini/translation.js';
 import { logger } from '../logger.js';
+import { markPauses } from '../providers/gemini/pauseMarks.js';
 import { parseSrt, serializeSrt, retextCues, assertTimingsPreserved } from '../lib/srt.js';
 
 export const translationRouter = Router();
@@ -182,5 +183,37 @@ translationRouter.post(
   asyncHandler(async (req, res) => {
     const { text, targetLanguage, context } = req.body || {};
     res.json(await polishIndicText({ text, targetLanguage, context, apiKey: geminiKey(req) }));
+  })
+);
+
+/**
+ * POST /api/translation/pause-marks
+ *
+ * Puts the original's pauses into dub lines that have no marks for them
+ * (pauseMarks.js), without changing a word. Takes `cues` (`{ id, text, words,
+ * line }`: the original with its word timings, and the dub line as it is now)
+ * and answers `marked` (`{ id, pausedTarget }` for each cue that took its
+ * marks) and `missed` (ids that kept none).
+ */
+translationRouter.post(
+  '/translation/pause-marks',
+  asyncHandler(async (req, res) => {
+    const { cues, targetLanguage = '' } = req.body || {};
+    if (!Array.isArray(cues) || cues.length === 0) {
+      throw new ApiError('No lines were sent to mark.', { status: 400, code: 'no_segments' });
+    }
+    const clean = cues.map((cue, index) => ({
+      id: String(cue?.id ?? `cue-${index + 1}`),
+      text: String(cue?.text ?? ''),
+      line: String(cue?.line ?? ''),
+      words: Array.isArray(cue?.words) ? cue.words : [],
+    }));
+    const outcome = await markPauses(clean, { targetLanguage: String(targetLanguage || ''), apiKey: geminiKey(req) });
+    res.json({
+      marked: [...outcome.marked].map(([id, pausedTarget]) => ({ id, pausedTarget })),
+      missed: outcome.missed,
+      asked: outcome.asked,
+      model: outcome.modelUsed,
+    });
   })
 );

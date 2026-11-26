@@ -1658,6 +1658,12 @@ export const DubEstimateLane: React.FC<{
    * through, and a line with no mark for one of them says so.
    */
   segments?: AudioSegment[];
+  /** Bars: a line with no mark for its original's pauses gets a button that puts them in (Mark pauses), words unchanged. */
+  onMarkPauses?: (unit: SyncPreviewUnit) => void;
+  /** Lines being marked now, by key. */
+  marking?: ReadonlySet<string>;
+  /** Lines Mark pauses found no place in (the word order differs), by key. */
+  unmarkable?: ReadonlySet<string>;
 }> = ({
   units,
   windowStart,
@@ -1685,6 +1691,9 @@ export const DubEstimateLane: React.FC<{
   onEditLine,
   cutGhost,
   segments,
+  onMarkPauses,
+  marking,
+  unmarkable,
 }) => {
   /** The line whose words are being typed in its bar, and what they are so far. */
   const [editing, setEditing] = useState<{ key: string; text: string } | null>(null);
@@ -2233,14 +2242,46 @@ export const DubEstimateLane: React.FC<{
                       })}
                     {/* A line with no mark for a pause of its original: the original is split there, the dub can't be */}
                     {drawn === 'bars' && p.index === parts.length - 1 && unmarked > 0 && (
-                      <span
-                        title={`The original pauses ${unmarked === 1 ? 'once' : `${unmarked} times`} in this line, but the dub line has no mark for ${unmarked === 1 ? 'it' : 'them'} (edited by hand, or translated before pauses were marked), so it isn't split there. Translate it again to split it.`}
-                        className="@container absolute z-[6] inset-0 pointer-events-none"
-                      >
-                        <span className="absolute right-1 bottom-0.5 pointer-events-auto rounded border border-slate-700 bg-slate-800/95 px-1 font-mono text-[9.5px] leading-[13px] text-slate-400 whitespace-nowrap">
-                          <span className="hidden @[180px]:inline">No pause marks</span>
-                          <span className="@[180px]:hidden">‖?</span>
-                        </span>
+                      <span className="@container absolute z-[6] inset-0 pointer-events-none">
+                        {onMarkPauses && !unmarkable?.has(u.key) ? (
+                          // Mark pauses: the original's pauses go into this line, its words as they are.
+                          <button
+                            type="button"
+                            disabled={marking?.has(u.key)}
+                            title={`The original pauses ${unmarked === 1 ? 'once' : `${unmarked} times`} in this line, but the dub line has no mark for ${unmarked === 1 ? 'it' : 'them'}, so it isn't split there. Click to put the marks in; no word changes.`}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onDoubleClick={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onMarkPauses(u);
+                            }}
+                            className="absolute right-1 bottom-0.5 pointer-events-auto rounded border border-indigo-600 bg-indigo-950/95 px-1 font-mono text-[9.5px] leading-[13px] text-indigo-300 whitespace-nowrap cursor-default hover:bg-indigo-600 hover:text-white disabled:opacity-70 disabled:hover:bg-indigo-950/95 disabled:hover:text-indigo-300"
+                          >
+                            {marking?.has(u.key) ? (
+                              <>
+                                <span className="hidden @[180px]:inline">Marking…</span>
+                                <span className="@[180px]:hidden">‖…</span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="hidden @[180px]:inline">‖ Mark pauses</span>
+                                <span className="@[180px]:hidden">‖</span>
+                              </>
+                            )}
+                          </button>
+                        ) : (
+                          <span
+                            title={
+                              unmarkable?.has(u.key)
+                                ? `The original pauses here, but the line's word order puts the ideas on the other side of the pause, so no place in it matches. It reads on through; Sync doesn't cut it there.`
+                                : `The original pauses ${unmarked === 1 ? 'once' : `${unmarked} times`} in this line, but the dub line has no mark for ${unmarked === 1 ? 'it' : 'them'} (edited by hand, or translated before pauses were marked), so it isn't split there. Translate it again to split it.`
+                            }
+                            className="absolute right-1 bottom-0.5 pointer-events-auto rounded border border-slate-700 bg-slate-800/95 px-1 font-mono text-[9.5px] leading-[13px] text-slate-400 whitespace-nowrap"
+                          >
+                            <span className="hidden @[180px]:inline">{unmarkable?.has(u.key) ? 'No place for marks' : 'No pause marks'}</span>
+                            <span className="@[180px]:hidden">‖?</span>
+                          </span>
+                        )}
                       </span>
                     )}
                     {/* Bars: the dub script inside the bar, broken between words, smaller only when it must */}

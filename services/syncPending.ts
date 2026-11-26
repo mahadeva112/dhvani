@@ -18,6 +18,8 @@ export type LineChange = 'words' | 'structure';
 const dubText = (segment: AudioSegment) => (segment.textTarget || segment.targetText || '').trim();
 const sourceText = (segment: AudioSegment) => (segment.textSource || segment.originalText || '').trim();
 
+const pausedOf = (segment: AudioSegment) => (segment.pausedTarget || '').trim();
+
 const sameCue = (a: AudioSegment, b: AudioSegment) =>
   a.startTime === b.startTime && a.endTime === b.endTime && dubText(a) === dubText(b) && sourceText(a) === sourceText(b);
 
@@ -53,6 +55,8 @@ export const changedSyncLineKinds = (before: AudioSegment[], after: AudioSegment
     if (!was || !lineOf.has(id)) {
       if (!was || !sameCue(was, segment)) mark(key, 'structure');
     } else if (!sameCue(was, segment)) mark(key, wordsOnly(was, segment) ? 'words' : 'structure');
+    // Same words, new pause marks (Mark pauses): Sync cuts the line at other places, so it needs Sync again.
+    else if (pausedOf(was) !== pausedOf(segment)) mark(key, 'structure');
     lastKey = key;
   }
   for (const id of old.keys()) if (!now.has(id) && lineOf.has(id)) mark(lineOf.get(id)!, 'structure');

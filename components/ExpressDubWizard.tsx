@@ -101,6 +101,7 @@ import { GrammarCheckButton, GrammarPanel, type GrammarScope } from './review/Gr
 import { CueRowMenu, ReviewViewMenu, ShowLinesMenu } from './review/ReviewMenus';
 import { CenteredPanel } from './CenteredPanel';
 import { checkGrammar as checkGrammarLines, type GrammarFix, type GrammarState } from '../services/grammarCheck';
+import { needsPauseMarks, requestPauseMarks, withPauseMarks } from '../services/pauseMarks';
 import { VoiceSelectorCard, SelectedVoiceSummary, POPULAR_ELEVENLABS_VOICES, VoiceEngine } from './VoiceSelectorCard';
 import { MediaStrip } from './MediaStrip';
 import { FloatingWindow } from './FloatingWindow';
@@ -2204,6 +2205,59 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     }
     markGrammar([fix.id], 'open');
   };
+  /*
+    Mark pauses: the original's pauses put into lines that have no marks for
+    them, words unchanged, so Sync cuts each line there. Only on a click (the
+    line's own button, or Mark pauses for every such line); one Undo step.
+  */
+  const [pauseMarking, setPauseMarking] = useState<ReadonlySet<string>>(() => new Set());
+  const [noPlaceForMarks, setNoPlaceForMarks] = useState<ReadonlySet<string>>(() => new Set());
+  const pauseMarkAbort = useRef<AbortController | null>(null);
+  useEffect(() => {
+    pauseMarkAbort.current?.abort();
+    setPauseMarking(new Set());
+    setNoPlaceForMarks(new Set());
+  }, [activeJob?.id]);
+  /** The preview lines with a cue that has no marks for its original's pauses. */
+  const unmarkedLines = useMemo(() => {
+    if (!linePreview) return [];
+    const byId = new Map(segments.map((seg) => [String(seg.id), seg]));
+    return linePreview.units.filter((u) => u.cueIds.some((id) => {
+      const seg = byId.get(String(id));
+      return seg ? needsPauseMarks(seg) : false;
+    }));
+  }, [linePreview, segments]);
+  const markPausesOf = async (units: SyncPreviewUnit[]) => {
+    const keys = units.map((u) => u.key).filter((key) => !pauseMarking.has(key));
+    if (!keys.length) return;
+    const ids = new Set(units.filter((u) => keys.includes(u.key)).flatMap((u) => u.cueIds.map(String)));
+    const cues = segments.filter((seg) => ids.has(String(seg.id)));
+    const abort = pauseMarkAbort.current && !pauseMarkAbort.current.signal.aborted ? pauseMarkAbort.current : new AbortController();
+    pauseMarkAbort.current = abort;
+    setPauseMarking((now) => new Set([...now, ...keys]));
+    try {
+      const { marked, missed } = await requestPauseMarks(cues, targetLanguage, { signal: abort.signal });
+      if (abort.signal.aborted) return;
+      const next = withPauseMarks(latestSegments.current, marked);
+      if (next) onReplaceSegments(next);
+      // Lines none of whose cues took marks: their word order has no place for them.
+      const missedIds = new Set(missed);
+      const none = units.filter((u) => keys.includes(u.key) && u.cueIds.some((id) => missedIds.has(String(id))) && !u.cueIds.some((id) => marked.some((m) => m.id === String(id))));
+      if (none.length) setNoPlaceForMarks((now) => new Set([...now, ...none.map((u) => u.key)]));
+    } catch (err) {
+      if (abort.signal.aborted) return;
+      reportError(err, { title: 'Mark pauses failed', safe: 'No line was changed.' });
+    } finally {
+      setPauseMarking((now) => new Set([...now].filter((key) => !keys.includes(key))));
+    }
+  };
+  const stopPauseMarks = () => {
+    pauseMarkAbort.current?.abort();
+    setPauseMarking(new Set());
+  };
+  /** Lines Mark pauses can still try: no marks, and not already found to have no place for them. */
+  const markableLines = unmarkedLines.filter((u) => !noPlaceForMarks.has(u.key));
+
   const grammarOpenIds = useMemo(
     () => new Set(grammar && !grammar.running ? grammar.fixes.filter((f) => (grammar.states[f.id] ?? 'open') === 'open').map((f) => f.id) : []),
     [grammar]
@@ -3319,6 +3373,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       layers={layers}
                       rateMarks={stretchView === 'card' ? 'drag' : 'always'}
                       segments={segments}
+                      onMarkPauses={(u) => markPausesOf([u])}
+                      marking={pauseMarking}
+                      unmarkable={noPlaceForMarks}
                     />
                   )
                 : undefined
@@ -3690,6 +3747,31 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     )}
                     <ChevronDown className="w-3.5 h-3.5 opacity-70" />
                   </button>
+                )}
+
+                {/* Mark pauses for every line with no marks for its original's pauses: shown only while there is one. */}
+                {reviewMode !== 'qa' && linePreview && (pauseMarking.size > 0 || markableLines.length > 0) && (
+                  pauseMarking.size > 0 ? (
+                    <button
+                      type="button"
+                      onClick={stopPauseMarks}
+                      title="Stop marking. Lines already marked keep their marks; Undo takes them off."
+                      className="h-8 px-2.5 flex items-center gap-1.5 rounded-xl border border-indigo-600 bg-indigo-950 text-xs font-medium text-indigo-300 hover:bg-indigo-600 hover:text-white transition-colors cursor-default whitespace-nowrap"
+                    >
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Marking {pauseMarking.size} · Stop
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => markPausesOf(markableLines)}
+                      title={`${markableLines.length} line${markableLines.length === 1 ? ' has' : 's have'} no marks for pauses the original makes, so the dub can't be cut there. Put the marks in: no word changes, one Undo step.`}
+                      className="h-8 px-2.5 flex items-center gap-1.5 rounded-xl border border-indigo-600 bg-indigo-950 text-xs font-medium text-indigo-300 hover:bg-indigo-600 hover:text-white transition-colors cursor-default whitespace-nowrap"
+                    >
+                      <span className="font-semibold">‖</span>
+                      Mark pauses <span className="font-mono tabular-nums">{markableLines.length}</span>
+                    </button>
+                  )
                 )}
 
                 {reviewMode !== 'qa' && (

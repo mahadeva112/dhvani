@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mark Pauses Mock</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          slate: { 50:'#f6f6f7',100:'#ececef',200:'#dcdde1',300:'#c6c8ce',400:'#abadb5',500:'#8b8e98',600:'#5a5d66',700:'#34363c',800:'#232529',900:'#18191c',950:'#111214' },
+          indigo: { 300:'#a5adf5',400:'#7b86ec',500:'#5866e0',600:'#4c59d0',950:'#23253a' },
+          edge: '#27292d',
+        },
+      },
+    },
+  };
+</script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#0b0c0e; font-family: Inter, system-ui, "Noto Sans Devanagari", "Noto Sans Bengali", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .seg button.on { background:#5866e0; color:#fff; }
+  button { cursor:pointer; }
+  .lane { position:relative; }
+  .bar { position:absolute; top:6px; bottom:6px; border:1px solid; border-radius:5px; overflow:hidden; padding:3px 6px; line-height:1.2; transition: left .45s ease, width .45s ease, box-shadow .12s, opacity .12s; }
+  .bar .t { font-size:12px; color:#f6f6f7; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .bar .s { font-size:10px; margin-top:1px; white-space:nowrap; }
+  .dim .bar { opacity:.35; } .dim .bar.hl { opacity:1; }
+  .bar.hl { box-shadow: 0 0 0 2px #f6f6f7; }
+  .bar.picked { box-shadow: 0 0 0 2px #f6f6f7, 0 0 0 5px rgba(246,246,247,.15); }
+  .gap { position:absolute; top:0; bottom:0; display:flex; align-items:center; justify-content:center; }
+  .gap .ln { position:absolute; top:4px; bottom:4px; left:50%; }
+  .gap .num { position:relative; background:#111214; padding:0 2px; font-size:9.5px; line-height:1; }
+  .seam { position:absolute; top:3px; bottom:3px; width:0; border-left:1.5px dashed rgba(246,246,247,.55); transition:left .45s ease; }
+  .seam.warn { border-left-color: rgba(251,191,36,.85); }
+  .chip { position:absolute; right:4px; bottom:3px; font-size:9.5px; padding:0 4px; border-radius:4px; background:#232529; color:#abadb5; border:1px solid #34363c; white-space:nowrap; }
+  .chip.btn { background:#23253a; color:#c7cbfa; border-color:#4c59d0; }
+  .chip.btn:hover { background:#4c59d0; color:#fff; }
+  .tok { display:inline-block; padding:1px 1px; border-radius:3px; }
+  .slot { display:inline-block; width:14px; text-align:center; color:transparent; border-radius:3px; }
+  .slot:hover { color:#a5adf5; background:#23253a; }
+  .slot.on { color:#fbbf24; font-weight:700; }
+  .slot.on.ai { color:#a5adf5; }
+  .pm { color:#8b8e98; font-weight:700; padding:0 3px; }
+  .new { color:#a5adf5; font-weight:700; padding:0 3px; }
+  .newwarn { color:#fbbf24; font-weight:700; padding:0 3px; }
+  @keyframes pop { from { transform:scale(.6); opacity:0 } to { transform:none; opacity:1 } }
+  .modal { animation: pop .14s ease-out; }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6">
+
+<div class="max-w-[90rem] mx-auto mb-3 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+  <span class="seg inline-flex flex-wrap rounded-lg border border-edge overflow-hidden" id="mockSeg">
+    <button data-m="a" class="on px-3 py-1.5">A · লাইনে বোতাম</button>
+    <button data-m="b" class="px-3 py-1.5">B · একসাথে দেখে Accept</button>
+    <button data-m="c" class="px-3 py-1.5">C · হাতে চিহ্ন সরানো</button>
+  </span>
+  <button id="reset" class="ml-auto px-3 py-1.5 rounded-lg border border-edge text-slate-300 hover:bg-slate-800">আবার শুরু থেকে</button>
+</div>
+<p id="note" class="max-w-[90rem] mx-auto mb-3 text-[13px] leading-relaxed text-slate-300"></p>
+
+<div class="max-w-[90rem] mx-auto rounded-2xl border border-edge bg-slate-950 overflow-hidden relative" id="frame">
+  <div class="h-11 px-4 flex items-center gap-3 border-b border-edge bg-slate-900/60 text-[12.5px]">
+    <span class="font-semibold text-slate-200">Review</span>
+    <span class="text-slate-500">·</span>
+    <span class="text-slate-400">Sadhguru — Great Beings · Hindi</span>
+    <span id="toolbarSlot" class="ml-3"></span>
+    <div class="ml-auto inline-flex items-center gap-0.5 rounded-xl border border-edge bg-slate-900 p-0.5">
+      <button class="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-400">Wave</button>
+      <button class="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-400">Blocks</button>
+      <button class="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 text-slate-100">Bars</button>
+    </div>
+  </div>
+
+  <div id="strip" class="min-h-[36px] px-4 flex items-center gap-3 border-b border-edge text-[12.5px]"></div>
+
+  <div class="overflow-x-auto">
+    <div id="stage" class="min-w-[1300px] px-4 pt-2 pb-4">
+      <div class="flex">
+        <div class="w-20 shrink-0"></div>
+        <div id="ruler" class="lane flex-1 h-5 text-[10px] text-slate-500 mono"></div>
+      </div>
+      <div class="flex items-stretch">
+        <div class="w-20 shrink-0 flex items-center text-[11px] text-slate-400">Original</div>
+        <div id="srcLane" class="lane flex-1 h-[70px] border-y border-edge bg-slate-900/40"></div>
+      </div>
+      <div class="h-1.5"></div>
+      <div class="flex items-stretch">
+        <div class="w-20 shrink-0 flex items-center text-[11px] text-slate-400">Dub · Hindi</div>
+        <div id="dubLane" class="lane flex-1 h-[70px] border-y border-edge bg-slate-900/40"></div>
+      </div>
+      <div id="card" class="mt-3"></div>
+      <div id="legend" class="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-[11.5px] text-slate-400"></div>
+    </div>
+  </div>
+  <div id="modalHost"></div>
+</div>
+
+<div class="max-w-[90rem] mx-auto mt-4 grid sm:grid-cols-3 gap-3 text-[12.5px] leading-relaxed text-slate-400">
+  <div class="rounded-xl border border-edge bg-slate-900/50 p-3">
+    <div class="text-slate-200 font-medium mb-1">শব্দ বদলায় না</div>
+    AI শুধু হিন্দি লাইনে <span class="mono text-slate-300">‖</span> কোথায় বসবে সেটা বলে। ফেরত আসা লেখা থেকে চিহ্ন সরালে যদি একটা অক্ষরও আলাদা হয়, কোড সেটা ফেলে দেয়। লাইন যেমন ছিল তেমনই থাকে।
+  </div>
+  <div class="rounded-xl border border-edge bg-slate-900/50 p-3">
+    <div class="text-slate-200 font-medium mb-1">কাটা হয় Sync-এ</div>
+    চিহ্ন বসার পর <span class="text-slate-200">Sync changed lines</span> চালালে ডাবের অডিও চিহ্নে কেটে প্রতিটা টুকরো মূলের টুকরোর শুরুতে বসে। বাকি লাইন নড়ে না, পুরোনো take থাকে।
+  </div>
+  <div class="rounded-xl border border-edge bg-slate-900/50 p-3">
+    <div class="text-slate-200 font-medium mb-1">লাইন ৮ = উদাহরণ</div>
+    এটা আপনার ভিডিওর লাইন নয়। হিন্দিতে শব্দের ক্রম উল্টে গেলে কী হয় সেটা দেখাতে রাখা। চিহ্ন বসে <span class="text-amber-300">হলুদে</span>, কিন্তু Sync সেখানে কাটে না, কারণ “বাজার” আর “সবজি” জায়গা বদলেছে।
+  </div>
+</div>
+
+<script>
+const HUES = { 5: '#7dd3fc', 6: '#f9a8d4', 7: '#c4b5fd', 8: '#e9d5a8' };
+const alpha = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
+const SPAN = 18.5;
+const pct = (t) => (t / SPAN) * 100;
+
+// dl = estimated dub length of the piece; cut = the AI's mark index (word count of the first Hindi piece)
+const LINES = [
+  { n: 5, pieces: [
+    { src: 'But these are great beings and, uh,', s0: 0.3, s1: 2.6, dub: 'लेकिन ये महान विभूतियाँ हैं और,', dl: 2.2 },
+    { src: 'being here and', s0: 3.1, s1: 4.06, dub: 'यहाँ आकर,', dl: 0.95 },
+  ] },
+  { n: 6, pieces: [
+    { src: 'when I looked at', s0: 5.06, s1: 5.92, dub: 'जब मैंने देखा कि', dl: 1.1 },
+    { src: 'how he managed the terrain and the people,', s0: 6.22, s1: 8.58, dub: 'उन्होंने इस इलाके और लोगों को कैसे संभाला,', dl: 3.0 },
+  ] },
+  { n: 7, pieces: [
+    { src: 'and even in such extreme situations,', s0: 9.28, s1: 11.58, dub: 'और ऐसे मुश्किल हालात में भी', dl: 1.9 },
+    { src: 'he managed administration.', s0: 12.08, s1: 13.48, dub: 'प्रशासन संभाला।', dl: 1.0 },
+  ] },
+  { n: 8, swapped: true, example: true, pieces: [
+    { src: 'I went to the market', s0: 14.3, s1: 15.6, dub: 'मैं कुछ सब्ज़ियाँ ख़रीदने', dl: 1.4 },
+    { src: 'to buy some vegetables.', s0: 16.1, s1: 17.6, dub: 'बाज़ार गया।', dl: 0.8 },
+  ] },
+];
+LINES.forEach((l) => { l.words = l.pieces.map((p) => p.dub).join(' ').split(' '); l.aiCut = l.pieces[0].dub.split(' ').length; l.cut = l.aiCut; });
+
+const NOTES = {
+  a: 'A: যে লাইনে চিহ্ন নেই, তার ডাব বারের কোণে “No pause marks”-এর জায়গায় একটা বোতাম: ‖ Mark pauses। চাপলে শুধু সেই লাইনে চিহ্ন বসে, বার ভাগ হয়। উপরের ফিতেয় Mark all (সব লাইন একসাথে)। চিহ্ন বসলে ফিতে বলে Sync changed lines, চাপলে টুকরোগুলো মূলের জায়গায় সরে যায়।',
+  b: 'B: Review-এর উপরে একটা Mark pauses বোতাম। চাপলে মাঝখানে একটা জানালা খোলে: প্রতিটা লাইনে মূল (থামা সহ) আর তার নিচে হিন্দি (প্রস্তাবিত ‖ সহ)। প্রতিটায় Accept / Skip, নিচে Accept all, Grammar check-এর মতো। ক্রম উল্টে যাওয়া লাইনে আগেই সতর্ক করে।',
+  c: 'C: A-র মতো বোতাম, কিন্তু চাপলে নিচে লাইনের কার্ড খোলে। AI-র বসানো ‖ নীল। পছন্দ না হলে যেকোনো দুটো শব্দের মাঝে ক্লিক করে চিহ্ন সরানো যায় (হলুদ = হাতে বসানো)। Keep চাপলে লাইনে বসে। AI ছাড়াও পুরোটা হাতে করা যায়।',
+};
+
+let mode = 'a';
+let state; // per line: 'none' | 'marked' | 'skipped'
+let synced;
+let picked = null;
+let modalOpen = false;
+let staged; // B: per line accept/skip choice
+
+function reset() {
+  state = { 5: 'none', 6: 'none', 7: 'none', 8: 'none' };
+  synced = {};
+  picked = null; modalOpen = false;
+  staged = {};
+  LINES.forEach((l) => { l.cut = l.aiCut; });
+  render();
+}
+
+function piecesOf(line) {
+  // Hindi pieces from the current cut
+  return [line.words.slice(0, line.cut).join(' '), line.words.slice(line.cut).join(' ')];
+}
+function pieceLen(line, i) {
+  // estimate: share of the line's dub length by characters
+  const total = line.pieces[0].dl + line.pieces[1].dl;
+  const txt = piecesOf(line);
+  const chars = txt[0].length + txt[1].length;
+  return total * (txt[i].length / chars);
+}
+
+function barHtml({ left, right, hue, text, label, pid, extra = '' }) {
+  return `<div class="bar" data-pid="${pid || ''}" style="left:${pct(left)}%;width:calc(${pct(right) - pct(left)}% - 1px);background:${alpha(hue, 0.22)};border-color:${hue}" title="${text}">
+    <div class="t">${label ? `<span class="mono font-semibold" style="color:${hue}">${label}</span> ` : ''}${text}</div>
+    <div class="s mono" style="color:${hue}">≈${(right - left).toFixed(1)} s</div>${extra}
+  </div>`;
+}
+function gapHtml(from, to, kind) {
+  const secs = (to - from).toFixed(1);
+  const w = Math.max(0.15, pct(to) - pct(from));
+  const line = kind === 'cut' ? 'border-l border-dashed border-cyan-400/70' : 'border-l border-dotted border-slate-500';
+  const color = kind === 'cut' ? 'text-cyan-300' : 'text-slate-400';
+  return `<div class="gap" style="left:${pct(from)}%;width:${w}%"><span class="ln ${line}"></span><span class="num mono ${color}">${secs}</span></div>`;
+}
+
+function render() {
+  document.querySelectorAll('#mockSeg button').forEach((b) => b.classList.toggle('on', b.dataset.m === mode));
+  document.getElementById('note').textContent = NOTES[mode];
+
+  let r = '';
+  for (let t = 0; t <= SPAN; t += 2) r += `<span class="absolute" style="left:${pct(t)}%"><span class="block h-1.5 border-l border-slate-600"></span>${t ? t + 's' : ''}</span>`;
+  document.getElementById('ruler').innerHTML = r;
+
+  let src = '', dub = '';
+  LINES.forEach((line, li) => {
+    const hue = HUES[line.n];
+    // Original: always split at every pause
+    line.pieces.forEach((p, i) => {
+      src += barHtml({ left: p.s0, right: p.s1, hue, text: p.src, label: i === 0 ? line.n : '', pid: `${line.n}-${i}` });
+      const next = line.pieces[i + 1];
+      if (next) src += gapHtml(p.s1, next.s0, synced[line.n] && !line.swapped ? 'cut' : 'pause');
+    });
+    const nextLine = LINES[li + 1];
+    if (nextLine) src += gapHtml(line.pieces[1].s1, nextLine.pieces[0].s0, 'cut');
+
+    const start = line.pieces[0].s0;
+    const total = line.pieces[0].dl + line.pieces[1].dl;
+    if (state[line.n] !== 'marked') {
+      let extra;
+      if (state[line.n] === 'skipped') extra = `<span class="chip">Skipped</span>`;
+      else if (mode === 'b') extra = `<span class="chip">No pause marks</span>`;
+      else extra = `<button class="chip btn" data-mark="${line.n}" title="Put the original's pause marks into this line. Words stay as they are.">‖ Mark pauses</button>`;
+      dub += barHtml({ left: start, right: start + total, hue, text: line.words.join(' '), label: line.n, pid: `${line.n}-all`, extra });
+      return;
+    }
+    const t = piecesOf(line);
+    const l0 = pieceLen(line, 0), l1 = pieceLen(line, 1);
+    if (synced[line.n] && !line.swapped) {
+      // each piece starts where its original piece starts
+      dub += barHtml({ left: line.pieces[0].s0, right: line.pieces[0].s0 + l0, hue, text: t[0], label: line.n, pid: `${line.n}-0` });
+      dub += barHtml({ left: line.pieces[1].s0, right: line.pieces[1].s0 + l1, hue, text: t[1], pid: `${line.n}-1` });
+      dub += gapHtml(line.pieces[0].s0 + l0, line.pieces[1].s0, 'cut');
+    } else {
+      dub += barHtml({ left: start, right: start + l0, hue, text: t[0], label: line.n, pid: `${line.n}-0`,
+        extra: line.swapped && synced[line.n] ? `<span class="chip" style="color:#fbbf24;border-color:#a16207" title="Word order differs from the original: Sync didn't cut here">not cut</span>` : '' });
+      dub += barHtml({ left: start + l0, right: start + l0 + l1, hue, text: t[1], pid: `${line.n}-1` });
+      dub += `<div class="seam ${line.swapped ? 'warn' : ''}" title="${line.swapped ? 'Word order differs from the original: read-only mark, Sync does not cut here' : 'Marked, not cut yet — Sync changed lines to place it'}" style="left:${pct(start + l0)}%"></div>`;
+    }
+  });
+  document.getElementById('srcLane').innerHTML = src;
+  document.getElementById('dubLane').innerHTML = dub;
+
+  renderToolbar();
+  renderStrip();
+  renderCard();
+  renderLegend();
+  renderModal();
+  wire();
+}
+
+function renderToolbar() {
+  const el = document.getElementById('toolbarSlot');
+  const left = LINES.filter((l) => state[l.n] === 'none').length;
+  el.innerHTML = mode === 'b'
+    ? `<button id="openModal" class="px-2.5 py-1 rounded-lg border border-indigo-600 bg-indigo-950 text-indigo-300 text-xs font-medium hover:bg-indigo-600 hover:text-white">‖ Mark pauses${left ? ` <span class="mono">(${left})</span>` : ''}</button>`
+    : '';
+}
+
+function renderStrip() {
+  const el = document.getElementById('strip');
+  const none = LINES.filter((l) => state[l.n] === 'none');
+  const waiting = LINES.filter((l) => state[l.n] === 'marked' && !synced[l.n]);
+  let html = '';
+  if (none.length) {
+    html += `<span class="text-slate-400"><span class="mono text-slate-200">${none.length}</span> lines have no pause marks — the original pauses inside them, the dub can't be cut there.</span>`;
+    if (mode !== 'b') html += `<button id="markAll" class="px-2.5 py-1 rounded-lg border border-indigo-600 bg-indigo-950 text-indigo-300 text-xs font-medium hover:bg-indigo-600 hover:text-white">‖ Mark all</button>`;
+  }
+  if (waiting.length) {
+    html += `<span class="${none.length ? 'ml-4 ' : ''}text-slate-400"><span class="mono text-slate-200">${waiting.length}</span> marked, not placed yet.</span>
+      <button id="syncChanged" class="px-2.5 py-1 rounded-lg bg-indigo-500 text-white text-xs font-medium hover:bg-indigo-400">Sync changed lines</button>`;
+  }
+  if (!none.length && !waiting.length) html = `<span class="text-emerald-300">Every line is cut at the original's pauses.</span><span class="text-slate-500">Ctrl Z undoes it.</span>`;
+  el.innerHTML = html;
+}
+
+function renderCard() {
+  const el = document.getElementById('card');
+  if (mode !== 'c' || picked == null) { el.innerHTML = ''; return; }
+  const line = LINES.find((l) => l.n === picked);
+  const hue = HUES[line.n];
+  const manual = line.cut !== line.aiCut;
+  const srcHtml = line.pieces.map((p) => p.src).join(` <span class="pm">‖</span><span class="mono text-[10px] text-slate-500">${(line.pieces[1].s0 - line.pieces[0].s1).toFixed(1)}s</span> `);
+  let dubHtml = '';
+  line.words.forEach((w, i) => {
+    if (i > 0) dubHtml += `<span class="slot ${line.cut === i ? 'on' : ''} ${line.cut === i && !manual ? 'ai' : ''}" data-slot="${i}" title="Put the mark here">‖</span>`;
+    dubHtml += `<span class="tok">${w}</span>`;
+  });
+  el.innerHTML = `<div class="max-w-4xl rounded-xl border border-edge bg-slate-900 p-3 text-[13px]">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="mono font-semibold" style="color:${hue}">Line ${line.n}</span>
+      <span class="text-slate-500">· pause marks</span>
+      <span class="text-[11.5px] ${manual ? 'text-amber-300' : 'text-indigo-300'}">${manual ? 'moved by hand' : 'suggested'}</span>
+      ${manual ? `<button id="backAi" class="text-[11.5px] text-slate-400 hover:text-slate-200 underline">back to suggestion</button>` : ''}
+      <span class="ml-auto flex gap-1.5">
+        <button id="cancelCard" class="px-2.5 py-1 rounded-lg border border-edge text-slate-300 text-xs hover:bg-slate-800">Cancel</button>
+        <button id="keepCard" class="px-2.5 py-1 rounded-lg bg-indigo-500 text-white text-xs font-medium hover:bg-indigo-400">Keep</button>
+      </span>
+    </div>
+    <div class="grid grid-cols-[90px_1fr] gap-x-3 gap-y-2 items-baseline">
+      <div class="text-[10.5px] uppercase tracking-wide text-slate-500">Original</div><div class="text-slate-300">${srcHtml}</div>
+      <div class="text-[10.5px] uppercase tracking-wide text-slate-500">Hindi</div><div class="text-slate-100 leading-7">${dubHtml}</div>
+    </div>
+    <div class="mt-2 text-[11.5px] text-slate-500">Click between any two words to move the mark. Words don't change.</div>
+    ${line.swapped ? `<div class="mt-2 text-[12px] text-amber-300">“market” and “vegetables” swap places in Hindi, so no spot matches both halves. The mark is kept for reading; Sync won't cut here.</div>` : ''}
+  </div>`;
+}
+
+function renderModal() {
+  const host = document.getElementById('modalHost');
+  if (!modalOpen) { host.innerHTML = ''; return; }
+  const rows = LINES.filter((l) => state[l.n] === 'none').map((l) => {
+    const hue = HUES[l.n];
+    const s = staged[l.n];
+    const srcHtml = l.pieces.map((p) => p.src).join(` <span class="pm">‖</span> `);
+    const t = piecesOf(l);
+    return `<div class="rounded-lg border ${s === 'accept' ? 'border-indigo-600 bg-indigo-950/40' : s === 'skip' ? 'border-edge opacity-50' : 'border-edge'} p-2.5">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="mono font-semibold" style="color:${hue}">${l.n}</span>
+        ${l.example ? '<span class="text-[11px] text-slate-500">example</span>' : ''}
+        ${l.swapped ? '<span class="text-[11px] text-amber-300">order differs — mark for reading only</span>' : ''}
+        <span class="ml-auto flex gap-1.5">
+          <button data-skip="${l.n}" class="px-2 py-0.5 rounded-md border border-edge text-slate-300 text-[11.5px] hover:bg-slate-800 ${s === 'skip' ? 'bg-slate-800' : ''}">Skip</button>
+          <button data-accept="${l.n}" class="px-2 py-0.5 rounded-md text-[11.5px] ${s === 'accept' ? 'bg-indigo-500 text-white' : 'border border-indigo-600 text-indigo-300 hover:bg-indigo-600 hover:text-white'}">Accept</button>
+        </span>
+      </div>
+      <div class="text-[12.5px] text-slate-400">${srcHtml}</div>
+      <div class="text-[13px] text-slate-100">${t[0]} <span class="${l.swapped ? 'newwarn' : 'new'}">‖</span> ${t[1]}</div>
+    </div>`;
+  }).join('');
+  const nAcc = Object.values(staged).filter((v) => v === 'accept').length;
+  host.innerHTML = `<div class="fixed inset-0 bg-black/55 flex items-start justify-center pt-16 z-20">
+    <div class="modal w-[min(680px,92%)] rounded-2xl border border-edge bg-slate-950 shadow-2xl">
+      <div class="h-11 px-4 flex items-center border-b border-edge">
+        <span class="font-semibold text-[13.5px]">Mark pauses</span>
+        <span class="ml-2 text-[12px] text-slate-500">words stay as they are</span>
+        <button id="closeModal" class="ml-auto text-slate-400 hover:text-slate-200 text-lg leading-none">×</button>
+      </div>
+      <div class="p-3 space-y-2 max-h-[340px] overflow-y-auto">${rows || '<div class="text-slate-400 text-[13px] p-2">Every line has its pause marks.</div>'}</div>
+      <div class="h-12 px-4 flex items-center gap-2 border-t border-edge text-[12px]">
+        <span class="text-slate-500">Grey ‖ = where the original pauses. Blue ‖ = where it goes in Hindi.</span>
+        <button id="acceptAll" class="ml-auto px-2.5 py-1 rounded-lg border border-edge text-slate-200 text-xs hover:bg-slate-800">Accept all</button>
+        <button id="applyModal" class="px-2.5 py-1 rounded-lg bg-indigo-500 text-white text-xs font-medium hover:bg-indigo-400 ${nAcc ? '' : 'opacity-40 pointer-events-none'}">Apply ${nAcc || ''}</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderLegend() {
+  document.getElementById('legend').innerHTML = [
+    ['border-l border-dotted border-slate-500', 'মূলের থামা, ডাব এখনো কাটেনি'],
+    ['border-l-[1.5px] border-dashed border-slate-200/60', 'চিহ্ন বসেছে, এখনো Sync হয়নি'],
+    ['border-l border-dashed border-cyan-400', 'Sync কেটেছে — টুকরো মূলের জায়গায়'],
+    ['border-l-[1.5px] border-dashed border-amber-400', 'ক্রম উল্টো — শুধু পড়ার চিহ্ন, কাটা হয় না'],
+  ].map(([c, t]) => `<span class="inline-flex items-center gap-2"><span class="inline-block h-3.5 ${c}"></span>${t}</span>`).join('');
+}
+
+function wire() {
+  const stage = document.getElementById('stage');
+  stage.querySelectorAll('.bar[data-pid]').forEach((b) => {
+    const pid = b.dataset.pid;
+    b.addEventListener('mouseenter', () => { stage.classList.add('dim'); stage.querySelectorAll(`.bar[data-pid="${pid}"]`).forEach((x) => x.classList.add('hl')); });
+    b.addEventListener('mouseleave', () => { stage.classList.remove('dim'); stage.querySelectorAll('.bar.hl').forEach((x) => x.classList.remove('hl')); });
+  });
+  stage.querySelectorAll('[data-mark]').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const n = +b.dataset.mark;
+    if (mode === 'c') { picked = n; render(); return; }
+    state[n] = 'marked'; render();
+  }));
+  const on = (id, fn) => { const x = document.getElementById(id); if (x) x.addEventListener('click', fn); };
+  on('markAll', () => {
+    if (mode === 'c') { picked = LINES.find((l) => state[l.n] === 'none').n; render(); return; }
+    LINES.forEach((l) => { if (state[l.n] === 'none') state[l.n] = 'marked'; }); render();
+  });
+  on('syncChanged', () => { LINES.forEach((l) => { if (state[l.n] === 'marked') synced[l.n] = true; }); render(); });
+  on('openModal', () => { modalOpen = true; staged = {}; render(); });
+  on('closeModal', () => { modalOpen = false; render(); });
+  on('acceptAll', () => { LINES.forEach((l) => { if (state[l.n] === 'none') staged[l.n] = 'accept'; }); render(); });
+  on('applyModal', () => { Object.entries(staged).forEach(([n, v]) => { state[n] = v === 'accept' ? 'marked' : 'skipped'; }); modalOpen = false; render(); });
+  document.querySelectorAll('[data-accept]').forEach((b) => b.addEventListener('click', () => { staged[b.dataset.accept] = 'accept'; render(); }));
+  document.querySelectorAll('[data-skip]').forEach((b) => b.addEventListener('click', () => { staged[b.dataset.skip] = 'skip'; render(); }));
+  document.querySelectorAll('[data-slot]').forEach((s) => s.addEventListener('click', () => { LINES.find((l) => l.n === picked).cut = +s.dataset.slot; render(); }));
+  on('backAi', () => { const l = LINES.find((x) => x.n === picked); l.cut = l.aiCut; render(); });
+  on('cancelCard', () => { const l = LINES.find((x) => x.n === picked); l.cut = l.aiCut; picked = null; render(); });
+  on('keepCard', () => {
+    state[picked] = 'marked';
+    const next = LINES.find((l) => state[l.n] === 'none');
+    picked = null; render();
+  });
+}
+
+document.querySelectorAll('#mockSeg button').forEach((b) => b.addEventListener('click', () => { mode = b.dataset.m; reset(); }));
+document.getElementById('reset').addEventListener('click', reset);
+reset();
+</script>
+</body>
+</html>

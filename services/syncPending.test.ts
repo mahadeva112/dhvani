@@ -81,3 +81,11 @@ test('a take in the new words puts the line back in step; its words are read as 
   assert.deepEqual(notPending({ syncPendingLines: ['1', '3'], syncPendingWords: ['1'] }, '1'), { syncPendingLines: ['3'], syncPendingWords: [] });
   assert.equal(lineTextNow([cue(1, 0, 1, ' a '), cue(2, 1, 2, ''), cue(3, 2, 3, 'c')], ['1', '2', '3']), 'a c');
 });
+
+test('new pause marks on the same words send the line to Sync again, not to a retake in place', () => {
+  const before = [cue(1, 0, 2, 'a b'), cue(2, 2, 3, 'c'), cue(3, 4, 5, 'd')];
+  const after = before.map((s) => (s.id === 1 ? { ...s, pausedTarget: 'a [pause 0.5s] b' } : s));
+  assert.deepEqual([...changedSyncLineKinds(before, after, report)], [['1', 'structure']]);
+  const job = { segments: before, syncReport: report };
+  assert.deepEqual(syncPendingAfter(job, after), { syncPendingLines: ['1'] });
+});
