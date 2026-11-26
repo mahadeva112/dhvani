@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.21',
+    changes: [
+      'Review: picking a long or a short line no longer moves the page up and down. The picked line sits in the play row at one height, whatever its length.',
+    ],
+  },
+  {
     version: '1.5.20',
     changes: [
       'Translation now marks every short pause the speaker makes (0.3 s or more), not only stops of over a second, so Sync can cut the dub there and each piece sits under its piece of the original.',
