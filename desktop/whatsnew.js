@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.18',
+    changes: [
+      'Source & voice is back the way it was in 1.5.16: Transcribe takes you straight to the script page, with no extra step in between.',
+    ],
+  },
+  {
     version: '1.5.17',
     changes: [
       'A new Home page: your recent projects at a glance, with Upload and Import right there. After transcribing, the transcript shows on Setup beside the file and the voice.',

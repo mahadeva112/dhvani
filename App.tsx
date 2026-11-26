@@ -2675,9 +2675,10 @@ export default function App() {
         dubMix: null,
         syncedStems: null,
         syncMix: null,
-        lastStep: 1,
+        lastStep: 2,
       });
-      // The transcript shows on Setup, beside the file and the voice; Go to translation moves on.
+      // The transcript is in, so Review is open: go there, if this project is still the one on screen.
+      if (activeJobIdRef.current === activeJob.id) setStepOverride(2);
       return true;
     } catch (err: any) {
       updateJob(activeJob.id, { errorMsg: describePipelineError(err) });

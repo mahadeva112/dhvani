@@ -105,7 +105,6 @@ import { VoiceSelectorCard, SelectedVoiceSummary, POPULAR_ELEVENLABS_VOICES, Voi
 import { MediaStrip } from './MediaStrip';
 import { FloatingWindow } from './FloatingWindow';
 import { useReviewVideo } from './ReviewVideoPanel';
-import { TranscriptPanel } from './TranscriptPanel';
 import { Select, languageOptions } from './Select';
 import { getReviewVideo } from '../services/storageService';
 import { ReviewVideoFloat, reserveReviewWindow } from './ReviewVideoFloat';
@@ -2675,455 +2674,78 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       {/* ========================================================================= */}
       {/* STEP 1: MEDIA, LANGUAGES & VOICE */}
       {/* ========================================================================= */}
-      {activeStep === 1 && !activeJob && (
-        <MediaStrip file={null} audioBuffer={null} onFileSelect={onFileSelect} onLoadSample={onLoadSampleSession} />
-      )}
-      {activeStep === 1 && activeJob && (
-        <div className="grid grid-cols-1 lg:grid-cols-[18.5rem_minmax(0,1fr)_21rem] 2xl:grid-cols-[20rem_minmax(0,1fr)_24rem] lg:grid-rows-[minmax(0,1fr)] gap-4 lg:h-[calc(100vh-7rem)] lg:min-h-[560px] animate-in fade-in duration-200">
-          {/* Left: the file, and how to transcribe it */}
-          <aside aria-label="File and transcription" className="lg:min-h-0 flex flex-col gap-3 lg:overflow-y-auto custom-scrollbar">
-            <MediaStrip
-              stacked
-              file={activeJob.file ?? null}
-              audioBuffer={activeJob.audioBuffer ?? null}
-              onFileSelect={onFileSelect}
-              onLoadSample={onLoadSampleSession}
-              spans={setupWaveSpans}
-            />
-            <div className="bg-slate-900/90 border border-edge rounded-2xl">
-              <div className="px-4 sm:px-5 pt-4 pb-4 flex flex-col gap-2.5">
-                <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
-                  <div className="flex flex-col gap-1.5 min-w-0">
-                    <label htmlFor="express-wizard-source-lang-select" className="text-xs text-slate-400">
-                      Spoken in
-                    </label>
-                    <Select
-                      id="express-wizard-source-lang-select"
-                      value={sourceLanguage}
-                      onChange={(v) => onSourceLanguageChange?.(v)}
-                      disabled={!onSourceLanguageChange}
-                      className="w-full"
-                      rememberAs="spoken-language"
-                      options={[{ value: '', label: 'Auto detect' }, { value: 'English', label: 'English' }, ...languageOptions(languages)]}
-                    />
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const from = sourceLanguage;
-                      onSourceLanguageChange?.(targetLanguage);
-                      onTargetLanguageChange(from);
-                    }}
-                    disabled={!onSourceLanguageChange || !sourceLanguage || sourceLanguage === 'English'}
-                    className="w-9 h-10 flex items-center justify-center rounded-xl border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-default"
-                    title="Swap languages"
-                    aria-label="Swap languages"
-                  >
-                    <ArrowLeftRight className="w-4 h-4" />
-                  </button>
-
-                  <div className="flex flex-col gap-1.5 min-w-0">
-                    <label htmlFor="express-wizard-lang-select" className="text-xs text-slate-400">
-                      Dub into
-                    </label>
-                    <Select
-                      id="express-wizard-lang-select"
-                      value={targetLanguage}
-                      onChange={onTargetLanguageChange}
-                      className="w-full"
-                      rememberAs="dub-language"
-                      options={languageOptions(languages)}
-                    />
-                  </div>
-                </div>
-                <p className="text-[11.5px] text-slate-500 leading-relaxed">
-                  Auto detect works for most talks. Set the language when speakers mix languages.
-                </p>
-              </div>
-
-              {onMultiSpeakerInputChange && (
-                <div className="px-4 sm:px-5 py-4 border-t border-edge flex flex-col gap-2.5">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-[13px] font-semibold text-slate-100">Speakers</span>
-                    {/* How many people speak: 1 is one voice for the file; more asks ElevenLabs who says each line. */}
-                    <div role="radiogroup" aria-label="How many people speak" className="flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5">
-                      {SPEAKER_CHOICES.map(({ id, label, title }) => (
-                        <button
-                          key={id}
-                          type="button"
-                          role="radio"
-                          aria-checked={speakerChoice === id}
-                          disabled={isTranscribing}
-                          title={title}
-                          onClick={() => {
-                            if (id === '1') {
-                              onMultiSpeakerInputChange(false);
-                              return;
-                            }
-                            if (!multiSpeakerInput) onMultiSpeakerInputChange(true);
-                            onSpeakerCountChange?.(id === 'detect' ? 0 : id === '4+' ? Math.max(4, speakerCount) : Number(id));
-                          }}
-                          className={`h-7 px-2.5 rounded-lg text-[12.5px] font-medium transition-colors cursor-default disabled:opacity-50 ${
-                            speakerChoice === id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {speakerChoice === '4+' && onSpeakerCountChange && (
-                    <div className="flex items-center justify-between gap-3 text-xs text-slate-400">
-                      <label htmlFor="express-wizard-speaker-count">How many speakers</label>
-                      <Select
-                        id="express-wizard-speaker-count"
-                        value={String(speakerCount)}
-                        onChange={(v) => onSpeakerCountChange(Number(v))}
-                        disabled={isTranscribing}
-                        size="sm"
-                        className="w-20"
-                        options={Array.from({ length: 7 }, (_, i) => ({ value: String(i + 4), label: String(i + 4) }))}
-                      />
-                    </div>
-                  )}
-                  <p className="text-[11.5px] text-slate-500 leading-snug">
-                    {!multiSpeakerInput
-                      ? multiSpeaker
-                        ? `This transcript has ${speakers.length} speakers. The setting here is for the next transcription.`
-                        : 'One voice for the whole file.'
-                      : speakerCount === 0
-                        ? 'ElevenLabs finds the speakers. Setting the number helps when two voices sound alike.'
-                        : 'ElevenLabs labels who says each line, so every speaker can get their own voice.'}
-                  </p>
-                  {multiSpeakerInput && activeJob && segments.length > 0 && !multiSpeaker && onRetranscribeAudio && (
-                    <button
-                      type="button"
-                      onClick={() => onRetranscribeAudio(activeJob.customPrompt ?? customPrompt ?? '').catch(() => {})}
-                      disabled={isTranscribing}
-                      title="This file was transcribed as one speaker. Transcribing again clears its translated lines."
-                      className={`${railButton} w-full`}
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isTranscribing ? 'animate-spin' : ''}`} />
-                      {isTranscribing ? 'Transcribing…' : 'Transcribe again to find speakers'}
-                    </button>
-                  )}
-                </div>
-              )}
-              <div className="px-4 sm:px-5 py-4 border-t border-edge flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  {activeJob ? (
-                  isTranscribing ? (
-                    <>
-                      <span role="status" className="flex-1 flex items-center gap-2 text-[13px] text-slate-300">
-                        <RefreshCw className="w-4 h-4 animate-spin text-indigo-300" />
-                        Transcribing…
-                      </span>
-                      {onCancelTranscription && (
-                        <button
-                          type="button"
-                          onClick={onCancelTranscription}
-                          className="h-10 px-3 flex items-center gap-1.5 rounded-xl border border-slate-700 text-[13px] font-medium text-slate-200 hover:text-white hover:bg-slate-800 hover:border-rose-500/50 transition-colors cursor-default"
-                        >
-                          <X className="w-4 h-4" />
-                          Cancel
-                        </button>
-                      )}
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        // Transcribing again replaces the cues, and with them any script on them.
-                        if (
-                          transcribed &&
-                          !awaitingScript &&
-                          !window.confirm(
-                            scriptIsCustom
-                              ? 'Transcribe again? The new transcript replaces the current cues and your aligned script. You can paste the script again afterwards.'
-                              : 'Transcribe again? The new transcript replaces the current cues and their translation.'
-                          )
-                        ) {
-                          return;
-                        }
-                        // The transcript then shows in the middle; nothing is translated.
-                        await onAutoTranscribe();
-                      }}
-                      title={transcribed ? undefined : 'Nothing is sent to ElevenLabs until you press this: set the language and speakers first.'}
-                      className={`w-full h-10 px-4 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-colors cursor-default active:translate-y-px ${
-                        transcribed ? 'border border-edge bg-slate-950 hover:bg-slate-800 text-slate-200' : 'bg-indigo-600 hover:bg-indigo-500 text-white'
-                      }`}
-                    >
-                      <Mic className="w-4 h-4" />
-                      <span>{transcribed ? 'Transcribe again' : 'Transcribe'}</span>
-                    </button>
-                  )
-                  ) : null}
-                </div>
-                {transcriptionCancelled && !isTranscribing ? (
-                  <p className="text-xs text-amber-300" role="status">
-                    Transcription cancelled. {transcribed ? 'The transcript you had is kept.' : 'Press Transcribe to start again.'}
-                  </p>
-                ) : !transcribed && !isTranscribing ? (
-                  <p className="text-[11.5px] text-slate-500 leading-snug">
-                    Writes down what is said, in the spoken language. Never translates. Nothing is sent to ElevenLabs until you press it.
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          </aside>
-
-          {/* Middle: the transcript, with its one Edit while there is no script yet */}
-          <TranscriptPanel
-            className="h-[60vh] lg:h-auto"
-            segments={segments}
-            spokenLanguage={activeJob.detectedLanguage || activeJob.sourceLanguage || ''}
-            isTranscribing={isTranscribing}
-            pipelineStatus={pipelineStatus}
-            busy={Boolean(isTranslatingLanguage)}
-            onSeek={seekSource}
-            activeSegmentId={activeSegmentId}
-            onExport={onExportTranscript}
-            onApplySegments={awaitingScript ? applyTranscriptEdit : undefined}
-            transcriptCuts={activeJob.transcriptCuts}
-            onHear={(start, end) => onPlaySegmentSolo({ id: 'cut', startTime: start, endTime: end, duration: end - start })}
-            getPlayhead={() => getSourceLiveTime?.() ?? sourceClockTime}
-            emptyHint="Set the language and speakers on the left, then press Transcribe."
-            readOnlyNote={<span className="text-[11.5px] text-slate-500">The script is made: edit lines in Review</span>}
-            footer={
-              <div className="shrink-0 border-t border-edge px-4 py-3 flex flex-wrap items-center gap-3 bg-slate-950/40">
-                <span className="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-300 flex items-center justify-center shrink-0">
-                  <Check className="w-4 h-4" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-semibold text-slate-100">{awaitingScript ? 'Transcript ready' : 'Script ready'}</p>
-                  <p className="text-[11.5px] text-slate-500">
-                    {awaitingScript
-                      ? 'Nothing is translated until you go on.'
-                      : scriptIsCustom
-                        ? 'Your own script is on the lines.'
-                        : `Translated into ${targetLanguage}.`}
-                  </p>
-                </div>
-                {awaitingScript && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAlignHandOff(null);
-                      setIsAlignModalOpen(true);
-                    }}
-                    disabled={isTranscribing}
-                    className="h-9 px-3 flex items-center gap-1.5 rounded-lg border border-edge bg-slate-950 hover:bg-slate-800 text-[12.5px] text-slate-200 disabled:opacity-50 cursor-default"
-                    title="Paste or open a script you already have. It is only lined up with the transcript, never translated."
-                  >
-                    <ClipboardPaste className="w-3.5 h-3.5 text-slate-400" />
-                    Paste my script
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => onStepChange(2)}
-                  disabled={isTranscribing || openUpTo < 2}
-                  className="h-9 px-4 flex items-center gap-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[13px] font-semibold disabled:opacity-50 cursor-default"
-                >
-                  {awaitingScript ? 'Go to translation' : 'Open Review'}
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-              </div>
-            }
-          />
-
-          {/* Right: the voice, or a voice for each speaker */}
-          <aside aria-label="Voice" className="lg:min-h-0 flex flex-col gap-3 lg:overflow-y-auto custom-scrollbar">
-            <div className="shrink-0 bg-slate-900/90 border border-edge rounded-2xl">
-              {/* The cast: the main voice, then each speaker. Picking a row points the voice library at it. */}
-              <div className="px-2.5 sm:px-3 py-3 flex flex-col gap-0.5">
-                <div className="px-2 pb-1 flex items-center justify-between gap-2 min-h-[24px]">
-                  <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
-                    {multiSpeaker || multiSpeakerInput ? 'Cast' : 'Voice'}
-                  </span>
-                  {multiSpeaker && activeJob && onApplySavedCast && (
-                    <SavedCastMenu
-                      speakers={setupSpeakers.map((s) => s.name)}
-                      cast={activeJob.cast}
-                      profiles={activeJob.speakerProfiles}
-                      onApply={onApplySavedCast}
-                    />
-                  )}
-                </div>
-                {multiSpeaker && activeJob && onApplySavedCast && (listening > 0 || (heardToUse.length > 0 && genderMatters) || (unheard.length > 0 && activeJob.audioBuffer)) && (
-                  <div className="px-2 pb-1.5 flex items-center gap-1.5 flex-wrap">
-                    {listening > 0 ? (
-                      <span className="text-[10.5px] text-slate-400 flex items-center gap-1" role="status">
-                        <Ear className="w-3 h-3 animate-pulse" /> Listening to {listening} speaker{listening === 1 ? '' : 's'}…
-                      </span>
-                    ) : heardToUse.length > 0 && genderMatters ? (
+      {activeStep === 1 && (
+        <div className="flex-1 flex flex-col gap-4 animate-in fade-in duration-200">
+          <MediaStrip
+            file={activeJob?.file ?? null}
+            audioBuffer={activeJob?.audioBuffer ?? null}
+            onFileSelect={onFileSelect}
+            onLoadSample={onLoadSampleSession}
+            spans={setupWaveSpans}
+            // The step's main button sits on the file's row, so it never scrolls away however long the setup gets.
+            action={
+              activeJob ? (
+                isTranscribing ? (
+                  <>
+                    <span role="status" className="flex items-center gap-2 text-[13px] text-slate-300">
+                      <RefreshCw className="w-4 h-4 animate-spin text-indigo-300" />
+                      Transcribing…
+                    </span>
+                    {onCancelTranscription && (
                       <button
                         type="button"
-                        onClick={useAllHeard}
-                        title={heardToUse.map((s) => `${s.name}: ${genderShort(heardGender(s.name)!)}`).join(', ')}
-                        className="shrink-0 h-6 px-2 rounded-md bg-indigo-500 text-white text-[11px] font-medium hover:bg-indigo-400 flex items-center gap-1 cursor-default"
+                        onClick={onCancelTranscription}
+                        className="h-10 px-3 flex items-center gap-1.5 rounded-xl border border-slate-700 text-[13px] font-medium text-slate-200 hover:text-white hover:bg-slate-800 hover:border-rose-500/50 transition-colors cursor-default"
                       >
-                        <Check className="w-3 h-3" /> Use what was heard ({heardToUse.length})
-                      </button>
-                    ) : null}
-                    {unheard.length > 0 && listening === 0 && activeJob.audioBuffer && (
-                      <button
-                        type="button"
-                        onClick={() => listenToSpeakers(unheard)}
-                        title="Listen to each speaker in the original and suggest man or woman, and voices to match. Nothing changes until you accept."
-                        className="shrink-0 h-6 px-2 rounded-md border border-edge text-[11px] text-slate-300 hover:bg-slate-800 flex items-center gap-1 cursor-default"
-                      >
-                        <Ear className="w-3 h-3" /> Man or woman?
+                        <X className="w-4 h-4" />
+                        Cancel
                       </button>
                     )}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setSetupPickFor(null)}
-                  aria-pressed={!pickFor}
-                  className={`w-full text-left px-2 py-2 rounded-xl flex flex-col gap-0.5 transition-colors cursor-default ${
-                    !pickFor ? 'bg-indigo-500/10 ring-1 ring-indigo-500/60' : 'hover:bg-slate-800/60'
-                  }`}
-                >
-                  {(multiSpeaker || multiSpeakerInput) && (
-                    <span className="text-[10.5px] text-slate-500">Main voice · anyone without their own</span>
-                  )}
-                  <SelectedVoiceSummary voiceId={elVoiceId} availableVoices={availableVoices} compact />
-                </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      // Transcribing again replaces the cues, and with them any script on them.
+                      if (
+                        transcribed &&
+                        !awaitingScript &&
+                        !window.confirm(
+                          scriptIsCustom
+                            ? 'Transcribe again? The new transcript replaces the current cues and your aligned script. You can paste the script again afterwards.'
+                            : 'Transcribe again? The new transcript replaces the current cues and their translation.'
+                        )
+                      ) {
+                        return;
+                      }
+                      // Once transcribed, the app opens Review itself.
+                      await onAutoTranscribe();
+                    }}
+                    title={transcribed ? undefined : 'Nothing is sent to ElevenLabs until you press this: set the language and speakers first.'}
+                    className="h-10 px-5 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors cursor-default active:translate-y-px"
+                  >
+                    <Mic className="w-4 h-4" />
+                    <span>{transcribed ? 'Transcribe again' : 'Transcribe audio'}</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                )
+              ) : undefined
+            }
+          />
+          {transcriptionCancelled && !isTranscribing && (
+            <p className="-mt-2 px-1 text-xs text-amber-300" role="status">
+              Transcription cancelled. {transcribed ? 'The transcript you had is kept.' : 'Press Transcribe audio to start again.'}
+            </p>
+          )}
 
-                {multiSpeaker && activeJob
-                  ? setupSpeakers.map((s) => {
-                      const own = activeJob.cast?.[s.name]?.voiceId;
-                      const on = pickFor === s.name;
-                      const profile = activeJob.speakerProfiles?.[s.name];
-                      const ownSettings = Boolean(ownSettingsOf(profile));
-                      return (
-                        <div
-                          key={s.name}
-                          className={`flex flex-col rounded-xl transition-colors ${
-                            on ? 'bg-indigo-500/10 ring-1 ring-indigo-500/60' : 'hover:bg-slate-800/60'
-                          }`}
-                        >
-                        <div className="flex items-center">
-                          <button
-                            type="button"
-                            onClick={() => setSetupPickFor(s.name)}
-                            aria-pressed={on}
-                            title={`${s.name}: ${Math.round(s.share * 100)}% of the speech. Pick a voice for them on the left.`}
-                            className="flex-1 min-w-0 flex items-center gap-2.5 px-2 py-2 text-left cursor-default"
-                          >
-                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
-                            <span className="min-w-0 flex-1">
-                              <span className="flex items-baseline gap-1.5 min-w-0">
-                                <span className="truncate text-[13px] font-semibold text-slate-100">{s.name}</span>
-                                <span className="shrink-0 font-mono text-[10.5px] text-slate-500 tabular-nums">{Math.round(s.share * 100)}%</span>
-                                {profile?.gender ? (
-                                  <span className="shrink-0 text-[10.5px] text-slate-300" title={`Speaks as a ${genderShort(profile.gender).toLowerCase()}`}>
-                                    · {genderShort(profile.gender)}
-                                  </span>
-                                ) : heardGender(s.name) ? (
-                                  <span className="shrink-0 text-[10.5px] text-indigo-300/80 italic" title="Heard in the original, not set yet. Open the speaker to accept it.">
-                                    · {genderShort(heardGender(s.name)!)}?
-                                  </span>
-                                ) : genderMatters ? (
-                                  <span className="shrink-0 text-[10.5px] text-slate-600" title="Not set: man or woman">
-                                    · ?
-                                  </span>
-                                ) : null}
-                                {ownSettings && <span className="shrink-0 self-center w-1.5 h-1.5 rounded-full bg-amber-500" title="Own voice settings" />}
-                              </span>
-                              {own ? (
-                                <SelectedVoiceSummary voiceId={own} availableVoices={availableVoices} compact />
-                              ) : (
-                                <span className="block text-[11.5px] text-slate-500">Main voice</span>
-                              )}
-                            </span>
-                          </button>
-                          {own && onCastChange && (
-                            <button
-                              type="button"
-                              onClick={() => onCastChange(s.name, null)}
-                              title="Voice this speaker with the main voice"
-                              aria-label={`Voice ${s.name} with the main voice`}
-                              className="mr-1.5 p-1 rounded-md text-slate-500 hover:text-slate-200 hover:bg-slate-800 cursor-default"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                        {on && onSpeakerProfileChange && (
-                          <SpeakerCastCard
-                            speaker={s.name}
-                            profile={profile}
-                            showGender={genderMatters}
-                            targetLanguage={targetLanguage}
-                            controls={ownSettingControls}
-                            onHear={() => hearSpeaker(s.name)}
-                            onChange={(patch) => onSpeakerProfileChange(s.name, patch)}
-                            heard={heardOf(s.name)}
-                            onListen={activeJob.audioBuffer ? () => listenToSpeakers([s.name]) : undefined}
-                            voiceIdeas={onCastChange ? voiceIdeasFor(s.name) : undefined}
-                            currentVoiceId={own}
-                            onPickVoice={onCastChange ? (id) => onCastChange(s.name, id) : undefined}
-                          />
-                        )}
-                        </div>
-                      );
-                    })
-                  : multiSpeakerInput &&
-                    Array.from({ length: speakerCount }, (_, i) => (
-                      <div key={i} className="flex items-center gap-2.5 px-2 py-1.5 text-[13px] text-slate-400">
-                        <span
-                          className="w-2.5 h-2.5 rounded-full shrink-0 opacity-60"
-                          style={{ backgroundColor: SPEAKER_COLORS[i % SPEAKER_COLORS.length] }}
-                        />
-                        <span className="flex-1 min-w-0 truncate">Speaker {i + 1}</span>
-                        <span className="text-[11px] text-slate-500">Main voice</span>
-                      </div>
-                    ))}
-
-                {multiSpeakerInput && !multiSpeaker && (
-                  <p className="px-2 pt-1 text-[11px] text-slate-500 leading-snug">
-                    Speakers are found when the file is transcribed. Then pick a row here and give it a voice.
-                  </p>
-                )}
-                {/* Speakers sharing a voice sound alike: name the one who says least in each group. */}
-                {multiSpeaker &&
-                  sharedVoices.map(({ voiceId, least, others }) => (
-                    <p key={voiceId} className="px-2 pt-1 text-[11px] text-amber-300/90 leading-snug">
-                      {least.name} ({least.cues} line{least.cues === 1 ? '' : 's'}) shares a voice with {others.join(', ')}, so they will
-                      sound alike. Pick {least.name} and give them their own voice.
-                    </p>
-                  ))}
-                {tryVoiceId && tryText && (
-                  <div className="px-1 pt-2">
-                    <VoiceTryLine
-                      apiKey={elApiKey}
-                      voiceId={tryVoiceId}
-                      modelId={elModelId}
-                      // The main voice's settings are the dub's; a speaker's own voice is read with its saved ones.
-                      voiceSettings={tryVoiceId === elVoiceId ? elVoiceSettings : null}
-                      cartesia={voiceEngine === 'cartesia' ? cartesiaVoice : undefined}
-                      text={tryText}
-                      title={tryCueIndex >= 0 ? `Hear ${tryVoiceName} on your script` : `Hear ${tryVoiceName} in ${targetLanguage}`}
-                      label={tryCueIndex >= 0 ? `Line ${tryCueIndex + 1}` : 'Sample'}
-                    />
-                  </div>
-                )}
-                {pickedRate && (
-                  <div className="px-1 pt-2">
-                    <VoiceRateCard voiceRate={pickedRate} language={targetLanguage} />
-                  </div>
-                )}
-              </div>
-            </div>
-            {/* Voice library: your voices first, the rest a search away. Picks for the cast row picked above. */}
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_21rem] 2xl:grid-cols-[minmax(0,1fr)_24rem] gap-4 items-stretch lg:flex-1 lg:min-h-[28rem]">
+            {/* Voice library: your voices first, the rest a search away. Picks for the cast row picked on the right. */}
             <VoiceSelectorCard
-              elVoiceId={pickFor ? activeJob.cast?.[pickFor]?.voiceId || elVoiceId : elVoiceId}
+              elVoiceId={pickFor ? activeJob?.cast?.[pickFor]?.voiceId || elVoiceId : elVoiceId}
               // Picking the main voice for a speaker leaves them on it, so they follow it if it changes.
-              onElVoiceIdChange={pickFor && onCastChange ? (id) => onCastChange(pickFor, id === elVoiceId ? null : id) : onElVoiceIdChange}
+              onElVoiceIdChange={
+                pickFor && onCastChange ? (id) => onCastChange(pickFor, id === elVoiceId ? null : id) : onElVoiceIdChange
+              }
               heading={
                 pickFor ? (
                   <>
@@ -3134,16 +2756,335 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 ) : undefined
               }
               shortlist
-              layout="list"
+              layout="cards"
               pinnedVoiceIds={setupPinnedVoices}
               availableVoices={availableVoices}
               loading={voicesLoading}
               targetLanguage={targetLanguage}
               voiceEngine={voiceEngine}
               onVoiceEngineChange={onVoiceEngineChange}
-              className="shrink-0 h-[34rem]"
+              // Zero height + full min-height: the row's height comes from the page, and the list scrolls inside it.
+              className="lg:h-0 lg:min-h-full"
             />
-          </aside>
+
+            {/* Setup panel: it scrolls inside itself, so nothing on it pushes the page longer */}
+            <aside
+              aria-label="Dub setup"
+              className="lg:h-0 lg:min-h-full bg-slate-900/90 border border-edge rounded-2xl overflow-hidden flex flex-col"
+            >
+              <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+                <div className="px-4 sm:px-5 pt-4 pb-4 flex flex-col gap-2.5">
+                  <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
+                    <div className="flex flex-col gap-1.5 min-w-0">
+                      <label htmlFor="express-wizard-source-lang-select" className="text-xs text-slate-400">
+                        Spoken in
+                      </label>
+                      <Select
+                        id="express-wizard-source-lang-select"
+                        value={sourceLanguage}
+                        onChange={(v) => onSourceLanguageChange?.(v)}
+                        disabled={!onSourceLanguageChange}
+                        className="w-full"
+                        rememberAs="spoken-language"
+                        options={[{ value: '', label: 'Auto detect' }, { value: 'English', label: 'English' }, ...languageOptions(languages)]}
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const from = sourceLanguage;
+                        onSourceLanguageChange?.(targetLanguage);
+                        onTargetLanguageChange(from);
+                      }}
+                      disabled={!onSourceLanguageChange || !sourceLanguage || sourceLanguage === 'English'}
+                      className="w-9 h-10 flex items-center justify-center rounded-xl border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-default"
+                      title="Swap languages"
+                      aria-label="Swap languages"
+                    >
+                      <ArrowLeftRight className="w-4 h-4" />
+                    </button>
+
+                    <div className="flex flex-col gap-1.5 min-w-0">
+                      <label htmlFor="express-wizard-lang-select" className="text-xs text-slate-400">
+                        Dub into
+                      </label>
+                      <Select
+                        id="express-wizard-lang-select"
+                        value={targetLanguage}
+                        onChange={onTargetLanguageChange}
+                        className="w-full"
+                        rememberAs="dub-language"
+                        options={languageOptions(languages)}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11.5px] text-slate-500 leading-relaxed">
+                    Auto detect works for most talks. Set the language when speakers mix languages.
+                  </p>
+                </div>
+
+                {onMultiSpeakerInputChange && (
+                  <div className="px-4 sm:px-5 py-4 border-t border-edge flex flex-col gap-2.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[13px] font-semibold text-slate-100">Speakers</span>
+                      {/* How many people speak: 1 is one voice for the file; more asks ElevenLabs who says each line. */}
+                      <div role="radiogroup" aria-label="How many people speak" className="flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5">
+                        {SPEAKER_CHOICES.map(({ id, label, title }) => (
+                          <button
+                            key={id}
+                            type="button"
+                            role="radio"
+                            aria-checked={speakerChoice === id}
+                            disabled={isTranscribing}
+                            title={title}
+                            onClick={() => {
+                              if (id === '1') {
+                                onMultiSpeakerInputChange(false);
+                                return;
+                              }
+                              if (!multiSpeakerInput) onMultiSpeakerInputChange(true);
+                              onSpeakerCountChange?.(id === 'detect' ? 0 : id === '4+' ? Math.max(4, speakerCount) : Number(id));
+                            }}
+                            className={`h-7 px-2.5 rounded-lg text-[12.5px] font-medium transition-colors cursor-default disabled:opacity-50 ${
+                              speakerChoice === id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {speakerChoice === '4+' && onSpeakerCountChange && (
+                      <div className="flex items-center justify-between gap-3 text-xs text-slate-400">
+                        <label htmlFor="express-wizard-speaker-count">How many speakers</label>
+                        <Select
+                          id="express-wizard-speaker-count"
+                          value={String(speakerCount)}
+                          onChange={(v) => onSpeakerCountChange(Number(v))}
+                          disabled={isTranscribing}
+                          size="sm"
+                          className="w-20"
+                          options={Array.from({ length: 7 }, (_, i) => ({ value: String(i + 4), label: String(i + 4) }))}
+                        />
+                      </div>
+                    )}
+                    <p className="text-[11.5px] text-slate-500 leading-snug">
+                      {!multiSpeakerInput
+                        ? multiSpeaker
+                          ? `This transcript has ${speakers.length} speakers. The setting here is for the next transcription.`
+                          : 'One voice for the whole file.'
+                        : speakerCount === 0
+                          ? 'ElevenLabs finds the speakers. Setting the number helps when two voices sound alike.'
+                          : 'ElevenLabs labels who says each line, so every speaker can get their own voice.'}
+                    </p>
+                    {multiSpeakerInput && activeJob && segments.length > 0 && !multiSpeaker && onRetranscribeAudio && (
+                      <button
+                        type="button"
+                        onClick={() => onRetranscribeAudio(activeJob.customPrompt ?? customPrompt ?? '').catch(() => {})}
+                        disabled={isTranscribing}
+                        title="This file was transcribed as one speaker. Transcribing again clears its translated lines."
+                        className={`${railButton} w-full`}
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isTranscribing ? 'animate-spin' : ''}`} />
+                        {isTranscribing ? 'Transcribing…' : 'Transcribe again to find speakers'}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* The cast: the main voice, then each speaker. Picking a row points the voice library at it. */}
+                <div className="px-2.5 sm:px-3 py-3 border-t border-edge flex flex-col gap-0.5">
+                  <div className="px-2 pb-1 flex items-center justify-between gap-2 min-h-[24px]">
+                    <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
+                      {multiSpeaker || multiSpeakerInput ? 'Cast' : 'Voice'}
+                    </span>
+                    {multiSpeaker && activeJob && onApplySavedCast && (
+                      <SavedCastMenu
+                        speakers={setupSpeakers.map((s) => s.name)}
+                        cast={activeJob.cast}
+                        profiles={activeJob.speakerProfiles}
+                        onApply={onApplySavedCast}
+                      />
+                    )}
+                  </div>
+                  {multiSpeaker && activeJob && onApplySavedCast && (listening > 0 || (heardToUse.length > 0 && genderMatters) || (unheard.length > 0 && activeJob.audioBuffer)) && (
+                    <div className="px-2 pb-1.5 flex items-center gap-1.5 flex-wrap">
+                      {listening > 0 ? (
+                        <span className="text-[10.5px] text-slate-400 flex items-center gap-1" role="status">
+                          <Ear className="w-3 h-3 animate-pulse" /> Listening to {listening} speaker{listening === 1 ? '' : 's'}…
+                        </span>
+                      ) : heardToUse.length > 0 && genderMatters ? (
+                        <button
+                          type="button"
+                          onClick={useAllHeard}
+                          title={heardToUse.map((s) => `${s.name}: ${genderShort(heardGender(s.name)!)}`).join(', ')}
+                          className="shrink-0 h-6 px-2 rounded-md bg-indigo-500 text-white text-[11px] font-medium hover:bg-indigo-400 flex items-center gap-1 cursor-default"
+                        >
+                          <Check className="w-3 h-3" /> Use what was heard ({heardToUse.length})
+                        </button>
+                      ) : null}
+                      {unheard.length > 0 && listening === 0 && activeJob.audioBuffer && (
+                        <button
+                          type="button"
+                          onClick={() => listenToSpeakers(unheard)}
+                          title="Listen to each speaker in the original and suggest man or woman, and voices to match. Nothing changes until you accept."
+                          className="shrink-0 h-6 px-2 rounded-md border border-edge text-[11px] text-slate-300 hover:bg-slate-800 flex items-center gap-1 cursor-default"
+                        >
+                          <Ear className="w-3 h-3" /> Man or woman?
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setSetupPickFor(null)}
+                    aria-pressed={!pickFor}
+                    className={`w-full text-left px-2 py-2 rounded-xl flex flex-col gap-0.5 transition-colors cursor-default ${
+                      !pickFor ? 'bg-indigo-500/10 ring-1 ring-indigo-500/60' : 'hover:bg-slate-800/60'
+                    }`}
+                  >
+                    {(multiSpeaker || multiSpeakerInput) && (
+                      <span className="text-[10.5px] text-slate-500">Main voice · anyone without their own</span>
+                    )}
+                    <SelectedVoiceSummary voiceId={elVoiceId} availableVoices={availableVoices} compact />
+                  </button>
+
+                  {multiSpeaker && activeJob
+                    ? setupSpeakers.map((s) => {
+                        const own = activeJob.cast?.[s.name]?.voiceId;
+                        const on = pickFor === s.name;
+                        const profile = activeJob.speakerProfiles?.[s.name];
+                        const ownSettings = Boolean(ownSettingsOf(profile));
+                        return (
+                          <div
+                            key={s.name}
+                            className={`flex flex-col rounded-xl transition-colors ${
+                              on ? 'bg-indigo-500/10 ring-1 ring-indigo-500/60' : 'hover:bg-slate-800/60'
+                            }`}
+                          >
+                          <div className="flex items-center">
+                            <button
+                              type="button"
+                              onClick={() => setSetupPickFor(s.name)}
+                              aria-pressed={on}
+                              title={`${s.name}: ${Math.round(s.share * 100)}% of the speech. Pick a voice for them on the left.`}
+                              className="flex-1 min-w-0 flex items-center gap-2.5 px-2 py-2 text-left cursor-default"
+                            >
+                              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
+                              <span className="min-w-0 flex-1">
+                                <span className="flex items-baseline gap-1.5 min-w-0">
+                                  <span className="truncate text-[13px] font-semibold text-slate-100">{s.name}</span>
+                                  <span className="shrink-0 font-mono text-[10.5px] text-slate-500 tabular-nums">{Math.round(s.share * 100)}%</span>
+                                  {profile?.gender ? (
+                                    <span className="shrink-0 text-[10.5px] text-slate-300" title={`Speaks as a ${genderShort(profile.gender).toLowerCase()}`}>
+                                      · {genderShort(profile.gender)}
+                                    </span>
+                                  ) : heardGender(s.name) ? (
+                                    <span className="shrink-0 text-[10.5px] text-indigo-300/80 italic" title="Heard in the original, not set yet. Open the speaker to accept it.">
+                                      · {genderShort(heardGender(s.name)!)}?
+                                    </span>
+                                  ) : genderMatters ? (
+                                    <span className="shrink-0 text-[10.5px] text-slate-600" title="Not set: man or woman">
+                                      · ?
+                                    </span>
+                                  ) : null}
+                                  {ownSettings && <span className="shrink-0 self-center w-1.5 h-1.5 rounded-full bg-amber-500" title="Own voice settings" />}
+                                </span>
+                                {own ? (
+                                  <SelectedVoiceSummary voiceId={own} availableVoices={availableVoices} compact />
+                                ) : (
+                                  <span className="block text-[11.5px] text-slate-500">Main voice</span>
+                                )}
+                              </span>
+                            </button>
+                            {own && onCastChange && (
+                              <button
+                                type="button"
+                                onClick={() => onCastChange(s.name, null)}
+                                title="Voice this speaker with the main voice"
+                                aria-label={`Voice ${s.name} with the main voice`}
+                                className="mr-1.5 p-1 rounded-md text-slate-500 hover:text-slate-200 hover:bg-slate-800 cursor-default"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                          {on && onSpeakerProfileChange && (
+                            <SpeakerCastCard
+                              speaker={s.name}
+                              profile={profile}
+                              showGender={genderMatters}
+                              targetLanguage={targetLanguage}
+                              controls={ownSettingControls}
+                              onHear={() => hearSpeaker(s.name)}
+                              onChange={(patch) => onSpeakerProfileChange(s.name, patch)}
+                              heard={heardOf(s.name)}
+                              onListen={activeJob.audioBuffer ? () => listenToSpeakers([s.name]) : undefined}
+                              voiceIdeas={onCastChange ? voiceIdeasFor(s.name) : undefined}
+                              currentVoiceId={own}
+                              onPickVoice={onCastChange ? (id) => onCastChange(s.name, id) : undefined}
+                            />
+                          )}
+                          </div>
+                        );
+                      })
+                    : multiSpeakerInput &&
+                      Array.from({ length: speakerCount }, (_, i) => (
+                        <div key={i} className="flex items-center gap-2.5 px-2 py-1.5 text-[13px] text-slate-400">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0 opacity-60"
+                            style={{ backgroundColor: SPEAKER_COLORS[i % SPEAKER_COLORS.length] }}
+                          />
+                          <span className="flex-1 min-w-0 truncate">Speaker {i + 1}</span>
+                          <span className="text-[11px] text-slate-500">Main voice</span>
+                        </div>
+                      ))}
+
+                  {multiSpeakerInput && !multiSpeaker && (
+                    <p className="px-2 pt-1 text-[11px] text-slate-500 leading-snug">
+                      Speakers are found when the file is transcribed. Then pick a row here and give it a voice.
+                    </p>
+                  )}
+                  {/* Speakers sharing a voice sound alike: name the one who says least in each group. */}
+                  {multiSpeaker &&
+                    sharedVoices.map(({ voiceId, least, others }) => (
+                      <p key={voiceId} className="px-2 pt-1 text-[11px] text-amber-300/90 leading-snug">
+                        {least.name} ({least.cues} line{least.cues === 1 ? '' : 's'}) shares a voice with {others.join(', ')}, so they will
+                        sound alike. Pick {least.name} and give them their own voice.
+                      </p>
+                    ))}
+                  {tryVoiceId && tryText && (
+                    <div className="px-1 pt-2">
+                      <VoiceTryLine
+                        apiKey={elApiKey}
+                        voiceId={tryVoiceId}
+                        modelId={elModelId}
+                        // The main voice's settings are the dub's; a speaker's own voice is read with its saved ones.
+                        voiceSettings={tryVoiceId === elVoiceId ? elVoiceSettings : null}
+                        cartesia={voiceEngine === 'cartesia' ? cartesiaVoice : undefined}
+                        text={tryText}
+                        title={tryCueIndex >= 0 ? `Hear ${tryVoiceName} on your script` : `Hear ${tryVoiceName} in ${targetLanguage}`}
+                        label={tryCueIndex >= 0 ? `Line ${tryCueIndex + 1}` : 'Sample'}
+                      />
+                    </div>
+                  )}
+                  {pickedRate && (
+                    <div className="px-1 pt-2">
+                      <VoiceRateCard voiceRate={pickedRate} language={targetLanguage} />
+                    </div>
+                  )}
+                </div>
+
+              </div>
+
+              {activeJob && !transcribed && !isTranscribing && (
+                <p className="shrink-0 px-4 sm:px-5 py-3 border-t border-edge text-[11.5px] text-slate-500 leading-snug">
+                  Nothing is sent to ElevenLabs until you press Transcribe audio: set the language and speakers first.
+                </p>
+              )}
+            </aside>
+          </div>
         </div>
       )}
 
