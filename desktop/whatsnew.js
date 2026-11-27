@@ -5,6 +5,15 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.22',
+    changes: [
+      'Review: Dub & sync starts the dub right away. The settings button beside it opens Dub settings in a window, and the toolbar shows the lines\' fit as one colour bar in Show (the counts are in its menu). Find is an icon; Ctrl+F opens it.',
+      'Review: the open line is quieter. Shorter, Longer, Same length and Keep are icons, a line that fits shows no meter, and a line cut into parts is judged part by part.',
+      'Edit timing: fades look and feel like DaVinci. Round knobs, a fade cursor, the fade drawn on the line with its length beside it, Shift for both ends, double-click for no fade.',
+      'Script view: Word is one button and uses the view\'s own paragraphs.',
+    ],
+  },
+  {
     version: '1.5.21',
     changes: [
       'Review: picking a long or a short line no longer moves the page up and down. The picked line sits in the play row at one height, whatever its length.',
