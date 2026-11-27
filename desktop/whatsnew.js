@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.24',
+    changes: [
+      'Review: the wording buttons that show when you point at a line no longer cover its words. They sit after the last word, or just above the line when it runs to the edge.',
+    ],
+  },
+  {
     version: '1.5.23',
     changes: [
       'Review: each cue fits on one line, so about twice as many show at once. The speaker is a small chip at the start of the line, time and length sit together, the dub text has no box until you open or type in it, and a cut line\'s scissors sit at the line\'s end.',
