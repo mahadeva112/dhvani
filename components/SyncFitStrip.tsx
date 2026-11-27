@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AlertTriangle, Check, FastForward, Info, MoveHorizontal, RotateCcw, Scissors } from 'lucide-react';
 import type { SyncPreviewUnit } from '../services/syncService';
 import { fitAdvice, fitLabel, needsFix } from './FinalScriptFit';
@@ -140,6 +140,42 @@ const AHEAD_HOVER_MS = 500;
 /** How long the open line's words stay unchanged before its wording is asked for ahead. */
 const AHEAD_SETTLE_MS = 1200;
 
+let mirrorEl: HTMLDivElement | null = null;
+const MIRRORED = [
+  'boxSizing', 'width', 'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fontFeatureSettings', 'letterSpacing', 'wordSpacing',
+  'lineHeight', 'textTransform', 'tabSize', 'paddingLeft', 'paddingRight', 'paddingTop', 'paddingBottom',
+  'borderLeftWidth', 'borderRightWidth', 'borderTopWidth', 'borderBottomWidth', 'borderStyle',
+] as const;
+
+/**
+ * Where the line's last row of words ends: its top inside the field, and
+ * whether `room` px are free after its last word. A hidden copy of the field
+ * is laid out with the same font and width (a textarea can't be measured
+ * inside).
+ */
+export const lastRowRoom = (field: HTMLTextAreaElement, room: number): { top: number; height: number; fits: boolean } => {
+  if (!mirrorEl) {
+    mirrorEl = document.createElement('div');
+    mirrorEl.setAttribute('aria-hidden', 'true');
+    Object.assign(mirrorEl.style, { position: 'absolute', top: '-9999px', left: '-9999px', visibility: 'hidden', whiteSpace: 'pre-wrap', overflowWrap: 'break-word', wordBreak: 'normal' });
+    document.body.appendChild(mirrorEl);
+  }
+  const style = getComputedStyle(field);
+  for (const key of MIRRORED) mirrorEl.style[key] = style[key];
+  mirrorEl.style.width = `${field.offsetWidth}px`;
+  mirrorEl.textContent = field.value || ' ';
+  const mark = document.createElement('span');
+  mark.style.display = 'inline-block';
+  mark.style.height = '1em';
+  mirrorEl.appendChild(mark);
+  const before = mark.offsetTop;
+  mark.style.width = `${room}px`;
+  const fits = mark.offsetTop === before;
+  const lineHeight = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.6;
+  const height = mirrorEl.offsetHeight - parseFloat(style.paddingBottom) - parseFloat(style.borderBottomWidth);
+  return { top: Math.max(0, height - lineHeight), height: lineHeight, fits };
+};
+
 export const SyncFitStrip: React.FC<SyncFitStripProps> = ({ unit, cps, fix, open = false, cuesLabel, pauses, faster, placed, onResetTrim, counts, pillsBeside = false }) => {
   const [infoOpen, setInfoOpen] = useState(false);
   const { state, direction, onPrefetch, ...controls } = fix;
@@ -175,9 +211,38 @@ export const SyncFitStrip: React.FC<SyncFitStripProps> = ({ unit, cps, fix, open
   const hoverOnly = idle && !flagged && !infoOpen;
   // A fitting line with its pills beside the words has nothing to show here: no room taken, buttons over the line's end on hover.
   const floating = pillsBeside && quiet && hoverOnly && state.kind === 'idle' && !delta && !shortCut;
+  // The floating buttons never cover the words: after the last word when there is room, else just above the line.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const buttonsRef = useRef<HTMLSpanElement>(null);
+  const [floatAt, setFloatAt] = useState<{ top: number; right: number } | 'above'>('above');
+  useLayoutEffect(() => {
+    if (!floating) return;
+    const cell = rootRef.current?.closest('[data-review-text]');
+    const field = cell?.querySelector('textarea');
+    const buttons = buttonsRef.current;
+    if (!cell || !field || !buttons) return;
+    const place = () => {
+      const row = lastRowRoom(field, buttons.offsetWidth + 8);
+      if (!row.fits) return setFloatAt((was) => (was === 'above' ? was : 'above'));
+      const box = field.getBoundingClientRect();
+      const cellBox = cell.getBoundingClientRect();
+      const top = Math.round(box.top - cellBox.top + row.top + (row.height - buttons.offsetHeight) / 2);
+      // Lined up with the words' right edge, so a pill beside the line stays visible.
+      const right = Math.round(cellBox.right - box.right + parseFloat(getComputedStyle(field).paddingRight));
+      setFloatAt((was) => (was !== 'above' && was.top === top && was.right === right ? was : { top, right }));
+    };
+    place();
+    const resized = new ResizeObserver(place);
+    resized.observe(field);
+    field.addEventListener('input', place);
+    return () => {
+      resized.disconnect();
+      field.removeEventListener('input', place);
+    };
+  }, [floating, unit.text]);
 
   return (
-    <div className={floating ? '' : 'mt-1.5'} onPointerEnter={startHover} onPointerLeave={endHover} onFocus={() => prefetchRef.current?.()}>
+    <div ref={rootRef} className={floating ? '' : 'mt-1.5'} onPointerEnter={startHover} onPointerLeave={endHover} onFocus={() => prefetchRef.current?.()}>
       <div className={floating ? '' : 'flex flex-wrap items-center gap-x-1.5 gap-y-1.5 min-h-[26px]'}>
         {!quiet && (
           <>
@@ -205,9 +270,11 @@ export const SyncFitStrip: React.FC<SyncFitStripProps> = ({ unit, cps, fix, open
         {!pillsBeside && <SyncFitPills unit={unit} cuesLabel={cuesLabel} placed={placed} onResetTrim={onResetTrim} />}
 
         <span
+          ref={buttonsRef}
+          style={floating ? (floatAt === 'above' ? { bottom: '100%', right: 0 } : { top: floatAt.top, right: floatAt.right }) : undefined}
           className={`${
             floating
-              ? 'absolute right-0 top-0.5 z-10 rounded-md bg-slate-900/95 shadow-lg shadow-black/40 px-0.5 pointer-events-none group-hover:pointer-events-auto focus-within:pointer-events-auto'
+              ? 'absolute z-10 rounded-md bg-slate-900/95 shadow-lg shadow-black/40 px-0.5 pointer-events-none group-hover:pointer-events-auto focus-within:pointer-events-auto'
               : 'ml-auto'
           } flex flex-wrap items-center gap-1 ${hoverOnly ? 'opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity' : ''}`}
         >
