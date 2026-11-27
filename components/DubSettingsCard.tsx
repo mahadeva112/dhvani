@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronRight, Gauge, Mic, MoveHorizontal, Pause, Play, RotateCcw, SlidersHorizontal, Volume2, type LucideIcon } from 'lucide-react';
+import { ChevronRight, Gauge, Mic, MoveHorizontal, Pause, Play, RotateCcw, SlidersHorizontal, Volume2, X, type LucideIcon } from 'lucide-react';
 import { SelectedVoiceSummary } from './VoiceSelectorCard';
 import { ResetDefaultsButton } from './ResetDefaultsButton';
 import { Select } from './Select';
@@ -313,6 +313,83 @@ const SLIDERS = [
   { key: 'style', label: 'Style exaggeration' },
 ] as const;
 
+const PLACE_KEYS: (keyof SyncJoinSettings)[] = ['chunkSync', 'joinSpokenChunks', 'chunkGapShare', 'maxChunkGap'];
+const PAUSE_KEYS: (keyof SyncJoinSettings)[] = ['matchSourcePauses', 'unmatchedPause', 'cutAtSourcePauses', 'sourceCutMinPause', 'sourceCutMaxInsert', 'tightenSilences', 'tightMinPause', 'tightMargin'];
+const LONG_KEYS: (keyof SyncJoinSettings)[] = ['speedFit', 'maxVoiceSpeed', 'bestTakes', 'maxRevoice'];
+const SOUND_KEYS: (keyof SyncJoinSettings)[] = ['removeBreaths', 'breathReduction'];
+
+/**
+ * How many settings differ from their defaults, column by column: the card's
+ * amber dots and "N changed", and the Dub step's settings button.
+ */
+export const dubSettingsChanges = ({
+  options,
+  expression,
+  voiceSettings,
+  loudnessOn = null,
+}: {
+  options: SyncOptions;
+  /** The expression as it will be read, or null when there is none to pick. */
+  expression: VoiceExpression | null;
+  voiceSettings?: { custom: boolean; shown: ElevenLabsVoiceSettings } | null;
+  /** Even out speakers, when it can be switched; null when it can't. */
+  loudnessOn?: boolean | null;
+}) => {
+  const screen = options.screen ?? 'any';
+  const fittedFrom = options.preset === 'custom' && !isOwnCustom(options) ? lengthPresetOf(options) : null;
+  const lengthNow: LengthPreset = options.preset !== 'custom' ? options.preset : fittedFrom ?? nearestPreset(options.join, screen);
+  const base: SyncJoinSettings = fittedFrom && options.fitted ? options.fitted.join : syncJoinPreset(lengthNow, screen);
+  const joinChanged = (key: keyof SyncJoinSettings) => !same(options.join[key], base[key]);
+  const custom = Boolean(voiceSettings?.custom);
+  const voice = [
+    expression !== null && expression !== 'off',
+    ...SLIDERS.map((sl) => custom && !same(voiceSettings!.shown[sl.key] ?? 0, DEFAULT_VOICE_SETTINGS[sl.key] ?? 0)),
+    custom && (voiceSettings!.shown.use_speaker_boost !== false) !== (DEFAULT_VOICE_SETTINGS.use_speaker_boost !== false),
+  ].filter(Boolean).length;
+  const place = [options.voicing !== 'lines', options.precision !== 'phrase', ...PLACE_KEYS.map(joinChanged)].filter(Boolean).length;
+  const pause = PAUSE_KEYS.filter(joinChanged).length;
+  const long = LONG_KEYS.filter(joinChanged).length;
+  const sound = SOUND_KEYS.filter(joinChanged).length + (loudnessOn === false ? 1 : 0);
+  return { voice, place, pause, long, sound, total: voice + place + pause + long + sound };
+};
+
+/** The voice's short name, as the chips and the Dub & sync card show it. */
+export const shortVoiceName = (voiceId: string, availableVoices: Voice[]) =>
+  availableVoices.find((v) => v.voice_id === voiceId)?.name?.split(/\s+[-–—|]\s+/)[0] ?? null;
+
+/**
+ * The settings Dub & sync uses, in brief: the chips at the top of the card,
+ * and on the card Review's Dub & sync opens.
+ */
+export const dubSettingsChips = ({
+  options,
+  voiceName,
+  modelName,
+  expression,
+  quality,
+}: {
+  options: SyncOptions;
+  voiceName: string | null;
+  modelName: string;
+  /** The expression as it will be read (Neutral when the voice can't take tags), or null when there is none to pick. */
+  expression: VoiceExpression | null;
+  quality?: DubAudioQuality | null;
+}): [string, string][] => {
+  const screen = options.screen ?? 'any';
+  const fittedFrom = options.preset === 'custom' && !isOwnCustom(options) ? lengthPresetOf(options) : null;
+  const ownCustom = options.preset === 'custom' && !fittedFrom;
+  const lengthNow: LengthPreset = options.preset !== 'custom' ? options.preset : fittedFrom ?? nearestPreset(options.join, screen);
+  const lengthName = presetName(lengthNow).replace(' dub', '');
+  return [
+    ['Voice', [voiceName, modelName, expression && expression !== 'off' ? EXPRESSION_LABEL[expression] : null].filter(Boolean).join(' · ')],
+    ['Length', isAutoLength(options) ? 'Auto' : fittedFrom ? `${lengthName}, fitted` : ownCustom ? `${lengthName}, changed` : lengthName],
+    ...(screen !== 'any' ? ([['On screen', SYNC_SCREEN_OPTIONS.find((s) => s.id === screen)?.label ?? screen]] as [string, string][]) : []),
+    ['Timing', `±${PRECISION_MS[options.precision]} ms`],
+    ['Chunks', options.join.chunkSync ? 'On' : 'Off'],
+    ...(quality ? ([['File', QUALITY_SHORT[quality]]] as [string, string][]) : []),
+  ];
+};
+
 export interface DubSettingsCardProps {
   disabled?: boolean;
   multiSpeaker?: boolean;
@@ -363,6 +440,8 @@ export interface DubSettingsCardProps {
   /** The model reads faster by a pace direction (Eleven v3 and v4), not a speed. */
   paceDirection?: boolean;
   onOpenAllSettings: () => void;
+  /** In a window: its close button, in the card's header. */
+  onClose?: () => void;
 }
 
 export const DubSettingsCard: React.FC<DubSettingsCardProps> = ({
@@ -390,6 +469,7 @@ export const DubSettingsCard: React.FC<DubSettingsCardProps> = ({
   suggestionEstimated = false,
   paceDirection = false,
   onOpenAllSettings,
+  onClose,
 }) => {
   // The voice's own sample, played from here.
   const sampleUrl = availableVoices.find((v) => v.voice_id === voiceId)?.preview_url;
@@ -464,34 +544,31 @@ export const DubSettingsCard: React.FC<DubSettingsCardProps> = ({
     Boolean(voiceSettings?.custom) && !same(voiceSettings!.shown[key] ?? 0, DEFAULT_VOICE_SETTINGS[key] ?? 0);
   const boostChanged = Boolean(voiceSettings?.custom) && (voiceSettings!.shown.use_speaker_boost !== false) !== (DEFAULT_VOICE_SETTINGS.use_speaker_boost !== false);
   const expressionNow: VoiceExpression | null = expression ? (expression.takesCues || expression.value === 'off' ? expression.value : 'neutral') : null;
-  const voiceChanged = [expressionNow !== null && expressionNow !== 'off', ...SLIDERS.map((s) => voiceSettingChanged(s.key)), boostChanged].filter(Boolean).length;
+  const changes = dubSettingsChanges({ options, expression: expressionNow, voiceSettings, loudnessOn: loudness ? loudness.value : null });
+  const voiceChanged = changes.voice;
   const resetVoice = () => {
     if (expression && expression.value !== 'off') expression.onChange('off');
     if (voiceSettings?.custom) voiceSettings.onChange(null);
   };
 
-  const PLACE_KEYS: (keyof SyncJoinSettings)[] = ['chunkSync', 'joinSpokenChunks', 'chunkGapShare', 'maxChunkGap'];
   const voicingChanged = options.voicing !== 'lines';
   const precisionChanged = options.precision !== 'phrase';
-  const placeChanged = [voicingChanged, precisionChanged, ...PLACE_KEYS.map(joinChanged)].filter(Boolean).length;
+  const placeChanged = changes.place;
   const resetPlace = () => {
     resetJoin(PLACE_KEYS);
     if (voicingChanged || precisionChanged) onOptionsChange((o) => ({ ...o, voicing: 'lines', precision: 'phrase' }));
   };
 
-  const PAUSE_KEYS: (keyof SyncJoinSettings)[] = ['matchSourcePauses', 'unmatchedPause', 'cutAtSourcePauses', 'sourceCutMinPause', 'sourceCutMaxInsert', 'tightenSilences', 'tightMinPause', 'tightMargin'];
-  const LONG_KEYS: (keyof SyncJoinSettings)[] = ['speedFit', 'maxVoiceSpeed', 'bestTakes', 'maxRevoice'];
-  const SOUND_KEYS: (keyof SyncJoinSettings)[] = ['removeBreaths', 'breathReduction'];
-  const pauseChanged = PAUSE_KEYS.filter(joinChanged).length;
-  const longChanged = LONG_KEYS.filter(joinChanged).length;
+  const pauseChanged = changes.pause;
+  const longChanged = changes.long;
   const loudnessChanged = Boolean(loudness && !loudness.value);
-  const soundChanged = SOUND_KEYS.filter(joinChanged).length + (loudnessChanged ? 1 : 0);
+  const soundChanged = changes.sound;
   const resetSound = () => {
     resetJoin(SOUND_KEYS);
     if (loudnessChanged) loudness!.onChange(true);
   };
 
-  const totalChanged = voiceChanged + placeChanged + pauseChanged + longChanged + soundChanged;
+  const totalChanged = changes.total;
   const anythingToReset = totalChanged > 0 || options.preset !== 'natural' || screen !== 'any' || options.lengthAuto === false;
   const resetAll = () => {
     onOptionsChange((o) => ({ ...applyJoinPreset(o, 'natural', 'any'), voicing: 'lines', precision: 'phrase', lengthAuto: true, fitOnSync: true }));
@@ -516,22 +593,17 @@ export const DubSettingsCard: React.FC<DubSettingsCardProps> = ({
   );
   const fineChanged = (...keys: FineKey[]) => keys.some(joinChanged);
 
-  const voiceName = availableVoices.find((v) => v.voice_id === voiceId)?.name?.split(/\s+[-–—|]\s+/)[0] ?? null;
-  const chips: [string, string][] = [
-    ['Voice', [voiceName, modelName, expressionNow && expressionNow !== 'off' ? EXPRESSION_LABEL[expressionNow] : null].filter(Boolean).join(' · ')],
-    ['Length', autoLength ? 'Auto' : fittedFrom ? `${lengthName}, fitted` : ownCustom ? `${lengthName}, changed` : lengthName],
-    ...(screen !== 'any' ? ([['On screen', SYNC_SCREEN_OPTIONS.find((s) => s.id === screen)?.label ?? screen]] as [string, string][]) : []),
-    ['Timing', `±${PRECISION_MS[options.precision]} ms`],
-    ['Chunks', join.chunkSync ? 'On' : 'Off'],
-    ...(quality ? ([['File', QUALITY_SHORT[quality.value]]] as [string, string][]) : []),
-  ];
+  const chips = dubSettingsChips({ options, voiceName: shortVoiceName(voiceId, availableVoices), modelName, expression: expressionNow, quality: quality?.value });
 
   const fitNote = paceDirection
     ? `A calm, quicker pace direction, up to ${join.maxVoiceSpeed.toFixed(2)}×`
     : `Read at up to ${join.maxVoiceSpeed.toFixed(2)}× speed`;
 
   return (
-    <section aria-label="Dub settings" className="@container flex-1 flex flex-col min-h-0 bg-slate-900/90 border border-edge rounded-2xl overflow-hidden">
+    <section
+      aria-label="Dub settings"
+      className={`@container flex-1 flex flex-col min-h-0 overflow-hidden ${onClose ? '' : 'bg-slate-900/90 border border-edge rounded-2xl'}`}
+    >
       <div className="flex items-center gap-4 px-5 py-3 border-b border-edge">
         <div className="min-w-0 flex-1">
           <h2 className="text-[15px] font-semibold text-slate-100">Dub settings</h2>
@@ -554,6 +626,16 @@ export const DubSettingsCard: React.FC<DubSettingsCardProps> = ({
             className="h-8 px-3 flex items-center gap-1.5 rounded-[10px] border border-slate-700 text-[12.5px] font-semibold text-slate-300 hover:bg-slate-800 shrink-0 cursor-default disabled:opacity-50"
           >
             <RotateCcw className="w-3.5 h-3.5" /> Reset all
+          </button>
+        )}
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="w-8 h-8 rounded-full text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center shrink-0 cursor-default"
+          >
+            <X className="w-4 h-4" />
           </button>
         )}
       </div>

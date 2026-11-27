@@ -291,3 +291,98 @@ export const ScriptFitStrip: React.FC<{
     </div>
   );
 };
+
+/** Each status's share of the lines, for the Show button's colour bar: fit, tight, too long, ends early. */
+export const fitBarParts = (preview: SyncPreview) => {
+  const count = (status: SyncPreviewUnit['status']) => preview.units.filter((u) => u.status === status).length;
+  return [
+    { n: count('fits'), color: 'bg-emerald-400', label: 'fit' },
+    { n: count('tight'), color: 'bg-amber-400', label: 'tight' },
+    { n: count('long'), color: 'bg-rose-400', label: 'too long' },
+    { n: count('short'), color: 'bg-sky-400', label: 'end early' },
+  ];
+};
+
+/** The colour bar itself: as wide as it is given, each status by its share. */
+export const FitBar: React.FC<{ parts: { n: number; color: string }[]; className?: string }> = ({ parts, className = 'w-14' }) => (
+  <span className={`flex h-1.5 gap-[2px] rounded overflow-hidden bg-slate-800 shrink-0 ${className}`} aria-hidden="true">
+    {parts
+      .filter((p) => p.n > 0)
+      .map((p) => (
+        <i key={p.color} className={`block h-full ${p.color}`} style={{ flex: p.n }} />
+      ))}
+  </span>
+);
+
+/**
+ * The foot of Review's Show menu: the bar at full width, how the estimate was
+ * made (its rate, the longest overrun, lips), and wordings for every open line.
+ */
+export const FitMenuFooter: React.FC<{
+  preview: SyncPreview | null;
+  error: string | null;
+  rateBasis: RateBasis;
+  basis?: string;
+  toFix?: { shorter: number; longer: number };
+  onFixAll?: () => void;
+}> = ({ preview, error, rateBasis, basis, toFix, onFixAll }) => {
+  if (!preview) {
+    return (
+      <p className="px-2.5 py-1.5 text-[12px]" role="status">
+        {error ? (
+          <span className="text-amber-300">The sync fit could not be worked out.</span>
+        ) : (
+          <span className="flex items-center gap-2 text-slate-400">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Timing each line against its source sentence…
+          </span>
+        )}
+      </p>
+    );
+  }
+  const { summary } = preview;
+  const long = preview.units.filter((u) => u.status === 'long').length;
+  const fixCount = toFix ? toFix.shorter + toFix.longer : 0;
+  return (
+    <div className="px-2.5 py-1.5 flex flex-col gap-2">
+      <FitBar parts={fitBarParts(preview)} className="w-full" />
+      <p className="text-[11.5px] leading-snug text-slate-500">
+        <span
+          className="underline decoration-dotted decoration-slate-600 underline-offset-4 cursor-help"
+          title={[
+            `${
+              preview.method === 'expert' && preview.syllablesPerSecond
+                ? `Expert · ${preview.syllablesPerSecond.toFixed(1)} syllables/s`
+                : `Quick · ${preview.charsPerSecond.toFixed(1)} chars/s`
+            } · ${RATE_BASIS_LABELS[rateBasis]}.`,
+            basis,
+            RATE_BASIS_TITLES[rateBasis],
+          ]
+            .filter(Boolean)
+            .join('\n')}
+        >
+          {preview.method === 'expert' ? 'Expert' : 'Quick'} estimate
+        </span>
+        {' · '}
+        {preview.method === 'expert' && preview.syllablesPerSecond
+          ? `${preview.syllablesPerSecond.toFixed(1)} syllables/s`
+          : `${preview.charsPerSecond.toFixed(1)} chars/s`}
+        {long > 0 && ` · longest +${summary.maxOverflow.toFixed(1)} s`}
+        {summary.lips && summary.lips.total > 0 && ` · lips ${summary.lips.matched} / ${summary.lips.total}`}
+      </p>
+      {toFix && onFixAll && fixCount > 1 && (
+        <button
+          type="button"
+          onClick={onFixAll}
+          className="h-7 px-2.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 text-left cursor-default"
+          title="Asks your text model, not ElevenLabs, for each line the way it needs"
+        >
+          Suggest for all {fixCount}
+          <span className="text-slate-400 font-normal">
+            {' '}
+            ({[toFix.shorter && `${toFix.shorter} shorter`, toFix.longer && `${toFix.longer} fuller`].filter(Boolean).join(', ')})
+          </span>
+        </button>
+      )}
+    </div>
+  );
+};

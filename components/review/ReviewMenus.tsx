@@ -36,8 +36,29 @@ export interface ShowOption<T extends string> {
   divided?: boolean;
 }
 
-/** Review's one filter: which lines the list shows, each choice with how many lines it holds. */
-export function ShowLinesMenu<T extends string>({ value, options, onChange }: { value: T; options: ShowOption<T>[]; onChange: (id: T) => void }) {
+/**
+ * Review's one filter: which lines the list shows, each choice with how many
+ * lines it holds. On the button, the lines' fit as one colour bar (red: some
+ * run long); the counts are only in the menu.
+ */
+export function ShowLinesMenu<T extends string>({
+  value,
+  options,
+  onChange,
+  bar,
+  loading = false,
+  footer,
+}: {
+  value: T;
+  options: ShowOption<T>[];
+  onChange: (id: T) => void;
+  /** The colour bar on the button, once the fit is worked out. */
+  bar?: React.ReactNode;
+  /** The fit is being worked out: a spinner on the button in place of the bar. */
+  loading?: boolean;
+  /** Under the choices: how the fit was estimated, and what to do about it. */
+  footer?: React.ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useAwayClose(open, () => setOpen(false));
   const current = options.find((o) => o.id === value) ?? options[0];
@@ -52,13 +73,14 @@ export function ShowLinesMenu<T extends string>({ value, options, onChange }: { 
           value !== options[0].id ? 'bg-slate-100 text-slate-900 border-slate-100' : 'bg-slate-950 text-slate-200 hover:bg-slate-800'
         }`}
       >
+        {bar ?? (loading && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-500" aria-label="Working out the fit" />)}
         <span className={value !== options[0].id ? 'text-slate-600' : 'text-slate-400'}>Show</span>
         {current.label}
         <span className={`font-mono text-[12px] tabular-nums ${value !== options[0].id ? 'text-slate-600' : 'text-slate-400'}`}>{current.count}</span>
         <ChevronDown className="w-3.5 h-3.5 opacity-70" />
       </button>
       {open && (
-        <div className={`${menuPanel} left-0 w-64`} role="menu">
+        <div className={`${menuPanel} right-0 w-72`} role="menu">
           {options.map((o) => (
             <React.Fragment key={o.id}>
               {o.divided && <div className="my-1 border-t border-edge" />}
@@ -80,6 +102,12 @@ export function ShowLinesMenu<T extends string>({ value, options, onChange }: { 
               </button>
             </React.Fragment>
           ))}
+          {footer && (
+            <>
+              <div className="my-1 border-t border-edge" />
+              {footer}
+            </>
+          )}
         </div>
       )}
     </div>

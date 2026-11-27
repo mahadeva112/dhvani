@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Review Fit Toolbar</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          slate: { 50:'#f6f6f7',100:'#ececef',200:'#dcdde1',300:'#c6c8ce',400:'#abadb5',500:'#8b8e98',600:'#5a5d66',700:'#34363c',800:'#232529',900:'#18191c',950:'#111214' },
+          indigo: { 300:'#a5adf5',400:'#7b86ec',500:'#5866e0',600:'#4c59d0',950:'#23253a' },
+          edge: '#27292d',
+        },
+      },
+    },
+  };
+</script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#0b0c0e; font-family: Inter, system-ui, "Noto Sans Bengali", "Noto Sans Devanagari", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .seg button.on { background:#5866e0; color:#fff; }
+  button { cursor:pointer; }
+  @keyframes pop { from { transform:translateY(-4px); opacity:0 } to { transform:none; opacity:1 } }
+  .pop { animation: pop .12s ease-out; }
+  [data-tip] { position:relative; }
+  [data-tip]:hover::after { content: attr(data-tip); position:absolute; left:0; top:calc(100% + 6px); z-index:40; white-space:pre; background:#232529; border:1px solid #34363c; color:#dcdde1; font-size:11.5px; line-height:1.45; padding:6px 8px; border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,.5); font-weight:400; }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6">
+
+<div class="max-w-[90rem] mx-auto mb-3 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+  <span class="seg inline-flex flex-wrap rounded-lg border border-edge overflow-hidden" id="mockSeg">
+    <button data-m="now" class="px-3 py-1.5">এখন যেমন</button>
+    <button data-m="a" class="on px-3 py-1.5">নতুন · শুধু রঙ</button>
+  </span>
+  <span class="text-slate-500 ml-2">Find:</span>
+  <span class="seg inline-flex rounded-lg border border-edge overflow-hidden" id="findSeg">
+    <button data-f="box" class="px-3 py-1.5">বাক্স (এখন)</button>
+    <button data-f="icon" class="on px-3 py-1.5">শুধু icon</button>
+  </span>
+  <span class="ml-auto text-slate-500">উদাহরণ:</span>
+  <span class="seg inline-flex rounded-lg border border-edge overflow-hidden" id="dataSeg">
+    <button data-d="ok" class="on px-3 py-1.5">লম্বা লাইন নেই</button>
+    <button data-d="long" class="px-3 py-1.5">1 too long</button>
+    <button data-d="many" class="px-3 py-1.5">৪০ লাইনের ভিডিও</button>
+  </span>
+</div>
+<p id="note" class="max-w-[90rem] mx-auto mb-3 text-[13px] leading-relaxed text-slate-300"></p>
+
+<div class="max-w-[90rem] mx-auto rounded-2xl border border-edge bg-slate-900/90 overflow-visible" id="frame">
+  <div id="toolbar" class="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-edge relative"></div>
+  <div class="grid grid-cols-[2.5rem_4.5rem_1fr_1fr] gap-4 px-4 py-2 border-b border-edge text-[11.5px] text-slate-500"><span>#</span><span>Time</span><span>Original</span><span>Hindi (हिन्दी)</span></div>
+  <div id="rows"></div>
+</div>
+
+<div class="max-w-[90rem] mx-auto mt-4 grid sm:grid-cols-3 gap-3 text-[12.5px] leading-relaxed text-slate-400" id="facts"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let mock = 'a', data = 'ok', menuOpen = false, findMode = 'icon', findOpen = false;
+
+const DATA = {
+  ok:   { fit: 1, tight: 2, long: 0, short: 0, fix: 0, longest: 0 },
+  long: { fit: 1, tight: 1, long: 1, short: 0, fix: 1, longest: 1.2 },
+  many: { fit: 27, tight: 7, long: 4, short: 2, fix: 6, longest: 2.4 },
+};
+const ROWS = [
+  ['01', '0:00.0', 'Host', 'Welcome back to the podcast. Today we are exploring the frontiers of artificial intelligence.', 'पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की।'],
+  ['02', '0:04.7', 'Guest', 'Thank you for having me. The rate of progress over the last six months has been truly unprecedented.', 'शुक्रिया। पिछले छह महीनों में जो तरक्की हुई, वो बेमिसाल है।'],
+  ['03', '0:10.1', 'Host', 'Let us dive straight into multimodal models and live speech translation.', 'चलिए, सीधे मल्टीमोडल मॉडल और लाइव अनुवाद पर आएँ।'],
+];
+const ESTIMATE_TIP = 'Expert · 6.0 syllables/s · from this voice\'s last Sync.\nLines are read at the pace the voice really reads.';
+
+const NOTES = {
+  now: '<b class="text-slate-100">এখন:</b> “Sync fit” আর চারটে সংখ্যা toolbar-এ লেখা, শূন্যগুলোও। পাশেই Show menu-তে ঠিক এই সংখ্যাগুলো আবার আছে, সেখান থেকেই filter হয়। “Expert estimate” শুধু একটা tooltip-এর লেখা।',
+  a: '<b class="text-slate-100">নতুন:</b> বাইরে কোনো লেখা নেই, শুধু <b class="text-slate-100">Show</b> বোতামের ভেতরে ছোট রঙিন bar — সবুজ fit, হলুদ tight, <span class="text-rose-300">লাল too long</span>, নীল end early। লাল দেখলেই বোঝা যায় লম্বা লাইন আছে। কটা, কোনগুলো — Show খুললে সেখানে সংখ্যা, চাপলে সেই লাইনগুলোই দেখায়। উপরে “1 too long” আর “৪০ লাইনের ভিডিও” চেপে দেখুন। Find এখন একটা 🔍 icon: চাপলে বা <b class="text-slate-100">Ctrl+F</b> দিলে বাক্স খোলে; খালি রেখে বাইরে ক্লিক করলে আবার icon।',
+};
+const FACTS = {
+  now: [['জায়গা', 'Toolbar-এ ~৫০০px শুধু লেখা, যার অর্ধেক শূন্য।'], ['দুবার', 'Show menu-তে একই সংখ্যা, সেখানে ক্লিক করলে filter হয়।'], ['Expert estimate', 'Dotted underline, শুধু tooltip — প্রতিদিন কারও দরকার পড়ে না।']],
+  a: [['রঙেই খবর', 'Bar-এ লাল থাকলে লম্বা লাইন আছে, না থাকলে নেই। ৪০ লাইনেও bar-এর মাপ একই, শুধু রঙের ভাগ বদলায়।'], ['সংখ্যা ভেতরে', 'Too long, Tight, Ends early, Fit, Lines to fix — সংখ্যা শুধু Show menu-তে, চাপলেই filter। Expert estimate আর longest +s menu-র নিচে।'], ['Find', 'খোঁজে original আর অনুবাদ দুটোতেই — ৪০০ লাইনের ভিডিওতে একটা শব্দ খুঁজতে দরকার। কিন্তু সারাক্ষণ বাক্স লাগে না, তাই icon + Ctrl+F।']],
+};
+
+const chev = '<svg class="w-3.5 h-3.5 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>';
+const search = '<svg class="w-4 h-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>';
+
+function fitBar(d, w = 'w-16') {
+  const parts = [[d.fit, '#34d399'], [d.tight, '#fbbf24'], [d.long, '#fb7185'], [d.short, '#38bdf8']].filter(([n]) => n > 0);
+  return `<span class="flex ${w} h-1.5 gap-[2px] rounded overflow-hidden bg-slate-800" aria-hidden>${parts.map(([n, c]) => `<i style="flex:${n};background:${c}"></i>`).join('')}</span>`;
+}
+function total(d) { return d.fit + d.tight + d.long + d.short; }
+function tipOf(d) {
+  return [`${total(d)} lines`, `${d.fit} fit · ${d.tight} tight · ${d.long} too long · ${d.short} end early`, d.long ? `longest +${d.longest.toFixed(1)} s` : null].filter(Boolean).join('\n');
+}
+
+function menu(d) {
+  const row = (label, n, dot, on, divided) => `<button class="w-full flex items-center gap-2 px-3 py-1.5 text-[12.5px] ${on ? 'bg-slate-800 text-slate-100' : 'text-slate-300 hover:bg-slate-800/60'} ${divided ? 'border-t border-edge mt-1 pt-2' : ''}">
+    ${dot ? `<span class="w-1.5 h-1.5 rounded-full" style="background:${dot}"></span>` : '<span class="w-1.5"></span>'}<span class="flex-1 text-left">${label}</span><span class="mono ${n ? 'text-slate-300' : 'text-slate-600'}">${n}</span></button>`;
+  return `<div class="pop absolute right-0 top-[calc(100%+6px)] w-72 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/60 z-30 py-1.5">
+    ${row('All lines', total(d), null, true)}
+    ${row('Lines to fix', d.fix, '#7b86ec')}
+    ${row('Too long', d.long, '#fb7185', false, true)}
+    ${row('Tight', d.tight, '#fbbf24')}
+    ${row('Ends early', d.short, '#38bdf8')}
+    ${row('Fit', d.fit, '#34d399')}
+    <div class="border-t border-edge mt-1.5 px-3 pt-2 pb-1 flex items-center gap-2 text-[11.5px] text-slate-400">
+      ${fitBar(d, 'flex-1')}
+    </div>
+    <div class="px-3 pb-1 text-[11.5px] text-slate-500" data-tip="${ESTIMATE_TIP}"><span class="underline decoration-dotted decoration-slate-600 underline-offset-4">Expert estimate</span> · 6.0 syllables/s${d.long ? ` · longest +${d.longest.toFixed(1)} s` : ''}</div>
+  </div>`;
+}
+
+function showButton(d) {
+  if (mock === 'now') {
+    return `<span class="relative"><button id="show" class="h-9 px-3 rounded-xl border border-edge text-[12.5px] text-slate-400 flex items-center gap-1.5">Show <b class="text-slate-100 font-medium">All lines</b> <span class="mono text-slate-500">${total(d)}</span> ${chev}</button>${menuOpen ? menu(d) : ''}</span>`;
+  }
+  if (mock === 'a') {
+    return `<span class="relative"><button id="show" class="h-9 px-3 rounded-xl border border-edge text-[12.5px] text-slate-400 hover:bg-slate-800 flex items-center gap-2">${fitBar(d)} Show <b class="text-slate-100 font-medium">All lines</b> <span class="mono text-slate-500">${total(d)}</span> ${chev}</button>${menuOpen ? menu(d) : ''}</span>`;
+  }
+  const bits = [[d.tight, 'tight', 'text-amber-300'], [d.long, 'too long', 'text-rose-300'], [d.short, d.short === 1 ? 'ends early' : 'end early', 'text-sky-300']].filter(([n]) => n > 0);
+  const summary = bits.length
+    ? bits.map(([n, l, c]) => `<span class="${c}"><b class="mono font-semibold">${n}</b> ${l}</span>`).join('<span class="text-slate-600">·</span>')
+    : '<span class="text-emerald-300">All fit</span>';
+  return `<span class="flex items-center gap-2 text-[12.5px]" data-tip="${tipOf(d)}">${summary}</span>
+    <span class="relative"><button id="show" class="h-9 px-3 rounded-xl border border-edge text-[12.5px] text-slate-400 hover:bg-slate-800 flex items-center gap-1.5">Show <b class="text-slate-100 font-medium">All lines</b> <span class="mono text-slate-500">${total(d)}</span> ${chev}</button>${menuOpen ? menu(d) : ''}</span>`;
+}
+
+function render() {
+  const d = DATA[data];
+  const nowStrip = mock === 'now' ? `<span class="flex flex-wrap items-center gap-x-2.5 text-[12.5px]">
+      <span class="font-medium text-slate-300">Sync fit</span>
+      <span class="text-slate-300"><b class="mono">${d.fit}</b> fit</span><span class="text-slate-600">·</span>
+      <span class="${d.tight ? 'text-amber-300' : 'text-slate-300'}"><b class="mono">${d.tight}</b> tight</span><span class="text-slate-600">·</span>
+      <span class="${d.long ? 'text-rose-300' : 'text-slate-300'}"><b class="mono">${d.long}</b> too long</span><span class="text-slate-600">·</span>
+      <span class="${d.short ? 'text-sky-300' : 'text-slate-300'}"><b class="mono">${d.short}</b> end early</span>
+      <span class="text-slate-400 underline decoration-dotted decoration-slate-600 underline-offset-4" data-tip="${ESTIMATE_TIP}">Expert estimate</span>
+    </span>` : '';
+  $('#toolbar').innerHTML = `
+    <span class="flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5 text-[12.5px]">
+      <button class="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-100">Cues</button><button class="px-2.5 py-1 rounded-lg text-slate-400">Script</button><button class="px-2.5 py-1 rounded-lg text-slate-400">QA</button>
+    </span>
+    ${findMode === 'box' || mock === 'now' || findOpen
+      ? `<span class="h-9 flex-1 min-w-[12rem] max-w-[28rem] px-3 rounded-xl border ${findOpen ? 'border-indigo-500' : 'border-edge'} bg-slate-950 flex items-center gap-2 text-[12.5px]">${search}<input id="find" placeholder="Find in cues" class="flex-1 bg-transparent outline-none text-slate-100 placeholder-slate-500" />${findMode === 'icon' ? '<span class="mono text-[10.5px] text-slate-500 border border-edge rounded px-1">Ctrl F</span>' : ''}</span>`
+      : `<button id="findIcon" data-tip="Find in cues (Ctrl+F)" class="h-9 w-9 rounded-xl border border-edge text-slate-300 hover:bg-slate-800 flex items-center justify-center">${search.replace('text-slate-500', 'text-slate-300')}</button>`}
+    ${nowStrip}
+    <span class="ml-auto flex items-center gap-2">
+      ${showButton(d)}
+      <button class="h-9 px-3 rounded-xl border border-edge text-[12.5px] text-slate-200 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-teal-300"></span>Speakers ${chev}</button>
+      <button class="h-9 px-3 rounded-xl border border-edge text-[12.5px] text-slate-200">Check grammar</button>
+      <button class="h-9 w-9 rounded-xl border border-edge text-slate-300">⋯</button>
+    </span>`;
+  $('#rows').innerHTML = ROWS.map(([n, t, who, en, hi], i) => {
+    const status = data === 'long' && i === 0 ? ['+1.2 s over', 'bg-rose-500/15 text-rose-300 border-rose-500/30'] : i === 0 ? ['Fits', 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'] : ['Tight', 'bg-amber-500/15 text-amber-300 border-amber-500/30'];
+    return `<div class="grid grid-cols-[2.5rem_4.5rem_1fr_1fr] gap-4 px-4 py-3 border-b border-edge items-start">
+      <span class="mono text-[12px] text-slate-500 pt-1">${n}</span><span class="mono text-[12px] text-slate-300 pt-1">${t}</span>
+      <div><span class="inline-flex px-2 py-0.5 rounded-md border border-edge text-[11.5px] mb-1.5">${who}</span><p class="text-[13px] text-slate-300 leading-snug">${en}</p></div>
+      <div><div class="px-3 py-2 rounded-lg border border-edge bg-slate-950 text-[14px]">${hi}</div><span class="inline-block mt-1.5 px-1.5 py-0.5 rounded border text-[11px] mono ${status[1]}">${status[0]}</span></div>
+    </div>`;
+  }).join('');
+  $('#note').innerHTML = NOTES[mock];
+  $('#facts').innerHTML = FACTS[mock].map(([h, b]) => `<div class="rounded-xl border border-edge bg-slate-900/50 p-3"><div class="text-slate-200 font-medium mb-1">${h}</div>${b}</div>`).join('');
+  $('#show').onclick = (e) => { e.stopPropagation(); menuOpen = !menuOpen; render(); };
+  const icon = $('#findIcon');
+  if (icon) icon.onclick = (e) => { e.stopPropagation(); openFind(); };
+  const box = $('#find');
+  if (box && findMode === 'icon') {
+    box.onblur = () => { if (!box.value) { findOpen = false; render(); } };
+    box.onkeydown = (e) => { if (e.key === 'Escape') { box.value = ''; box.blur(); } };
+  }
+}
+function openFind() { findOpen = true; render(); const b = $('#find'); b && b.focus(); }
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); if (findMode === 'icon') openFind(); else $('#find')?.focus(); }
+});
+document.querySelectorAll('#findSeg button').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('#findSeg button').forEach((x) => x.classList.toggle('on', x === b));
+  findMode = b.dataset.f; findOpen = false; render();
+});
+
+document.addEventListener('click', (e) => { if (menuOpen && !e.target.closest('.pop')) { menuOpen = false; render(); } });
+document.querySelectorAll('#mockSeg button').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('#mockSeg button').forEach((x) => x.classList.toggle('on', x === b));
+  mock = b.dataset.m; menuOpen = false; render();
+});
+document.querySelectorAll('#dataSeg button').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('#dataSeg button').forEach((x) => x.classList.toggle('on', x === b));
+  data = b.dataset.d; render();
+});
+render();
+</script>
+</body>
+</html>

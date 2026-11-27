@@ -574,6 +574,8 @@ export interface SyncSettingsPanelProps {
   /** 'save': more files, at the foot of the Save the dub window. */
   saveExtras?: React.ReactNode;
   summary?: React.ReactNode;
+  /** 'bar': the Dub settings button, just before Dub & sync. */
+  settingsButton?: React.ReactNode;
 }
 
 /** The sections of the Sync settings window, in the order its list shows them. */
@@ -1197,6 +1199,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   voiceWarn = null,
   saveExtras,
   summary,
+  settingsButton,
 }) => {
   const bar = variant === 'bar';
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -1311,6 +1314,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
             <ArrowLeft className="w-3.5 h-3.5" /> Review
           </button>
           {extras && <ReadyTools bar>{extras}</ReadyTools>}
+          {settingsButton}
           {isSyncing ? (
             <button
               type="button"

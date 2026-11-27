@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dub From Review</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          slate: { 50:'#f6f6f7',100:'#ececef',200:'#dcdde1',300:'#c6c8ce',400:'#abadb5',500:'#8b8e98',600:'#5a5d66',700:'#34363c',800:'#232529',900:'#18191c',950:'#111214' },
+          indigo: { 300:'#a5adf5',400:'#7b86ec',500:'#5866e0',600:'#4c59d0',950:'#23253a' },
+          edge: '#27292d',
+        },
+      },
+    },
+  };
+</script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#0b0c0e; font-family: Inter, system-ui, "Noto Sans Bengali", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .seg button.on { background:#5866e0; color:#fff; }
+  .tog button.on { background:#34363c; color:#f6f6f7; }
+  button { cursor:pointer; }
+  @keyframes pop { from { transform:translateY(6px) scale(.97); opacity:0 } to { transform:none; opacity:1 } }
+  .pop { animation: pop .14s ease-out; }
+  .sw { width:34px; height:20px; border-radius:999px; background:#5866e0; position:relative; flex-shrink:0; }
+  .sw::after { content:''; position:absolute; right:3px; top:3px; width:14px; height:14px; border-radius:999px; background:#fff; }
+  .sw.off { background:#34363c; } .sw.off::after { right:auto; left:3px; }
+  .dot { width:6px; height:6px; border-radius:999px; background:#fbbf24; display:inline-block; }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6">
+
+<div class="max-w-[90rem] mx-auto mb-3 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+  <span class="seg inline-flex flex-wrap rounded-lg border border-edge overflow-hidden" id="mockSeg">
+    <button data-m="a" class="on px-3 py-1.5">A · বোতামে ছোট নিশ্চিতকরণ</button>
+    <button data-m="b" class="px-3 py-1.5">B · সোজা শুরু, settings window</button>
+    <button data-m="now" class="px-3 py-1.5">এখন যেমন</button>
+  </span>
+  <button id="reset" class="ml-auto px-3 py-1.5 rounded-lg border border-edge text-slate-300 hover:bg-slate-800">আবার শুরু থেকে</button>
+</div>
+
+<!-- The flow, in one line -->
+<div id="flow" class="max-w-[90rem] mx-auto mb-3 flex flex-wrap items-center gap-1.5 text-[12px]"></div>
+<p id="note" class="max-w-[90rem] mx-auto mb-3 text-[13px] leading-relaxed text-slate-300"></p>
+
+<div class="max-w-[90rem] mx-auto rounded-2xl border border-edge bg-slate-950 overflow-hidden relative" id="frame">
+  <!-- App bar -->
+  <div class="h-14 px-4 flex items-center gap-3 border-b border-edge bg-slate-900/60">
+    <span class="w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center text-white text-sm font-bold">D</span>
+    <span class="leading-tight hidden sm:block">
+      <span class="block text-[13px] font-semibold">studio_podcast_interview</span>
+      <span class="block text-[11px] text-slate-400">English → Bengali · 0:14</span>
+    </span>
+    <div id="stepper" class="mx-auto flex items-center gap-1 rounded-full border border-edge bg-slate-900 p-1 text-[12.5px]"></div>
+    <span class="hidden md:inline-flex items-center gap-1.5 px-3 h-8 rounded-lg border border-edge text-[12px] text-slate-300"><span class="w-2 h-2 rounded-full bg-emerald-400"></span>Online</span>
+  </div>
+  <div id="page" class="min-h-[560px]"></div>
+  <div id="modalHost"></div>
+</div>
+
+<div class="max-w-[90rem] mx-auto mt-4 grid sm:grid-cols-3 gap-3 text-[12.5px] leading-relaxed text-slate-400" id="facts"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let mock = 'a';
+let view = 'review';      // review | dub-settings | progress | done
+let popOpen = false;
+let winOpen = false;
+let timer = null;
+
+const CUES = [
+  { n: '01', t: '0:00.0', d: '3.8s', who: 'Host', hue: '#a5adf5', en: 'Welcome back to the podcast. Today we are exploring the frontiers of artificial intelligence.', bn: 'পডকাস্টে আপনাদের আবার স্বাগত। | আজ আমরা আর্টিফিশিয়াল ইন্টেলিজেন্সের নতুন দিগন্তগুলো দেখব।', fit: ['+1.2 s over', 'rose'] },
+  { n: '02', t: '0:04.7', d: '4.4s', who: 'Guest', hue: '#5eead4', en: 'Thank you for having me. The rate of progress over the last six months has been truly unprecedented.', bn: 'আমাকে ডাকার জন্য ধন্যবাদ। | গত ছয় মাসে অগ্রগতির হার সত্যিই অভূতপূর্ব।', fit: ['Fits', 'emerald'] },
+  { n: '03', t: '0:10.1', d: '3.7s', who: 'Host', hue: '#a5adf5', en: 'Let us dive straight into multimodal models and live speech translation.', bn: 'আসুন সরাসরি মাল্টিমোডাল মডেলে | আর লাইভ স্পিচ ট্রান্সলেশনে চলে যাই।', fit: ['Tight', 'amber'] },
+];
+const SUMMARY = [['Voice', 'Sadhguru Hindi · Eleven v4'], ['Length', 'Auto'], ['Timing', '±150 ms'], ['Chunks', 'On'], ['File', 'WAV 48 kHz']];
+const CHARS = CUES.reduce((a, c) => a + c.bn.replace(/\|/g, '').length, 0);
+
+const fitCls = { rose: 'bg-rose-500/15 text-rose-300 border-rose-500/30', emerald: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30', amber: 'bg-amber-500/15 text-amber-300 border-amber-500/30' };
+
+const NOTES = {
+  a: '<b class="text-slate-100">A:</b> Review-এর নিচের বোতাম “Continue to dub”-এর বদলে <b class="text-slate-100">Dub &amp; sync</b>। চাপলে বোতামের ওপরে একটা ছোট কার্ড খোলে: কোন voice, কোন settings, কত অক্ষর যাবে (credit), আর কী খোলা আছে। সেখান থেকে <b class="text-slate-100">Start</b> চাপলে dub শুরু, অথবা <b class="text-slate-100">Settings…</b> চাপলে পুরো ৩-কলামের card একটা window-এ খোলে। Credit খরচের আগে একবার থামা থাকল, কিন্তু আলাদা পাতা নেই।',
+  b: '<b class="text-slate-100">B:</b> Review-এর বোতাম চাপলেই সোজা dub শুরু, কোনো কার্ড নেই। বোতামের বাঁ পাশে এক লাইনে লেখা থাকে কোন voice আর কত অক্ষর, যাতে না জেনে খরচ না হয়। Settings থাকে Review-এর টুলবারের <b class="text-slate-100">⚙ Dub settings</b> বোতামে, একই window। সবচেয়ে কম ক্লিক, তবে ভুল করে চাপলে থামার জায়গা নেই (Cancel আছে progress-এ)।',
+  now: '<b class="text-slate-100">এখন:</b> “Continue to dub” শুধু ৩ নম্বর ধাপে নিয়ে যায়। সেখানে প্রথম sync-এর আগে পুরো Dub settings পাতা, নিচে “Likely to fit” আর Dub &amp; sync। Sync-এর পরে এই পাতা আর দেখা যায় না, settings যায় ⚙ আর Voice window-এ।',
+};
+
+const FLOWS = {
+  a: ['Review', 'Dub & sync', 'ছোট কার্ড (Start / Settings…)', 'Progress', 'Dub পাতা'],
+  b: ['Review', 'Dub & sync', 'Progress', 'Dub পাতা'],
+  now: ['Review', 'Continue to dub', 'Dub settings পাতা', 'Dub & sync', 'Progress', 'Dub পাতা'],
+};
+
+const FACTS = {
+  a: [
+    ['যা থাকল', 'Credit খরচের আগে একটা থামা, voice আর settings এক নজরে। ৩-কলামের card হুবহু, শুধু পাতার বদলে window।'],
+    ['যা গেল', 'আলাদা settings পাতা, আর তার নিচের “Likely to fit / QA open” সারি — এগুলো Review-এ আগেই দেখা যায়, কার্ডে এক লাইনে থাকে।'],
+    ['Dub ধাপ', 'থাকে, কিন্তু শুধু progress আর dub পাতা। Sync-এর আগে Dub-এ ক্লিক করলে ছোট খালি অবস্থা: “Not dubbed yet” + Dub & sync + Settings।'],
+  ],
+  b: [
+    ['যা থাকল', 'একই settings window, Review টুলবারে আর sync-এর পরের ⚙-এ — দুই জায়গায় একই জিনিস।'],
+    ['খরচ জানানো', 'বোতামের পাশে voice + অক্ষর সংখ্যা সবসময় দেখা যায়। QA blocking থাকলে বোতামের লেখা লাল, যেমন এখন।'],
+    ['ঝুঁকি', 'এক ক্লিকে credit খরচ শুরু। Progress-এ Cancel আছে, কিন্তু প্রথম কয়েকটা লাইন ততক্ষণে voice হয়ে যেতে পারে।'],
+  ],
+  now: [
+    ['কোড', 'ExpressDubWizard.tsx:4313 — Continue = setStepOverride(3)। :5211 — report না থাকলে DubSettingsCard + syncPanel।'],
+    ['দুবার', 'Voice বাছা যায় Source & voice-এ, আবার এখানে। Fit আর QA-র সংখ্যা Review-এরই কথা।'],
+    ['শুধু প্রথমবার', 'Sync হয়ে গেলে এই পাতা আর আসে না — একই settings তখন window-এ।'],
+  ],
+};
+
+function chip(t, cls) { return `<span class="px-1.5 py-0.5 rounded border text-[11px] mono ${cls}">${t}</span>`; }
+
+function renderFlow() {
+  const f = FLOWS[mock];
+  $('#flow').innerHTML = f.map((s, i) => {
+    const hot = (mock === 'now' && (s === 'Dub settings পাতা' || s === 'Continue to dub')) || (mock !== 'now' && s.startsWith('ছোট'));
+    return `<span class="px-2 py-1 rounded-md border ${hot ? 'border-amber-500/40 bg-amber-500/10 text-amber-200' : 'border-edge bg-slate-900 text-slate-300'}">${s}</span>${i < f.length - 1 ? '<span class="text-slate-600">→</span>' : ''}`;
+  }).join('') + `<span class="ml-2 text-slate-500">${f.length} ধাপ</span>`;
+  $('#note').innerHTML = NOTES[mock];
+  $('#facts').innerHTML = FACTS[mock].map(([h, b]) => `<div class="rounded-xl border border-edge bg-slate-900/50 p-3"><div class="text-slate-200 font-medium mb-1">${h}</div>${b}</div>`).join('');
+}
+
+function renderStepper() {
+  const at = view === 'review' ? 2 : 3;
+  const steps = [['✓', 'Source & voice'], ['2', 'Review'], ['3', 'Dub']];
+  $('#stepper').innerHTML = steps.map(([n, l], i) => {
+    const on = i + 1 === at;
+    return `<button data-step="${i + 1}" class="flex items-center gap-1.5 px-3 h-8 rounded-full ${on ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'}">
+      <span class="w-5 h-5 rounded-full text-[10.5px] flex items-center justify-center ${i === 0 ? 'bg-emerald-500/20 text-emerald-300' : on ? 'bg-indigo-500 text-white' : 'border border-slate-600'}">${n}</span>${l}${i === 1 ? '<span class="text-[10.5px] text-indigo-300 ml-0.5">3 cues</span>' : ''}</button>`;
+  }).join('');
+  $('#stepper').querySelectorAll('button').forEach((b) => b.onclick = () => {
+    const s = +b.dataset.step;
+    if (s === 2) { stop(); view = 'review'; }
+    if (s === 3 && view === 'review') view = mock === 'now' ? 'dub-settings' : 'dub-empty';
+    popOpen = false; render();
+  });
+}
+
+function reviewPage() {
+  const rows = CUES.map((c) => `
+    <div class="grid grid-cols-[2.5rem_4.5rem_1fr_1fr] gap-4 px-4 py-3 border-b border-edge items-start">
+      <span class="mono text-[12px] text-slate-500 pt-1">${c.n}</span>
+      <span class="mono text-[12px] text-slate-300 leading-tight pt-1">${c.t}<br><span class="text-slate-500">${c.d}</span></span>
+      <div class="min-w-0">
+        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border border-edge text-[11.5px] mb-1.5"><span class="w-1.5 h-1.5 rounded-full" style="background:${c.hue}"></span>${c.who}</span>
+        <p class="text-[13px] text-slate-300 leading-snug">${c.en}</p>
+      </div>
+      <div class="min-w-0">
+        <div class="px-3 py-2 rounded-lg border border-edge bg-slate-900 text-[14px] leading-snug">${c.bn}</div>
+        <div class="mt-1.5">${chip(c.fit[0], fitCls[c.fit[1]])}</div>
+      </div>
+    </div>`).join('');
+
+  const settingsBtn = mock === 'b'
+    ? `<button id="openWin" class="h-8 px-3 rounded-lg border border-edge text-[12.5px] text-slate-200 hover:bg-slate-800 flex items-center gap-1.5">⚙ Dub settings <span class="dot"></span></button>` : '';
+
+  let footerRight = '';
+  if (mock === 'now') {
+    footerRight = `<span class="text-rose-300 text-right leading-tight">2 blocking issues open. You can still dub.</span>
+      <button id="go" class="h-9 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold">Continue to dub →</button>`;
+  } else if (mock === 'a') {
+    footerRight = `<span class="text-rose-300 text-right leading-tight">2 blocking issues open. You can still dub.</span>
+      <span class="relative">
+        <button id="go" class="h-9 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold flex items-center gap-2">▶ Dub &amp; sync <span class="opacity-70">▾</span></button>
+        ${popOpen ? popover() : ''}
+      </span>`;
+  } else {
+    footerRight = `<span class="text-right leading-tight text-[12px]">
+        <span class="block text-slate-300">Sadhguru Hindi · Eleven v4 · ≈${CHARS} chars</span>
+        <span class="block text-rose-300">2 blocking issues open. You can still dub.</span>
+      </span>
+      <button id="go" class="h-9 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold flex items-center gap-2">▶ Dub &amp; sync</button>`;
+  }
+
+  return `
+  <div class="p-4">
+    <div class="rounded-2xl border border-edge bg-slate-900/40 h-[150px] flex items-center justify-center text-[12px] text-slate-500 mb-4">Review player (unchanged)</div>
+    <div class="rounded-2xl border border-edge bg-slate-900/40 overflow-visible">
+      <div class="flex flex-wrap items-center gap-3 px-4 py-2.5 border-b border-edge text-[12.5px]">
+        <span class="tog inline-flex rounded-lg border border-edge p-0.5"><button class="on px-2.5 py-1 rounded-md">Cues</button><button class="px-2.5 py-1 rounded-md text-slate-400">Script</button><button class="px-2.5 py-1 rounded-md text-slate-400">QA <span class="ml-0.5 px-1 rounded bg-amber-500 text-slate-950 text-[10px]">2</span></button></span>
+        <span class="text-slate-300">Sync fit <b>1</b> fit · <span class="text-amber-300"><b>1</b> tight</span> · <span class="text-rose-300"><b>1</b> too long</span></span>
+        <span class="ml-auto flex items-center gap-2">${settingsBtn}<button class="h-8 px-3 rounded-lg border border-edge text-slate-300">Speakers ▾</button><button class="h-8 px-3 rounded-lg border border-edge text-slate-300">Check grammar</button></span>
+      </div>
+      <div class="grid grid-cols-[2.5rem_4.5rem_1fr_1fr] gap-4 px-4 py-2 border-b border-edge text-[11.5px] text-slate-500"><span>#</span><span>Time</span><span>Original</span><span>Bengali (বাংলা)</span></div>
+      ${rows}
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 text-[12.5px] text-slate-400 relative">
+        <span class="mono">Showing 3 of 3 cues</span>
+        <span class="ml-auto flex items-center gap-3">${footerRight}</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+function popover() {
+  return `<div class="pop absolute right-0 bottom-11 w-[23rem] rounded-xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/60 z-20 text-left">
+    <div class="px-4 pt-3 pb-2">
+      <div class="text-[13.5px] font-semibold text-slate-100">Dub 3 lines</div>
+      <div class="text-[12px] text-slate-400">ElevenLabs reads ≈${CHARS} characters with these settings.</div>
+    </div>
+    <div class="px-4 pb-3 flex flex-wrap gap-1.5">
+      ${SUMMARY.map(([k, v]) => `<span class="px-2 py-1 rounded-md bg-slate-800 text-[11.5px]"><span class="text-slate-400">${k}</span> <b class="font-semibold text-slate-100">${v}</b></span>`).join('')}
+    </div>
+    <div class="px-4 py-2 border-t border-edge text-[12px] flex flex-col gap-1">
+      <span class="text-amber-300">● Guest shares Host's voice, so they will sound alike.</span>
+      <span class="text-rose-300">● 1 line runs long · 2 QA issues open</span>
+    </div>
+    <div class="px-4 py-3 border-t border-edge flex items-center gap-2">
+      <button id="openWin" class="h-8 px-3 rounded-lg border border-edge text-[12.5px] text-slate-200 hover:bg-slate-800 flex items-center gap-1.5">Settings… <span class="dot"></span></button>
+      <button id="cancelPop" class="h-8 px-3 rounded-lg text-[12.5px] text-slate-400 hover:text-slate-200">Not now</button>
+      <button id="start" class="ml-auto h-8 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[12.5px] font-semibold">▶ Start</button>
+    </div>
+  </div>`;
+}
+
+function settingsCard(inWindow) {
+  const row = (n, note, ctl, changed) => `<div class="py-2 border-b border-edge/60 flex flex-wrap items-center gap-x-3 gap-y-1.5"><span class="min-w-[11rem] flex-1"><span class="block text-[13px] font-medium text-slate-100">${n} ${changed ? '<span class="dot ml-1"></span>' : ''}</span><span class="block text-[11.5px] text-slate-400">${note}</span></span>${ctl}</div>`;
+  const seg = (opts, on) => `<span class="tog inline-flex rounded-lg border border-edge p-0.5 text-[11.5px]">${opts.map((o) => `<button class="${o === on ? 'on' : 'text-slate-400'} px-2 py-1 rounded-md">${o}</button>`).join('')}</span>`;
+  const sw = (on = true) => `<span class="sw ${on ? '' : 'off'}"></span>`;
+  const head = (t) => `<div class="text-[11px] font-semibold tracking-wider text-slate-400 uppercase mt-1 mb-1">${t}</div>`;
+  return `
+  <div class="grid lg:grid-cols-3 gap-x-6 gap-y-2 px-5 py-4">
+    <div>
+      ${head('Voice')}
+      ${row('Host <span class="text-slate-500 text-[11px]">63%</span>', 'Sadhguru Hindi · 6.0 syll/s', '<button class="h-7 px-2.5 rounded-md border border-edge text-[12px]">Change</button>')}
+      ${row('Guest <span class="text-slate-500 text-[11px]">37%</span>', 'Sadhguru Hindi · same as Host', '<button class="h-7 px-2.5 rounded-md border border-edge text-[12px]">Change</button>', true)}
+      ${row('Model', 'Reads tags; speed is a pace direction', '<span class="h-7 px-2.5 rounded-md border border-edge text-[12px] flex items-center">Eleven v4 ▾</span>')}
+      ${row('Expression', 'The script as written', seg(['Off', 'Neutral', 'Natural', 'Expressive'], 'Off'))}
+    </div>
+    <div>
+      ${head('Placement')}
+      ${row('Dub length', 'Sync picks it when you press Dub & sync', seg(['Auto', 'Short', 'Natural', 'Long'], 'Auto'))}
+      ${row('On screen', 'No extra rule on top of the length', seg(['Any', 'Narration', 'On-camera'], 'Any'))}
+      ${row('How to voice', 'Each line for its own slot', seg(['Line by line', 'One read'], 'Line by line'))}
+      ${row('Timing', 'Each line starts within ±150 ms', seg(['Loose', 'Phrase', 'Close-up'], 'Phrase'))}
+      ${row('Chunk sync', 'Splits each line where it goes quiet', sw())}
+    </div>
+    <div>
+      ${head('Pauses · Long lines · Sound')}
+      ${row('Match source pauses', 'Pause only where the original paused', sw())}
+      ${row('Cut at the original\'s pauses', 'Each part starts where the speaker does', sw())}
+      ${row('Read faster', 'Up to 1.15×', seg(['Off', 'Ask', 'Auto'], 'Off'))}
+      ${row('Remove breaths', 'Before, between and after the words', sw())}
+      ${row('File', 'Lossless, needs ElevenLabs Pro', seg(['WAV 48 kHz', 'MP3 192', 'MP3 128'], 'WAV 48 kHz'))}
+    </div>
+  </div>`;
+}
+
+function settingsWindow() {
+  return `<div class="fixed inset-0 z-30 bg-black/60 flex items-start justify-center p-4 sm:p-8 overflow-auto" id="winLayer">
+    <div class="pop w-full max-w-[72rem] rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/60">
+      <div class="flex items-center gap-3 px-5 pt-4 pb-3 border-b border-edge">
+        <span class="min-w-0 flex-1"><span class="block text-[15px] font-semibold">Dub settings</span><span class="block text-[12px] text-slate-400">Every setting Dub &amp; sync uses. The same window opens from ⚙ after the first sync.</span></span>
+        <button class="h-8 px-3 rounded-lg border border-edge text-[12px] text-slate-300">↺ Reset all</button>
+        <button id="closeWin" class="w-8 h-8 rounded-full text-slate-400 hover:bg-slate-800">✕</button>
+      </div>
+      ${settingsCard(true)}
+      <div class="flex items-center gap-3 px-5 py-3 border-t border-edge text-[12px] text-slate-400">
+        Gate levels, pads, gaps and fades are in All sync settings.
+        <button class="h-8 px-3 rounded-lg border border-edge text-slate-300">All sync settings</button>
+        <span class="ml-auto"></span>
+        ${mock === 'a'
+          ? '<button id="backPop" class="h-8 px-3 rounded-lg text-slate-300 hover:bg-slate-800">Done</button><button id="start" class="h-8 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">▶ Dub &amp; sync</button>'
+          : '<button id="closeWin2" class="h-8 px-4 rounded-lg bg-slate-800 text-slate-100">Done</button>'}
+      </div>
+    </div>
+  </div>`;
+}
+
+function dubSettingsPage() {
+  return `<div class="p-4"><div class="rounded-2xl border border-edge bg-slate-900/60">
+    <div class="flex items-center px-5 pt-4 pb-3 border-b border-edge"><span class="flex-1"><span class="block text-[15px] font-semibold">Dub settings</span><span class="block text-[12px] text-slate-400">Every setting Dub &amp; sync uses. Changes apply to the next Dub &amp; sync.</span></span><button class="h-8 px-3 rounded-lg border border-edge text-[12px]">↺ Reset all</button></div>
+    <div class="px-5 pt-3 flex flex-wrap gap-1.5">${SUMMARY.map(([k, v]) => `<span class="px-2 py-1 rounded-md bg-slate-800 text-[11.5px]"><span class="text-slate-400">${k}</span> <b>${v}</b></span>`).join('')}</div>
+    ${settingsCard(false)}
+  </div>
+  <div class="mt-4 rounded-2xl border border-edge bg-slate-900/60 px-5 py-3 flex flex-wrap items-center gap-4 text-[12.5px]">
+    <span>Likely to fit <b class="mono ml-2">2 / 3</b></span>
+    <span class="text-rose-300">● 1 line runs long</span><span class="text-amber-300">● 2 QA issues open</span>
+    <span class="ml-auto flex items-center gap-2"><button id="backReview" class="h-9 px-3 text-slate-300">← Review</button><button id="start" class="h-10 px-5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">▶ Dub &amp; sync</button></span>
+  </div></div>`;
+}
+
+function dubEmpty() {
+  return `<div class="p-4"><div class="rounded-2xl border border-edge bg-slate-900/40 min-h-[420px] flex flex-col items-center justify-center gap-3 text-center px-6">
+    <div class="text-[15px] font-semibold">Not dubbed yet</div>
+    <div class="text-[12.5px] text-slate-400 max-w-md">3 lines · Sadhguru Hindi · Eleven v4 · ≈${CHARS} characters. The dub and its lanes show here once Dub &amp; sync is done.</div>
+    <div class="flex gap-2 mt-1"><button id="openWin" class="h-9 px-3 rounded-lg border border-edge text-[12.5px]">⚙ Dub settings</button><button id="${mock === 'a' ? 'goEmpty' : 'start'}" class="h-9 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold">▶ Dub &amp; sync</button></div>
+    <div class="text-[11.5px] text-slate-500 mt-2">শুধু তখনই দেখা যায় যখন কেউ sync-এর আগে স্টেপারের “Dub”-এ ক্লিক করে।</div>
+  </div></div>`;
+}
+
+function progressPage(pct, done) {
+  const steps = [['Voicing lines', Math.min(3, Math.floor(pct / 25))], ['Cutting chunks', pct >= 80 ? 3 : 0], ['Placing on the original', pct >= 92 ? 3 : 0]];
+  return `<div class="p-4"><div class="rounded-2xl border border-edge bg-slate-900/60 min-h-[420px] px-6 py-6 max-w-3xl mx-auto">
+    <div class="flex items-center gap-3"><span class="text-[15px] font-semibold">${done ? 'Dubbed' : 'Dub &amp; sync'}</span><span class="text-[12px] text-slate-400">${done ? '3 of 3 lines placed' : 'Sadhguru Hindi · Eleven v4'}</span>${done ? '' : '<button class="ml-auto h-8 px-3 rounded-lg border border-edge text-[12px] text-slate-300">Cancel</button>'}</div>
+    <div class="h-2 rounded-full bg-slate-800 mt-4 overflow-hidden"><div class="h-full bg-indigo-500 transition-all" style="width:${pct}%"></div></div>
+    <div class="mt-5 flex flex-col gap-2 text-[13px]">${steps.map(([s, n]) => `<div class="flex items-center gap-3"><span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${n === 3 ? 'bg-emerald-500/20 text-emerald-300' : 'border border-slate-600 text-slate-500'}">${n === 3 ? '✓' : ''}</span><span class="${n === 3 ? 'text-slate-200' : 'text-slate-400'}">${s}</span><span class="ml-auto mono text-slate-500">${n}/3</span></div>`).join('')}</div>
+    ${done ? '<div class="mt-6 flex"><button class="ml-auto h-10 px-5 rounded-xl bg-indigo-600 text-white font-semibold">Open the dub →</button></div>' : ''}
+    <div class="mt-6 text-[11.5px] text-slate-500">এই পাতা আর dub পাতা এখন যেমন আছে তেমনই — শুধু তার আগের settings পাতাটা নেই।</div>
+  </div></div>`;
+}
+
+function stop() { if (timer) { clearInterval(timer); timer = null; } }
+function startDub() {
+  stop(); popOpen = false; winOpen = false; view = 'progress';
+  let pct = 0;
+  render(pct);
+  timer = setInterval(() => {
+    pct += 4;
+    if (pct >= 100) { stop(); view = 'done'; render(100); return; }
+    $('#page').innerHTML = progressPage(pct, false);
+  }, 120);
+}
+
+function render(pct = 0) {
+  renderFlow(); renderStepper();
+  const p = $('#page');
+  if (view === 'review') p.innerHTML = reviewPage();
+  else if (view === 'dub-settings') p.innerHTML = dubSettingsPage();
+  else if (view === 'dub-empty') p.innerHTML = dubEmpty();
+  else if (view === 'progress') p.innerHTML = progressPage(pct, false);
+  else p.innerHTML = progressPage(100, true);
+  $('#modalHost').innerHTML = winOpen ? settingsWindow() : '';
+  wire();
+}
+
+function wire() {
+  const on = (id, fn) => document.querySelectorAll('#' + id).forEach((el) => el.onclick = fn);
+  on('go', () => {
+    if (mock === 'now') { view = 'dub-settings'; render(); }
+    else if (mock === 'a') { popOpen = !popOpen; render(); }
+    else startDub();
+  });
+  on('goEmpty', () => { view = 'review'; popOpen = true; render(); });
+  on('start', startDub);
+  on('cancelPop', () => { popOpen = false; render(); });
+  on('openWin', () => { winOpen = true; popOpen = false; render(); });
+  on('closeWin', () => { winOpen = false; render(); });
+  on('closeWin2', () => { winOpen = false; render(); });
+  on('backPop', () => { winOpen = false; popOpen = view === 'review'; render(); });
+  on('backReview', () => { view = 'review'; render(); });
+}
+
+document.querySelectorAll('#mockSeg button').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('#mockSeg button').forEach((x) => x.classList.toggle('on', x === b));
+  mock = b.dataset.m; stop(); view = 'review'; popOpen = false; winOpen = false; render();
+});
+$('#reset').onclick = () => { stop(); view = 'review'; popOpen = false; winOpen = false; render(); };
+render();
+</script>
+</body>
+</html>

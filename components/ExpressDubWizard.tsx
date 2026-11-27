@@ -119,7 +119,7 @@ import { CustomScriptAlignModal, type ScriptHandOff } from './CustomScriptAlignM
 import { TranslationPromptModal } from './TranslationPromptModal';
 import { QaCockpit } from './QaCockpit';
 import { SyncResultsPanel, SyncSettingsDialog, SyncSettingsPanel, SyncStatusBar, useSyncOptions } from './SyncPanel';
-import { DubSettingsCard } from './DubSettingsCard';
+import { DubSettingsCard, dubSettingsChanges, dubSettingsChips } from './DubSettingsCard';
 import { SyncProgressPage, useSyncPageView, useSyncRun } from './SyncProgressPage';
 import { SyncAlignmentView } from './SyncAlignmentView';
 import { LinePair } from './LinePair';
@@ -167,7 +167,7 @@ import type { RateBasis, VoiceRateState } from '../services/voiceRate';
 import { VoiceRateCard } from './VoiceRateCard';
 import type { SpeakerMonitor } from '../services/speakerLevels';
 import type { RewriteDirection } from './SyncPreviewPanel';
-import { ScriptFitStrip, needsFix, pauseAdvice } from './FinalScriptFit';
+import { FitBar, FitMenuFooter, fitBarParts, needsFix, pauseAdvice } from './FinalScriptFit';
 import { SaveScriptMenu, type ScriptScope } from './SaveScriptMenu';
 import { DOCX_MIME, buildScriptDocx, scriptDocxFileName, scriptDocxRows } from '../services/scriptDocx';
 import { saveFileAs } from '../services/saveFile';
@@ -836,6 +836,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [reviewMode, setReviewMode] = useState<ReviewMode>('table');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [pacingFilter, setPacingFilter] = useState<'all' | 'risk' | 'tight' | 'short' | 'fix'>('all');
+  // Review's Find: a search icon until it is clicked or Ctrl+F is pressed; open while it holds text.
+  const [findOpen, setFindOpen] = useState(false);
   // Several speakers: whose cues the review shows (none: everyone), and labels to check.
   const [speakerFilter, setSpeakerFilter] = useState<string[]>([]);
   const [slipsOnly, setSlipsOnly] = useState(false);
@@ -1243,6 +1245,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   }, [syncSettingsRequest, onDubStep]);
   // All sync settings on the Dub settings card: opens the same window as the header's menu.
   const [cardSettingsRequest, setCardSettingsRequest] = useState(0);
+  // The Dub settings window: from the settings button beside Dub & sync, on Review and on the Dub step.
+  const [dubSettingsOpen, setDubSettingsOpen] = useState(false);
   const speakerSlips = useMemo(() => {
     if (!multiSpeaker) return new Map<string, SpeakerSlip>();
     const slips = likelySlips(segments);
@@ -1526,9 +1530,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   }, [autoFit, activeJob?.id, activeJob?.syncReport, isSyncing]);
   const hasSyncReport = Boolean(activeJob?.syncedAudioUrl && activeJob?.syncReport);
   // Dub & sync on the Dub step: the progress page while it runs, then its result until Open the dub.
-  const syncRun = useSyncRun(isSyncing, syncProgress, syncWaitingFor ?? null, syncExpressionNote);
+  // Sync's own fit runs first, before the dub starts: the progress page shows from the press, not after it.
+  const dubRunning = isSyncing || autoFitting;
+  const syncRun = useSyncRun(dubRunning, syncProgress, syncWaitingFor ?? null, syncExpressionNote);
   // Leaving the Dub step or the project drops the result: it is for the moment after.
-  const syncPage = useSyncPageView(isSyncing, activeJob?.id ?? null, hasSyncReport ? activeJob?.syncReport ?? null : null, activeStep === 3);
+  const syncPage = useSyncPageView(dubRunning, activeJob?.id ?? null, hasSyncReport ? activeJob?.syncReport ?? null : null, activeStep === 3);
   /*
    * The second track is the synced dub once there is one (App picks the same
    * file), else a dub made before Dub and Sync were one step.
@@ -2723,6 +2729,141 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     return name.split(/\s+[-–—|]\s+/)[0] || 'the voice';
   })();
 
+  // Ctrl+F on Review opens Find, unless a window is open over the page.
+  useEffect(() => {
+    if (activeStep !== 2 || reviewMode === 'qa') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'f') return;
+      if (document.querySelector('[role="dialog"]')) return;
+      e.preventDefault();
+      setFindOpen(true);
+      requestAnimationFrame(() => (document.getElementById('express-step2-search') as HTMLInputElement | null)?.focus());
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeStep, reviewMode]);
+  /** Dub & sync from any step: Sync's fit first, then the dub. One Even out loudness, on the voice panel, for every dub. */
+  const startDub = () => {
+    if (onSyncDub) void syncWithFit({ ...syncOptions, matchLoudness: dubMatchLoudness }, onSyncDub);
+  };
+  const dubBlockedReason = !onSyncDub ? 'Dubbing is not available.' : segments.length === 0 ? 'There are no cues to dub yet.' : null;
+  /** Speakers sharing one voice sound alike: said on the Voice button and before Dub & sync. */
+  const voiceWarn =
+    multiSpeaker && new Set(speakers.map((sp) => activeJob?.cast?.[sp.name]?.voiceId || elVoiceId)).size < speakers.length
+      ? 'Some speakers share one voice, so they will sound alike. Open Voice to give each their own.'
+      : null;
+  /** What Dub & sync will use, in brief: on Review's Dub & sync card and the Dub step before the first sync. */
+  const dubChips = dubSettingsChips({
+    options: syncOptions,
+    voiceName: voiceShortName || null,
+    modelName: ttsModelName ?? '',
+    expression: onVoiceExpressionChange ? (takesCues || voiceExpression === 'off' ? voiceExpression : 'neutral') : null,
+    quality: onDubAudioQualityChange ? dubAudioQuality : null,
+  });
+  /** How many Dub settings differ from their defaults: an amber dot on the Dub step's settings button. */
+  const dubChanged = dubSettingsChanges({
+    options: syncOptions,
+    expression: onVoiceExpressionChange ? (takesCues || voiceExpression === 'off' ? voiceExpression : 'neutral') : null,
+    voiceSettings: showVoiceSliders && onElVoiceSettingsChange ? { custom: Boolean(elVoiceSettings), shown: shownVoiceSettings } : null,
+    loudnessOn: onDubMatchLoudnessChange ? dubMatchLoudness : null,
+  }).total;
+  const closeDubSettings = () => setDubSettingsOpen(false);
+  /** Beside Dub & sync, on Review and on the Dub step before the first sync: the Dub settings window. */
+  const dubSettingsButton = (
+    <button
+      type="button"
+      onClick={() => setDubSettingsOpen(true)}
+      disabled={isSyncing}
+      aria-haspopup="dialog"
+      aria-label="Dub settings"
+      title={`Dub settings: ${dubChips.map(([name, value]) => `${name} ${value}`).join(' · ')}${dubChanged > 0 ? ` · ${dubChanged} changed from the defaults` : ''}`}
+      className="relative w-9 h-9 shrink-0 flex items-center justify-center rounded-xl border border-slate-700 text-slate-300 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 cursor-default"
+    >
+      <SlidersHorizontal className="w-4 h-4" />
+      {dubChanged > 0 && <span aria-hidden className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-400" />}
+    </button>
+  );
+  // Before a sync, the preset the estimate suits: the lines as read against the original's.
+  const prepSuggestion = linePreview
+    ? presetSuggestion(linePreview.units.map((u) => ({ speech: u.read, srcStart: u.srcStart, srcEnd: u.srcEnd })))
+    : null;
+  /** Every setting Dub & sync uses: a window, from Review's Dub & sync and from the Dub step before the first sync. */
+  const dubSettingsCard = activeJob ? (
+          <DubSettingsCard
+            disabled={isSyncing}
+            multiSpeaker={multiSpeaker}
+            cast={
+              multiSpeaker && onCastChange ? (
+                <CastCard
+                  speakers={speakers}
+                  cast={activeJob!.cast}
+                  mainVoiceId={elVoiceId}
+                  availableVoices={availableVoices}
+                  disabled={isSyncing}
+                  onPick={(speaker) => {
+                    setCastPickFor(speaker);
+                    setIsVoicePickerOpen(true);
+                  }}
+                  onUseMain={(speaker) => onCastChange(speaker, null)}
+                  rates={speakerVoiceRates}
+                  mainRate={voiceRate}
+                />
+              ) : undefined
+            }
+            voiceId={elVoiceId}
+            availableVoices={availableVoices}
+            voiceRateNote={!multiSpeaker && rateBasis === 'sample' && sampleRate ? `Reads ${sampleRate.syllablesPerSecond.toFixed(1)} syllables/s` : null}
+            onChangeVoice={() => {
+              setCastPickFor(null);
+              setIsVoicePickerOpen(true);
+            }}
+            favourites={favoriteVoices}
+            onPickVoice={onElVoiceIdChange}
+            modelId={voiceEngine === 'elevenlabs' ? elModelId : undefined}
+            models={elModels}
+            onModelChange={onElModelIdChange}
+            modelName={ttsModelName}
+            expression={
+              onVoiceExpressionChange && {
+                value: voiceExpression,
+                onChange: onVoiceExpressionChange,
+                takesCues,
+                cartesia: voiceEngine === 'cartesia',
+                prep: expressionPrep && voiceExpression === 'natural' ? <ExpressionPrepNote view={expressionPrep} onSeeTags={seeExpressionTags} /> : null,
+                notTagged,
+              }
+            }
+            voiceSettings={
+              showVoiceSliders && onElVoiceSettingsChange
+                ? {
+                    shown: shownVoiceSettings,
+                    custom: Boolean(elVoiceSettings),
+                    isDefault: isElevenLabsDefault(shownVoiceSettings),
+                    stabilityEnds: elModelId && performsAudioTags(elModelId) ? ['Creative', 'Robust'] : ['More variable', 'More stable'],
+                    onChange: onElVoiceSettingsChange,
+                    onDefaults: () => onElVoiceSettingsChange({ ...DEFAULT_VOICE_SETTINGS }),
+                  }
+                : undefined
+            }
+            loudness={onDubMatchLoudnessChange && { value: dubMatchLoudness, onChange: onDubMatchLoudnessChange }}
+            quality={onDubAudioQualityChange && { value: dubAudioQuality, onChange: onDubAudioQualityChange, notice: dubQualityNotice }}
+            mixPeak={multiSpeaker && onMixPeakChange ? <MixPeakChoice value={mixPeak} onChange={onMixPeakChange} disabled={isSyncing} /> : undefined}
+            options={syncOptions}
+            onOptionsChange={setSyncOptions}
+            suggestion={prepSuggestion}
+            suggestionEstimated
+            paceDirection={voiceEngine === 'elevenlabs' && Boolean(elModelId && performsAudioTags(elModelId))}
+            onOpenAllSettings={() => {
+              // All sync settings: on the Dub step its own window; elsewhere the one the header's menu opens.
+              setDubSettingsOpen(false);
+              if (onDubStep) setCardSettingsRequest((n) => n + 1);
+              else setSyncSettingsAlone(true);
+            }}
+            onClose={closeDubSettings}
+          />
+        ) : null;
+
+
   return (
     <div className="w-full flex-1 flex flex-col space-y-4 sm:space-y-5">
       {/* ========================================================================= */}
@@ -3653,58 +3794,49 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 {/* The cockpit does its own filtering, so these would only confuse. */}
                 {reviewMode !== 'qa' && (
                   <>
-                    <div className="relative flex-1 min-w-[10rem] max-w-[22rem]">
-                      <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      <input
-                        id="express-step2-search"
-                        type="text"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder={reviewMode === 'script' ? 'Find in script' : 'Find in cues'}
-                        className="w-full h-8 bg-slate-950 border border-edge rounded-xl pl-8 pr-7 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                      />
-                      {searchQuery && (
-                        <button
-                          type="button"
-                          onClick={() => setSearchQuery('')}
-                          className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-200 cursor-default"
-                          aria-label="Clear search"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Each line's fit at the voice's rate, in the toolbar's row; the one place to reword lines before they are voiced */}
-                    {!awaitingScript && (
-                      <ScriptFitStrip
-                        inline
-                        preview={linePreview}
-                        loading={syncPreview.loading}
-                        error={syncPreview.error}
-                        rateBasis={rateBasis}
-                        toFix={{
-                          shorter: linesToFix.filter((u) => lineFixes.directionOf(u) === 'shorter').length,
-                          longer: linesToFix.filter((u) => lineFixes.directionOf(u) === 'longer').length,
-                        }}
-                        onFixAll={() => {
-                          lineFixes.suggestAll(linesToFix);
-                          setReviewMode('table');
-                          setPacingFilter('fix');
-                        }}
-                        basis={
-                          linePreview
-                            ? `${estimateBasis(linePreview, rateBasis, expertBasis, mainPace?.lines)}${
-                                linePreview.placedShare < 1 ? `, each line at ${Math.round(linePreview.placedShare * 100)}% of its read once placed` : ''
-                              }.`
-                            : undefined
-                        }
-                        fixCount={pacingFilter === 'fix' ? 0 : linesToFixCount}
-                        onShowFix={() => {
-                          setReviewMode('table');
-                          setPacingFilter('fix');
-                        }}
-                      />
+                    {findOpen || searchQuery ? (
+                      <div className="relative flex-1 min-w-[10rem] max-w-[22rem]">
+                        <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input
+                          id="express-step2-search"
+                          type="text"
+                          autoFocus
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          onBlur={() => !searchQuery && setFindOpen(false)}
+                          onKeyDown={(e) => {
+                            if (e.key !== 'Escape') return;
+                            e.stopPropagation();
+                            setSearchQuery('');
+                            setFindOpen(false);
+                          }}
+                          placeholder={reviewMode === 'script' ? 'Find in script' : 'Find in cues'}
+                          className="w-full h-8 bg-slate-950 border border-edge rounded-xl pl-8 pr-7 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                        />
+                        {searchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSearchQuery('');
+                              setFindOpen(false);
+                            }}
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-200 cursor-default"
+                            aria-label="Clear search"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setFindOpen(true)}
+                        aria-label={reviewMode === 'script' ? 'Find in script' : 'Find in cues'}
+                        title={`${reviewMode === 'script' ? 'Find in script' : 'Find in cues'} (Ctrl+F)`}
+                        className="w-8 h-8 flex items-center justify-center rounded-xl border border-edge text-slate-300 hover:text-slate-100 hover:bg-slate-800 cursor-default"
+                      >
+                        <Search className="w-4 h-4" />
+                      </button>
                     )}
 
                     {/* One filter, its counts in lines once the Sync fit is worked out (as the strip counts them), else in cues */}
@@ -3712,6 +3844,33 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <ShowLinesMenu
                       value={pacingFilter}
                       onChange={(id) => setPacingFilter(id)}
+                      bar={!awaitingScript && linePreview ? <FitBar parts={fitBarParts(linePreview)} /> : undefined}
+                      loading={!awaitingScript && !linePreview && syncPreview.loading}
+                      footer={
+                        awaitingScript ? undefined : (
+                          <FitMenuFooter
+                            preview={linePreview}
+                            error={syncPreview.error}
+                            rateBasis={rateBasis}
+                            basis={
+                              linePreview
+                                ? `${estimateBasis(linePreview, rateBasis, expertBasis, mainPace?.lines)}${
+                                    linePreview.placedShare < 1 ? `, each line at ${Math.round(linePreview.placedShare * 100)}% of its read once placed` : ''
+                                  }.`
+                                : undefined
+                            }
+                            toFix={{
+                              shorter: linesToFix.filter((u) => lineFixes.directionOf(u) === 'shorter').length,
+                              longer: linesToFix.filter((u) => lineFixes.directionOf(u) === 'longer').length,
+                            }}
+                            onFixAll={() => {
+                              lineFixes.suggestAll(linesToFix);
+                              setReviewMode('table');
+                              setPacingFilter('fix');
+                            }}
+                          />
+                        )
+                      }
                       options={[
                         { id: 'all' as const, label: linePreview ? 'All lines' : 'All cues', count: linePreview ? linePreview.units.length : segments.length },
                         ...(linePreview ? [{ id: 'fix' as const, label: 'Lines to fix', count: linesToFixCount, dot: 'bg-indigo-400' }] : []),
@@ -4311,23 +4470,46 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       ? `${qaBlockingCount} blocking ${qaBlockingCount === 1 ? 'issue' : 'issues'} open. You can still dub.`
                       : 'QA clear. Ready to dub.'}
                   </span>
+                  {/* Before the first dub: the settings, then Dub & sync, which starts the dub. Once dubbed, or while dubbing: on to the Dub step. */}
+                  {!isSyncing && !hasSyncReport && dubSettingsButton}
                   <button
                     type="button"
                     onClick={() => {
+                      if (!isSyncing && !hasSyncReport) startDub();
                       setStepOverride(3);
                       window.scrollTo({ top: 0, behavior: 'smooth' });
                     }}
-                    disabled={activeJob.segments.length === 0 || openUpTo < 3}
-                    title={openUpTo < 3 ? lockedWhy[3] : undefined}
+                    disabled={activeJob.segments.length === 0 || openUpTo < 3 || (!isSyncing && !hasSyncReport && (Boolean(dubBlockedReason) || autoFitting))}
+                    title={
+                      openUpTo < 3
+                        ? lockedWhy[3]
+                        : isSyncing || hasSyncReport
+                          ? undefined
+                          : (dubBlockedReason ??
+                            [
+                              activeJob.syncInterrupted
+                                ? 'Voices only the lines the last dub did not reach.'
+                                : 'Voices every line and places it on the original.',
+                              `Uses about ${dubCharacterCount.toLocaleString()} ElevenLabs characters.`,
+                              voiceWarn && 'Some speakers share one voice, so they will sound alike: give each their own in Dub settings.',
+                            ]
+                              .filter(Boolean)
+                              .join(' '))
+                    }
                     className="h-9 px-4 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default active:translate-y-px"
                   >
                     {isSyncing ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" /> {syncWaitingFor ? 'Waiting to dub, view it' : 'Dubbing in progress, view it'}
                       </>
+                    ) : hasSyncReport ? (
+                      <>
+                        Open the dub <ArrowRight className="w-4 h-4" />
+                      </>
                     ) : (
                       <>
-                        Continue to dub <ArrowRight className="w-4 h-4" />
+                        {activeJob.syncInterrupted ? <RefreshCw className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
+                        {activeJob.syncInterrupted ? 'Resume dub' : 'Dub & sync'}
                       </>
                     )}
                   </button>
@@ -4383,11 +4565,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         const activeCue = segments.find((s) => s.id === activeSegmentId) || null;
         const activeCueIndex = activeCue ? segments.indexOf(activeCue) : -1;
         const openIssues = openFindings.length;
-        const blockedReason = !onSyncDub ? 'Dubbing is not available.' : segments.length === 0 ? 'There are no cues to dub yet.' : null;
-        // One Even out loudness, on the voice panel, for every dub.
-        const runSync = () => {
-          if (onSyncDub) void syncWithFit({ ...syncOptions, matchLoudness: dubMatchLoudness }, onSyncDub);
-        };
+        const blockedReason = dubBlockedReason;
+        const runSync = startDub;
         // Changed lines only: no fit on top, as the lines held stay as they were placed.
         const runSyncChangedOnly = onSyncChangedOnly ? () => onSyncChangedOnly({ ...syncOptions, matchLoudness: dubMatchLoudness }) : undefined;
         const runSyncFromScratch = onSyncFromScratch
@@ -4625,80 +4804,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           </>
         );
 
-        // Before a sync, the preset the estimate suits: the lines as read against the original's.
-        const prepSuggestion = linePreview
-          ? presetSuggestion(linePreview.units.map((u) => ({ speech: u.read, srcStart: u.srcStart, srcEnd: u.srcEnd })))
-          : null;
-        const cartesiaVoice = voiceEngine === 'cartesia';
-        const dubSettingsCard = (
-          <DubSettingsCard
-            disabled={isSyncing}
-            multiSpeaker={multiSpeaker}
-            cast={
-              multiSpeaker && onCastChange ? (
-                <CastCard
-                  speakers={speakers}
-                  cast={activeJob.cast}
-                  mainVoiceId={elVoiceId}
-                  availableVoices={availableVoices}
-                  disabled={isSyncing}
-                  onPick={(speaker) => {
-                    setCastPickFor(speaker);
-                    setIsVoicePickerOpen(true);
-                  }}
-                  onUseMain={(speaker) => onCastChange(speaker, null)}
-                  rates={speakerVoiceRates}
-                  mainRate={voiceRate}
-                />
-              ) : undefined
-            }
-            voiceId={elVoiceId}
-            availableVoices={availableVoices}
-            voiceRateNote={!multiSpeaker && rateBasis === 'sample' && sampleRate ? `Reads ${sampleRate.syllablesPerSecond.toFixed(1)} syllables/s` : null}
-            onChangeVoice={() => {
-              setCastPickFor(null);
-              setIsVoicePickerOpen(true);
-            }}
-            favourites={favoriteVoices}
-            onPickVoice={onElVoiceIdChange}
-            modelId={voiceEngine === 'elevenlabs' ? elModelId : undefined}
-            models={elModels}
-            onModelChange={onElModelIdChange}
-            modelName={ttsModelName}
-            expression={
-              onVoiceExpressionChange && {
-                value: voiceExpression,
-                onChange: onVoiceExpressionChange,
-                takesCues,
-                cartesia: cartesiaVoice,
-                prep: expressionPrep && voiceExpression === 'natural' ? <ExpressionPrepNote view={expressionPrep} onSeeTags={seeExpressionTags} /> : null,
-                notTagged,
-              }
-            }
-            voiceSettings={
-              showVoiceSliders && onElVoiceSettingsChange
-                ? {
-                    shown: shownVoiceSettings,
-                    custom: Boolean(elVoiceSettings),
-                    isDefault: isElevenLabsDefault(shownVoiceSettings),
-                    stabilityEnds: elModelId && performsAudioTags(elModelId) ? ['Creative', 'Robust'] : ['More variable', 'More stable'],
-                    onChange: onElVoiceSettingsChange,
-                    onDefaults: () => onElVoiceSettingsChange({ ...DEFAULT_VOICE_SETTINGS }),
-                  }
-                : undefined
-            }
-            loudness={onDubMatchLoudnessChange && { value: dubMatchLoudness, onChange: onDubMatchLoudnessChange }}
-            quality={onDubAudioQualityChange && { value: dubAudioQuality, onChange: onDubAudioQualityChange, notice: dubQualityNotice }}
-            mixPeak={multiSpeaker && onMixPeakChange ? <MixPeakChoice value={mixPeak} onChange={onMixPeakChange} disabled={isSyncing} /> : undefined}
-            options={syncOptions}
-            onOptionsChange={setSyncOptions}
-            suggestion={prepSuggestion}
-            suggestionEstimated
-            paceDirection={voiceEngine === 'elevenlabs' && Boolean(elModelId && performsAudioTags(elModelId))}
-            onOpenAllSettings={() => setCardSettingsRequest((n) => n + 1)}
-          />
-        );
-
         /** A dub from before Sync: the continuous read, and its speakers' tracks. */
         const legacySaves =
           legacyDub && (onDownloadWav || (multiSpeaker && activeJob.dubStems?.length && onDownloadStem)) ? (
@@ -4770,6 +4875,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             }}
             costNote={`Uses about ${dubCharacterCount.toLocaleString()} ElevenLabs characters.`}
             extras={dubExtras}
+            settingsButton={!report && dubSettingsButton}
             onDownloadWav={report ? onDownloadWav : undefined}
             onDownloadMp3={report ? onDownloadMp3 : undefined}
             onDownloadWithTracks={report && activeJob.syncAudioTracks?.length ? onDownloadWithTracks : undefined}
@@ -4798,11 +4904,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           />
         );
 
-        /** Speakers sharing one voice sound alike: said on the Voice button. */
-        const voiceWarn =
-          multiSpeaker && new Set(speakers.map((sp) => activeJob.cast?.[sp.name]?.voiceId || elVoiceId)).size < speakers.length
-            ? 'Some speakers share one voice, so they will sound alike. Open Voice to give each their own.'
-            : null;
         /** Once synced, on the player's row: Voice, the Sync settings, Sync again. */
         const syncActions = report
           ? React.cloneElement(syncPanel, { variant: 'sync', onOpenVoice: () => setVoiceOpen(true), voiceWarn })
@@ -5212,7 +5313,27 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   onKeepTake={onKeepOfferedTake}
                 />
               )}
-              {!report && dubSettingsCard}
+              {!report && (
+                <section
+                  aria-label="Not dubbed yet"
+                  className="flex-1 min-h-[16rem] flex flex-col items-center justify-center gap-3 px-6 py-8 text-center bg-slate-900/90 border border-edge rounded-2xl"
+                >
+                  <h2 className="text-[15px] font-semibold text-slate-100">{autoFitting ? 'Getting the dub ready…' : 'Not dubbed yet'}</h2>
+                  <p className="max-w-lg text-[12.5px] leading-relaxed text-slate-400">
+                    {(linePreview?.summary.lines ?? segments.length).toLocaleString()} lines · about {dubCharacterCount.toLocaleString()} ElevenLabs characters.
+                    The dub and its lanes show here once Dub &amp; sync is done.
+                  </p>
+                  <div className="flex flex-wrap justify-center gap-1.5 max-w-2xl">
+                    {dubChips.map(([name, value]) => (
+                      <span key={name} className="inline-flex items-center gap-1.5 h-6 px-2 rounded-md bg-slate-800/70 text-[11.5px] max-w-full">
+                        <span className="text-slate-500">{name}</span>
+                        <span className="text-slate-200 font-medium truncate">{value}</span>
+                      </span>
+                    ))}
+                  </div>
+                  {voiceWarn && <p className="max-w-lg text-[12px] text-amber-300">Some speakers share one voice, so they will sound alike. Give each their own in Dub settings, beside Dub &amp; sync.</p>}
+                </section>
+              )}
               {!report && syncPanel}
             </div>
 
@@ -5505,6 +5626,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         );
       })()}
 
+      <CenteredPanel open={dubSettingsOpen && Boolean(activeJob)} onClose={closeDubSettings} label="Dub settings" className="max-w-[100rem] h-full">
+        {dubSettingsCard}
+      </CenteredPanel>
       {syncSettingsAlone && !onDubStep && (
         <SyncSettingsDialog
           options={syncOptions}
