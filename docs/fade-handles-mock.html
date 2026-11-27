@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fade Handles</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          slate: { 50:'#f6f6f7',100:'#ececef',200:'#dcdde1',300:'#c6c8ce',400:'#abadb5',500:'#8b8e98',600:'#5a5d66',700:'#34363c',800:'#232529',900:'#18191c',950:'#111214' },
+          indigo: { 300:'#a5adf5',400:'#7b86ec',500:'#5866e0',600:'#4c59d0',950:'#23253a' },
+          edge: '#27292d',
+        },
+      },
+    },
+  };
+</script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#0b0c0e; font-family: Inter, system-ui, "Noto Sans Bengali", "Noto Sans Devanagari", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .seg button.on { background:#5866e0; color:#fff; }
+  button { cursor:pointer; }
+  .clip { position:absolute; top:8px; bottom:8px; border-radius:6px; overflow:visible; }
+  .clip > svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+  .tip { position:fixed; z-index:50; pointer-events:none; }
+  @keyframes rise { from { transform:translateY(3px); opacity:0 } to { transform:none; opacity:1 } }
+  .rise { animation: rise .12s ease-out; }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6">
+
+<div class="max-w-[90rem] mx-auto mb-3 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+  <span class="seg inline-flex rounded-lg border border-edge overflow-hidden" id="mockSeg">
+    <button data-m="now" class="px-3 py-1.5">এখন যেমন</button>
+    <button data-m="a" class="on px-3 py-1.5">A · DaVinci Classic</button>
+    <button data-m="b" class="px-3 py-1.5">B · Soft Glow</button>
+  </span>
+  <button id="reset" class="ml-auto px-3 py-1.5 rounded-lg border border-edge text-slate-300 hover:bg-slate-800">আবার শুরু থেকে</button>
+</div>
+<p id="note" class="max-w-[90rem] mx-auto mb-3 text-[13px] leading-relaxed text-slate-300"></p>
+
+<div class="max-w-[90rem] mx-auto rounded-2xl border border-edge bg-[#141518] overflow-hidden shadow-2xl shadow-black/40">
+  <!-- Header like Edit timing -->
+  <div class="h-11 px-4 flex items-center gap-3 border-b border-edge bg-slate-900/80 text-[12.5px]">
+    <span class="font-semibold text-slate-100">Edit timing</span>
+    <span class="h-4 w-px bg-edge"></span>
+    <span class="text-slate-400">studio_podcast_interview</span>
+    <span class="text-slate-600">·</span>
+    <span class="text-slate-400">Hindi</span>
+    <span class="ml-auto mono text-slate-300 px-2 py-0.5 rounded-md bg-slate-950 border border-edge" id="tc">00:00:00.00</span>
+  </div>
+  <div class="relative px-0 pt-0 pb-0" id="stageWrap">
+    <div class="flex border-b border-edge">
+      <div class="w-28 shrink-0 bg-slate-900/60 border-r border-edge"></div>
+      <div id="ruler" class="relative flex-1 h-7 mono text-[10px] text-slate-500 bg-slate-900/40"></div>
+    </div>
+    <div class="flex border-b border-edge">
+      <div class="w-28 shrink-0 bg-slate-900/60 border-r border-edge px-3 flex flex-col justify-center">
+        <span class="text-[11.5px] text-slate-300 font-medium">Original</span><span class="text-[10.5px] text-slate-500">English</span>
+      </div>
+      <div id="srcLane" class="relative flex-1 h-[58px]"></div>
+    </div>
+    <div class="flex">
+      <div class="w-28 shrink-0 bg-slate-900/60 border-r border-edge px-3 flex flex-col justify-center">
+        <span class="text-[11.5px] text-slate-300 font-medium">Dub</span><span class="text-[10.5px] text-slate-500">Hindi · A1</span>
+      </div>
+      <div id="dubLane" class="relative flex-1 h-[118px] select-none"></div>
+    </div>
+    <div id="guide" class="absolute top-7 bottom-0 w-px pointer-events-none hidden"></div>
+  </div>
+  <div id="hint" class="h-9 px-4 flex items-center gap-3 border-t border-edge text-[12px] text-slate-400 bg-slate-900/60"></div>
+</div>
+
+<div class="max-w-[90rem] mx-auto mt-4 grid sm:grid-cols-4 gap-3 text-[12.5px] leading-relaxed text-slate-400" id="facts"></div>
+<div id="tip" class="tip" hidden></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let mock = 'a';
+const LENGTH = 14;
+const TOP_BAND = 14, CORNER = 11, HEAD = 15;
+
+const HUES = [
+  { body: '#1f4656', head: '#2c6378', wave: '#7dd3fc', glow: '#38bdf8' },
+  { body: '#4f2238', head: '#6c3150', wave: '#f9a8d4', glow: '#f472b6' },
+  { body: '#2f2c5a', head: '#433f7c', wave: '#c4b5fd', glow: '#a78bfa' },
+];
+const START = () => [
+  { id: 1, start: 0.0, len: 4.4, fadeIn: 0, fadeOut: 0.35, c: 0, label: '1', text: 'पॉडकास्ट में फिर स्वागत है।' },
+  { id: 2, start: 4.7, len: 4.9, fadeIn: 0.25, fadeOut: 0, c: 1, label: '2', text: 'शुक्रिया। पिछले छह महीनों में…' },
+  { id: 3, start: 10.1, len: 3.7, fadeIn: 0, fadeOut: 0.6, c: 2, label: '3', text: 'चलिए, सीधे मल्टीमोडल मॉडल…' },
+];
+let clips = START();
+let hover = null;
+let drag = null;
+
+function peaks(seed, n) {
+  let x = seed * 9301 + 49297; const out = [];
+  for (let i = 0; i < n; i++) { x = (x * 9301 + 49297) % 233280; const r = x / 233280; const syll = 0.5 + 0.5 * Math.abs(Math.sin(i / 3.4 + seed)); out.push(Math.max(0.06, (0.35 + 0.65 * r) * syll)); }
+  return out;
+}
+
+const svgCursor = (inner, hx = 14, hy = 14, fallback = 'ew-resize') =>
+  `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 32 32'>${inner}</svg>`)}") ${hx} ${hy}, ${fallback}`;
+const arrows = (stroke, w) => `<g stroke='${stroke}' stroke-width='${w}' stroke-linejoin='round' stroke-linecap='round' fill='${stroke}'><path d='M3 17H29' fill='none'/><path d='M3 17L9 12V22Z'/><path d='M29 17L23 12V22Z'/><path d='M10 27L22 6' fill='none'/></g>`;
+const FADE_CURSOR = svgCursor(arrows('black', 3.4) + arrows('white', 1.4));
+
+const W = () => $('#dubLane').clientWidth;
+const PPS = () => W() / LENGTH;
+
+function ruler() {
+  const w = W();
+  let html = '';
+  for (let s = 0; s <= LENGTH; s += 0.5) {
+    const x = (s / LENGTH) * 100;
+    const major = s % 2 === 0;
+    html += `<span class="absolute bottom-0 w-px ${major ? 'h-2.5 bg-slate-500' : 'h-1.5 bg-slate-700'}" style="left:${x}%"></span>`;
+    if (major) html += `<span class="absolute top-1 pl-1" style="left:${x}%">00:${String(s).padStart(2, '0')}</span>`;
+  }
+  $('#ruler').innerHTML = html;
+  const grid = Array.from({ length: LENGTH + 1 }, (_, s) => `<span class="absolute inset-y-0 w-px bg-white/[0.03]" style="left:${(s / LENGTH) * 100}%"></span>`).join('');
+  $('#srcLane').innerHTML = grid + clips.map((c) => {
+    const h = HUES[c.c];
+    return `<div class="absolute top-2 bottom-2 rounded-md border" style="left:${(c.start + 0.05) * PPS()}px;width:${(c.len - 0.3) * PPS()}px;background:${h.body}66;border-color:${h.wave}33"></div>`;
+  }).join('');
+  return grid;
+}
+
+function clipSvg(c, w, h, lit, zone) {
+  const hue = HUES[c.c];
+  const fi = c.fadeIn * PPS(), fo = c.fadeOut * PPS();
+  const ps = peaks(c.id * 7, Math.max(24, Math.round(w / 2.6)));
+  const mid = HEAD + (h - HEAD) / 2;
+  const amp = (h - HEAD) / 2 - 6;
+  // Mirrored wave as a filled shape, scaled by the fade.
+  const env = (x) => (fi > 0 ? Math.min(1, x / fi) : 1) * (fo > 0 ? Math.min(1, (w - x) / fo) : 1);
+  const top = [], bot = [];
+  ps.forEach((p, i) => {
+    const x = (i / (ps.length - 1)) * w;
+    const a = p * env(x) * amp;
+    top.push(`${x.toFixed(1)},${(mid - a).toFixed(1)}`);
+    bot.unshift(`${x.toFixed(1)},${(mid + a).toFixed(1)}`);
+  });
+  const wave = `<polygon points="${top.join(' ')} ${bot.join(' ')}" fill="url(#wg${c.id})" />`;
+  const defs = `<defs>
+    <linearGradient id="wg${c.id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${hue.wave}" stop-opacity=".95"/><stop offset=".5" stop-color="${hue.wave}" stop-opacity=".7"/><stop offset="1" stop-color="${hue.wave}" stop-opacity=".95"/></linearGradient>
+    <linearGradient id="fi${c.id}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#05060a" stop-opacity=".78"/><stop offset="1" stop-color="#05060a" stop-opacity="0"/></linearGradient>
+    <linearGradient id="fo${c.id}" x1="1" y1="0" x2="0" y2="0"><stop offset="0" stop-color="#05060a" stop-opacity=".78"/><stop offset="1" stop-color="#05060a" stop-opacity="0"/></linearGradient>
+    <filter id="glow${c.id}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>`;
+  const body = `<rect x="0" y="0" width="${w}" height="${h}" rx="6" fill="${hue.body}"/>
+    <rect x="0" y="0" width="${w}" height="${HEAD}" rx="6" fill="${hue.head}"/><rect x="0" y="${HEAD - 6}" width="${w}" height="6" fill="${hue.head}"/>
+    <text x="7" y="11" font-size="9.5" font-family="Inter, system-ui" fill="rgba(255,255,255,.9)" font-weight="600">${c.label}</text>
+    <text x="18" y="11" font-size="9.5" font-family="Noto Sans Devanagari, Inter, system-ui" fill="rgba(255,255,255,.7)">${c.text}</text>`;
+
+  let fades = '', handles = '';
+  if (mock === 'now') {
+    if (lit) {
+      const sq = (x, hot) => `<rect x="${x}" y="0" width="10" height="10" rx="2" fill="${hot ? '#fcd34d' : 'rgba(241,245,249,.8)'}"/>`;
+      handles = sq(fi > 0 ? Math.min(w * 0.9, fi) - 5 : 0, zone === 'fadeIn') + sq(fo > 0 ? w - Math.min(w * 0.9, fo) - 5 : w - 10, zone === 'fadeOut');
+    }
+  } else if (mock === 'a') {
+    // DaVinci: the faded corner shaded dark, a straight white line from the bottom corner to the handle.
+    if (fi > 0) fades += `<path d="M0 0H${fi}L0 ${h}Z" fill="rgba(5,6,10,.55)"/><path d="M0.5 ${h - 0.5}L${fi} 0.5" stroke="#fff" stroke-width="1.4" fill="none" opacity=".95"/>`;
+    if (fo > 0) fades += `<path d="M${w} 0H${w - fo}L${w} ${h}Z" fill="rgba(5,6,10,.55)"/><path d="M${w - 0.5} ${h - 0.5}L${w - fo} 0.5" stroke="#fff" stroke-width="1.4" fill="none" opacity=".95"/>`;
+    if (lit) {
+      const sq = (cx, hot) => {
+        const s = hot ? 12 : 9;
+        const x = Math.max(0, Math.min(w - s, cx - s / 2));
+        return `<rect x="${x}" y="0" width="${s}" height="${s}" rx="1.5" fill="#fff" stroke="rgba(0,0,0,.6)" stroke-width="1"/>${hot ? `<rect x="${x - 3}" y="-3" width="${s + 6}" height="${s + 6}" rx="3" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="1"/>` : ''}`;
+      };
+      handles = sq(fi, zone === 'fadeIn') + sq(w - fo, zone === 'fadeOut');
+    }
+  } else {
+    // Soft Glow: the fade darkens smoothly, the ramp line glows in the line's colour, round knobs ride the top edge.
+    if (fi > 0) fades += `<rect x="0" y="0" width="${fi}" height="${h}" fill="url(#fi${c.id})"/><path d="M1 ${h - 1}L${fi} 1" stroke="${hue.glow}" stroke-width="1.8" fill="none" filter="url(#glow${c.id})"/>`;
+    if (fo > 0) fades += `<rect x="${w - fo}" y="0" width="${fo}" height="${h}" fill="url(#fo${c.id})"/><path d="M${w - 1} ${h - 1}L${w - fo} 1" stroke="${hue.glow}" stroke-width="1.8" fill="none" filter="url(#glow${c.id})"/>`;
+    const showKnobs = lit || fi > 0 || fo > 0;
+    if (showKnobs) {
+      const knob = (cx, hot, has) => {
+        if (!lit && !has) return '';
+        const r = hot ? 6.5 : 5;
+        const x = Math.max(r, Math.min(w - r, cx));
+        return `<circle cx="${x}" cy="0" r="${r + (hot ? 4 : 0)}" fill="${hue.glow}" opacity="${hot ? .25 : 0}"/>
+          <circle cx="${x}" cy="0" r="${r}" fill="#0b0c0e" stroke="${hot ? '#fff' : hue.glow}" stroke-width="2"/>
+          <circle cx="${x}" cy="0" r="${r - 3}" fill="${hot ? '#fff' : hue.glow}"/>`;
+      };
+      handles = knob(fi, zone === 'fadeIn', fi > 0) + knob(w - fo, zone === 'fadeOut', fo > 0);
+    }
+  }
+  const border = `<rect x=".5" y=".5" width="${w - 1}" height="${h - 1}" rx="6" fill="none" stroke="${lit ? 'rgba(255,255,255,.85)' : hue.wave + '55'}" stroke-width="1"/>`;
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${defs}${body}${wave}${fades}${border}${handles}</svg>`;
+}
+
+function render() {
+  const grid = ruler();
+  const lane = $('#dubLane');
+  const h = lane.clientHeight - 16;
+  lane.innerHTML = grid + clips.map((c) => {
+    const w = c.len * PPS();
+    const lit = hover?.id === c.id || drag?.id === c.id;
+    const zone = drag?.id === c.id ? drag.zone : hover?.id === c.id ? hover.zone : null;
+    return `<div class="clip" data-id="${c.id}" style="left:${c.start * PPS()}px;width:${w}px;${lit ? 'filter:drop-shadow(0 4px 14px rgba(0,0,0,.45))' : ''}">${clipSvg(c, w, h, lit, zone)}</div>`;
+  }).join('');
+  lane.style.cursor = cursorFor(drag?.zone ?? hover?.zone);
+  guide();
+  hint();
+}
+
+function cursorFor(zone) {
+  if (zone === 'fadeIn' || zone === 'fadeOut') return mock === 'now' ? 'default' : FADE_CURSOR;
+  if (zone === 'gain') return 'ns-resize';
+  return 'default';
+}
+
+function zoneAt(c, x, y) {
+  const w = c.len * PPS();
+  const band = mock === 'b' ? TOP_BAND + 4 : TOP_BAND;
+  if (y <= band) {
+    const fi = c.fadeIn * PPS(), fo = w - c.fadeOut * PPS();
+    if (Math.abs(x - fi) <= CORNER && x < w / 2) return 'fadeIn';
+    if (Math.abs(x - fo) <= CORNER && x >= w / 2) return 'fadeOut';
+    return 'gain';
+  }
+  return 'move';
+}
+
+// B: a thin guide down the lanes at the fade's end, while it is being dragged.
+function guide() {
+  const g = $('#guide');
+  const z = drag?.zone;
+  if (mock !== 'b' || !drag || !(z === 'fadeIn' || z === 'fadeOut')) { g.classList.add('hidden'); return; }
+  const c = clips.find((k) => k.id === drag.id);
+  const lane = $('#dubLane');
+  const at = (z === 'fadeIn' ? c.start + c.fadeIn : c.start + c.len - c.fadeOut) * PPS();
+  g.classList.remove('hidden');
+  g.style.left = `${lane.offsetLeft + at}px`;
+  g.style.background = `linear-gradient(${HUES[c.c].glow}, transparent)`;
+  $('#tc').textContent = `00:00:${(z === 'fadeIn' ? c.start + c.fadeIn : c.start + c.len - c.fadeOut).toFixed(2).padStart(5, '0')}`;
+}
+
+function hint() {
+  const z = drag?.zone ?? hover?.zone;
+  const keys = (pairs) => pairs.map(([k, t]) => `<span class="flex items-center gap-1.5"><kbd class="mono text-[10.5px] px-1.5 rounded border border-slate-700 bg-slate-800 text-slate-200">${k}</kbd><span class="text-slate-500">${t}</span></span>`).join('');
+  let text = 'Point at a line: its top corners set the fades';
+  let more = '';
+  if (z === 'fadeIn' || z === 'fadeOut') {
+    text = `Drag to ${z === 'fadeIn' ? 'fade in' : 'fade out'}`;
+    more = mock === 'now' ? '' : keys([['Double-click', 'remove the fade'], ['Shift', 'both ends together']]);
+    if (mock === 'now' && drag) {
+      const c = clips.find((k) => k.id === drag.id);
+      more = `<span class="text-slate-200">${z === 'fadeIn' ? 'fade in' : 'fade out'} ${Math.round(c[z] * 1000)} ms</span>`;
+    }
+  } else if (z === 'gain') text = 'Drag up or down for gain';
+  $('#hint').innerHTML = `<span class="text-slate-300">${text}</span>${more}`;
+}
+
+function showTip(e, c, zone) {
+  const tip = $('#tip');
+  if (mock === 'now' || !(zone === 'fadeIn' || zone === 'fadeOut')) { tip.hidden = true; return; }
+  const v = c[zone];
+  const name = zone === 'fadeIn' ? 'Fade in' : 'Fade out';
+  if (mock === 'a') {
+    // A: a small dark label beside the pointer, like Resolve's.
+    tip.innerHTML = `<div class="rise flex items-center gap-2 px-2 py-1 rounded-md bg-[#0b0c0e] border border-slate-600 shadow-xl shadow-black/60 text-[11.5px]">
+      <span class="text-slate-400">${name}</span><b class="mono text-white">${v.toFixed(2)} s</b><span class="mono text-slate-500">${Math.round(v * 1000)} ms</span></div>`;
+    tip.style.left = `${e.clientX + 18}px`;
+    tip.style.top = `${e.clientY - 34}px`;
+  } else {
+    // B: a pill pinned above the knob, in the line's colour.
+    const el = $(`.clip[data-id="${c.id}"]`).getBoundingClientRect();
+    const x = zone === 'fadeIn' ? el.left + v * PPS() : el.right - v * PPS();
+    const hue = HUES[c.c];
+    tip.innerHTML = `<div class="rise -translate-x-1/2 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11.5px] font-medium shadow-xl shadow-black/50" style="background:${hue.glow};color:#0b0c0e">
+      ${name} <span class="mono font-semibold">${v.toFixed(2)} s</span></div>`;
+    tip.style.left = `${x}px`;
+    tip.style.top = `${el.top - 34}px`;
+  }
+  tip.hidden = false;
+}
+
+const lane = $('#dubLane');
+lane.addEventListener('mousemove', (e) => {
+  if (drag) return;
+  const el = e.target.closest('.clip');
+  if (!el) { if (hover) { hover = null; render(); } $('#tip').hidden = true; return; }
+  const c = clips.find((k) => k.id === +el.dataset.id);
+  const box = el.getBoundingClientRect();
+  const zone = zoneAt(c, e.clientX - box.left, e.clientY - box.top);
+  if (hover?.id !== c.id || hover?.zone !== zone) { hover = { id: c.id, zone }; render(); }
+  showTip(e, c, zone);
+});
+lane.addEventListener('mouseleave', () => { if (!drag) { hover = null; render(); $('#tip').hidden = true; } });
+lane.addEventListener('mousedown', (e) => {
+  if (!hover || !(hover.zone === 'fadeIn' || hover.zone === 'fadeOut')) return;
+  e.preventDefault();
+  drag = { id: hover.id, zone: hover.zone, shift: e.shiftKey };
+  document.body.style.cursor = cursorFor(drag.zone);
+  render();
+});
+lane.addEventListener('dblclick', (e) => {
+  if (mock === 'now' || !hover || !(hover.zone === 'fadeIn' || hover.zone === 'fadeOut')) return;
+  const c = clips.find((k) => k.id === hover.id);
+  c[hover.zone] = 0; render(); showTip(e, c, hover.zone);
+});
+window.addEventListener('mousemove', (e) => {
+  if (!drag) return;
+  const c = clips.find((k) => k.id === drag.id);
+  const box = $(`.clip[data-id="${c.id}"]`).getBoundingClientRect();
+  const t = (e.clientX - box.left) / PPS();
+  const v = Math.round(Math.max(0, Math.min(c.len / 2, drag.zone === 'fadeIn' ? t : c.len - t)) * 100) / 100;
+  c[drag.zone] = v;
+  if (drag.shift && mock !== 'now') c[drag.zone === 'fadeIn' ? 'fadeOut' : 'fadeIn'] = v;
+  render();
+  showTip(e, c, drag.zone);
+});
+window.addEventListener('mouseup', () => {
+  if (!drag) return;
+  drag = null; document.body.style.cursor = '';
+  $('#tip').hidden = true; $('#tc').textContent = '00:00:00.00'; render();
+});
+window.addEventListener('resize', render);
+
+const NOTES = {
+  now: '<b class="text-slate-100">এখন:</b> লাইনে mouse নিলে কোণে ছোট চৌকো, কোণে গেলে হলুদ — cursor সাধারণ তীরই থাকে, fade আঁকা হয় না, সময়টা নিচের সারিতে।',
+  a: '<b class="text-slate-100">A · DaVinci Classic:</b> Resolve-এর মতোই সোজাসাপ্টা। Fade-এর কোণ <b class="text-slate-100">কালচে</b>, নিচের কোণ থেকে handle পর্যন্ত <b class="text-slate-100">সাদা রেখা</b>। লাইনে mouse নিলে সাদা চৌকো handle, তাতে গেলে ↔ cursor আর mouse-এর পাশে কালো লেবেল “Fade out <b>0.35 s</b> 350 ms”। লাইন ১-এর ডান কোণ টেনে দেখুন।',
+  b: '<b class="text-slate-100">B · Soft Glow:</b> একটু নরম, Dhvani-র রঙে। Fade ধীরে <b class="text-slate-100">অন্ধকারে মিলিয়ে যায়</b>, ঢালের রেখা লাইনের নিজের রঙে <b class="text-slate-100">জ্বলে</b>। Handle গোল knob, লাইনের মাথায় বসে — fade থাকলে সবসময় দেখা যায়। টানার সময় লাইনের রঙে একটা pill ঠিক knob-এর ওপরে, আর lanes জুড়ে একটা পাতলা guide রেখা, ওপরে timecode।',
+};
+const FACTS = {
+  now: [['Cursor', 'সাধারণ তীর।'], ['Fade-এর আকার', 'আঁকা হয় না।'], ['সময়', 'নিচের সারিতে।'], ['Handle', '১০px চৌকো, হলুদ hover।']],
+  a: [['চেনা', 'DaVinci চালান এমন কারও কাছে একদম চেনা — কালো কোণ, সাদা রেখা, চৌকো handle।'], ['লেবেল', 'Mouse-এর পাশে, সেকেন্ড আর ms দুটোই।'], ['Handle', 'শুধু লাইনে mouse নিলে; fade-এর রেখা সবসময়।'], ['Shortcut', 'Double-click = fade সরাও, Shift-টান = দুই প্রান্ত একসাথে।']],
+  b: [['নরম', 'কোণ ধীরে অন্ধকার হয়, কড়া ত্রিভুজ নেই — wave-এর ওপর কম চাপ।'], ['লাইনের রঙ', 'রেখা, knob আর pill লাইনের নিজের রঙে, তাই কোন লাইনের fade বোঝা সহজ।'], ['টানার সময়', 'Lanes জুড়ে guide রেখা + ওপরে timecode — original-এর কোথায় শেষ হচ্ছে দেখা যায়।'], ['Shortcut', 'A-র মতোই: Double-click, Shift-টান।']],
+};
+
+function frame() {
+  $('#note').innerHTML = NOTES[mock];
+  $('#facts').innerHTML = FACTS[mock].map(([h, b]) => `<div class="rounded-xl border border-edge bg-slate-900/50 p-3"><div class="text-slate-200 font-medium mb-1">${h}</div>${b}</div>`).join('');
+  render();
+}
+document.querySelectorAll('#mockSeg button').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('#mockSeg button').forEach((x) => x.classList.toggle('on', x === b));
+  mock = b.dataset.m; hover = null; frame();
+});
+$('#reset').onclick = () => { clips = START(); frame(); };
+frame();
+</script>
+</body>
+</html>

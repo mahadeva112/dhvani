@@ -184,10 +184,14 @@ const ROLL_CURSOR = trimCursor(
   false,
   'col-resize'
 );
+/** On a fade knob: ◂ ▸ with the fade's ramp through it, drawn like the trim cursors. */
+const FADE_CURSOR = trimCursor('M7.5 16H24.5 M11.5 26L20.5 6', 'M1.5 16L7.5 11V21Z M30.5 16L24.5 11V21Z', 16, false, 'ew-resize');
 /** Two parts of a line closer than this (s) on the timeline and in the line meet at a cut. */
 const SEAM_SECONDS = 0.001;
 /** The band along a line's top (px) where its fade corners and gain are. */
 const TOP_BAND_PX = 10;
+/** The band along a line's top (px) where its round fade knobs can be caught. */
+const FADE_BAND_PX = 18;
 /** How close to a fade corner (px) a drag sets the fade. */
 const CORNER_PX = 9;
 /** Gain a vertical drag on a line's top edge changes per pixel. */
@@ -496,22 +500,35 @@ const PartWave: React.FC<{
         return envelope;
       },
     });
-    // The fades, as a ramp over the waveform.
-    ctx.strokeStyle = 'rgba(241,245,249,0.75)';
-    ctx.lineWidth = 1;
+    // The fades: the faded end darkens smoothly, and its ramp glows in the line's colour.
     const bottom = h - NAME_BAND_PX;
     const x = (at: number) => ((at - a) / (b - a)) * w;
-    if (fadeIn > 0 && a < fadeIn) {
+    const shade = (x0: number, x1: number) => {
+      const fill = ctx.createLinearGradient(x0, 0, x1, 0);
+      fill.addColorStop(0, 'rgba(5,6,10,0.72)');
+      fill.addColorStop(1, 'rgba(5,6,10,0)');
+      ctx.fillStyle = fill;
+      ctx.fillRect(Math.min(x0, x1), 0, Math.abs(x1 - x0), bottom);
+    };
+    const ramp = (x0: number, y0: number, x1: number, y1: number) => {
+      ctx.save();
+      ctx.strokeStyle = tintOf(hue, 0.3);
+      ctx.lineWidth = 1.6;
+      ctx.shadowColor = hue;
+      ctx.shadowBlur = 6;
       ctx.beginPath();
-      ctx.moveTo(x(0), bottom);
-      ctx.lineTo(x(fadeIn), 0);
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
       ctx.stroke();
+      ctx.restore();
+    };
+    if (fadeIn > 0 && a < fadeIn) {
+      shade(x(0), x(fadeIn));
+      ramp(x(0), bottom, x(fadeIn), 0);
     }
     if (fadeOut > 0 && b > length - fadeOut) {
-      ctx.beginPath();
-      ctx.moveTo(x(length - fadeOut), 0);
-      ctx.lineTo(x(length), bottom);
-      ctx.stroke();
+      shade(x(length), x(length - fadeOut));
+      ramp(x(length - fadeOut), 0, x(length), bottom);
     }
   }, [data, detail, bankOffset, from, to, rate, gainDb, fadeIn, fadeOut, hue, size, a, b, length]);
   return (
@@ -634,21 +651,44 @@ const ClipBox = React.memo<ClipBoxProps>(
             style={{ left: `${(((cut.from - part.from) / part.rate) / length) * 100}%`, ...(cut.to > cut.from && { width: `${(((cut.to - cut.from) / part.rate) / length) * 100}%` }) }}
           />
         ))}
+        {/* The fade knobs: on a line pointed at or picked, and on any line with a fade */}
+        {!tool && (['fadeIn', 'fadeOut'] as const).map((side) => {
+          const value = part[side];
+          if (!lit && value <= 0) return null;
+          const hot = zone === side;
+          const at = `${Math.min(50, (value / length) * 100)}%`;
+          const centred = value > 0 ? (side === 'fadeIn' ? '-translate-x-1/2' : 'translate-x-1/2') : '';
+          return (
+            <React.Fragment key={side}>
+              <span
+                aria-hidden="true"
+                className={`absolute top-[3px] z-[2] rounded-full pointer-events-none transition-[width,height] ${hot ? 'w-3.5 h-3.5' : 'w-3 h-3'} ${centred}`}
+                style={{
+                  [side === 'fadeIn' ? 'left' : 'right']: at,
+                  background: '#0b0c0e',
+                  border: `2px solid ${hot ? '#ffffff' : tintOf(hue, 0.3)}`,
+                  boxShadow: hot ? `0 0 0 3px ${tintOf(hue, 0.2, 0.35)}, 0 0 10px ${hue}` : `0 0 6px ${tintOf(hue, 0.2, 0.55)}`,
+                }}
+              >
+                <span className="absolute inset-[2px] rounded-full" style={{ background: hot ? '#ffffff' : tintOf(hue, 0.3) }} />
+              </span>
+              {hot && (
+                <span
+                  aria-live="polite"
+                  className={`absolute top-[20px] z-[2] px-2 py-0.5 rounded-full text-[11px] font-medium whitespace-nowrap pointer-events-none shadow-lg shadow-black/50 ${centred}`}
+                  style={{ [side === 'fadeIn' ? 'left' : 'right']: at, background: tintOf(hue, 0.3), color: '#0b0c0e' }}
+                >
+                  {side === 'fadeIn' ? 'Fade in' : 'Fade out'} <span className="font-mono font-semibold">{value.toFixed(2)} s</span>
+                </span>
+              )}
+            </React.Fragment>
+          );
+        })}
         {/* What a drag here does: shown where the pointer is, and on the picked line */}
         {lit && (
           <>
             <span aria-hidden="true" className={`${edgeClass('Left')} left-0`} />
             <span aria-hidden="true" className={`${edgeClass('Right')} right-0`} />
-            <span
-              aria-hidden="true"
-              className={`absolute top-0 -ml-1 w-2.5 h-2.5 rounded-[2px] pointer-events-none ${zone === 'fadeIn' ? 'bg-amber-300' : 'bg-slate-100/80'}`}
-              style={{ left: `${Math.min(90, (part.fadeIn / length) * 100)}%`, marginLeft: part.fadeIn > 0 ? undefined : 0 }}
-            />
-            <span
-              aria-hidden="true"
-              className={`absolute top-0 -mr-1 w-2.5 h-2.5 rounded-[2px] pointer-events-none ${zone === 'fadeOut' ? 'bg-amber-300' : 'bg-slate-100/80'}`}
-              style={{ right: `${Math.min(90, (part.fadeOut / length) * 100)}%`, marginRight: part.fadeOut > 0 ? undefined : 0 }}
-            />
             {zone === 'gain' && <span aria-hidden="true" className="absolute left-2 right-2 top-0 h-[3px] rounded-full bg-sky-300 pointer-events-none" />}
           </>
         )}
@@ -1933,13 +1973,13 @@ export const SyncEditTimeline: React.FC<{
     const pxPerSecond = box.width / Math.max(1e-6, length);
     // A narrow line keeps room in the middle to be moved.
     const edge = Math.min(EDGE_PX, box.width / 4);
-    if (y <= TOP_BAND_PX && box.width >= 24) {
+    if (y <= FADE_BAND_PX && box.width >= 24) {
       const fadeInX = chunk.part.fadeIn * pxPerSecond;
       const fadeOutX = box.width - chunk.part.fadeOut * pxPerSecond;
       if (Math.abs(x - fadeInX) <= CORNER_PX && x < box.width / 2) return 'fadeIn';
       if (Math.abs(x - fadeOutX) <= CORNER_PX && x >= box.width / 2) return 'fadeOut';
-      if (x > edge && x < box.width - edge) return 'gain';
     }
+    if (y <= TOP_BAND_PX && box.width >= 24 && x > edge && x < box.width - edge) return 'gain';
     // At a cut the edge is wider: its middle rolls, the rest trims this part alone.
     const cutEdge = Math.min(CUT_EDGE_PX, box.width / 4);
     if (!alt && seamPartner(chunk, 'left') && x <= cutEdge) return !shift && x <= ROLL_PX ? 'rollLeft' : 'trimLeft';
@@ -1960,8 +2000,8 @@ export const SyncEditTimeline: React.FC<{
     stretchRight: 'col-resize',
     rollLeft: ROLL_CURSOR,
     rollRight: ROLL_CURSOR,
-    fadeIn: 'default',
-    fadeOut: 'default',
+    fadeIn: FADE_CURSOR,
+    fadeOut: FADE_CURSOR,
     gain: 'ns-resize',
   };
   /** A hint under the timeline: what a drag or click does, then the keys that change it. */
@@ -1978,8 +2018,8 @@ export const SyncEditTimeline: React.FC<{
     stretchRight: { text: 'Drag to stretch, pitch kept' },
     rollLeft: { text: 'Drag to move the cut: both parts follow', keys: [['either side', 'trim one part'], ['Alt', 'stretch']] },
     rollRight: { text: 'Drag to move the cut: both parts follow', keys: [['either side', 'trim one part'], ['Alt', 'stretch']] },
-    fadeIn: { text: 'Drag to fade in' },
-    fadeOut: { text: 'Drag to fade out' },
+    fadeIn: { text: 'Drag to fade in', keys: [['Shift', 'both ends together'], ['Double-click', 'no fade']] },
+    fadeOut: { text: 'Drag to fade out', keys: [['Shift', 'both ends together'], ['Double-click', 'no fade']] },
     gain: { text: 'Drag up or down for gain' },
   };
 
@@ -1999,6 +2039,8 @@ export const SyncEditTimeline: React.FC<{
     next: SyncEdits | null;
     /** A roll: the parts either side of the cut, and the pauses (seconds into the line) the cut snaps to. */
     seam?: { left: Chunk; right: Chunk; pauses: { from: number; to: number }[] };
+    /** A fade dragged with Shift: both ends of the part take the same fade. */
+    both?: boolean;
   };
 
   /**
@@ -2052,6 +2094,8 @@ export const SyncEditTimeline: React.FC<{
   useEffect(() => stopDraft, []);
   const [hud, setHud] = useState<{ x: number; text: string } | null>(null);
   const [snapLine, setSnapLine] = useState<number | null>(null);
+  /** While a fade is dragged: where it ends, as a guide down the lanes in the line's colour. */
+  const [fadeGuide, setFadeGuide] = useState<{ at: number; color: string } | null>(null);
   /** The line under the pointer and what a drag there would do; `at` is the time under it, for S. */
   const [hover, setHover] = useState<{ id: string; zone: Zone } | null>(null);
   const pointerTime = useRef<{ id: string; at: number } | null>(null);
@@ -2131,6 +2175,7 @@ export const SyncEditTimeline: React.FC<{
       moved: false,
       label: '',
       next: null,
+      both: (zone === 'fadeIn' || zone === 'fadeOut') && e.shiftKey,
     };
     capture(e);
   };
@@ -2211,10 +2256,15 @@ export const SyncEditTimeline: React.FC<{
       const length = partLength(part);
       const value = zone === 'fadeIn' ? t - part.start : partEnd(part) - t;
       const fade = Math.round(clamp(value, 0, length / 2) * 100) / 100;
-      // Every picked part gets the same fade, as far as its own length allows.
-      next = changeAll(base, d.group, (p) => ({ ...p, [zone]: Math.min(fade, partLength(p) / 2) }));
-      d.label = `${zone === 'fadeIn' ? 'Fade in' : 'Fade out'} ${groupName(d.group)}`;
-      text = `${zone === 'fadeIn' ? 'fade in' : 'fade out'} ${Math.round(fade * 1000)} ms${several}`;
+      // Every picked part gets the same fade, as far as its own length allows; with Shift, at both ends.
+      next = changeAll(base, d.group, (p) => {
+        const f = Math.min(fade, partLength(p) / 2);
+        return d.both ? { ...p, fadeIn: f, fadeOut: f } : { ...p, [zone]: f };
+      });
+      d.label = `${d.both ? 'Fade both ends of' : zone === 'fadeIn' ? 'Fade in' : 'Fade out'} ${groupName(d.group)}`;
+      // The knob says the length; the note by the pointer only when several lines or both ends change.
+      text = several || d.both ? `${d.both ? 'both ends' : zone === 'fadeIn' ? 'fade in' : 'fade out'} ${Math.round(fade * 1000)} ms${several}` : '';
+      setFadeGuide({ at: zone === 'fadeIn' ? part.start + fade : partEnd(part) - fade, color: laneHue(chunk) });
     } else if (zone === 'gain') {
       const gainDb = clamp(Math.round((part.gainDb - dy * DB_PER_PX) * 2) / 2, MIN_GAIN_DB, MAX_GAIN_DB);
       // The picked parts move by the same dB, so their levels keep their balance.
@@ -2329,7 +2379,7 @@ export const SyncEditTimeline: React.FC<{
     // A stretch is heard once dropped: working out a new speed on every move would hold up the drag.
     if (zone !== 'stretchLeft' && zone !== 'stretchRight') sendDraft(next);
     setSnapLine(snapped ? snapped.at : null);
-    setHud({ x: clamp(e.clientX - laneBox.left + 12, 0, Math.max(0, laneBox.width - 260)), text });
+    setHud(text ? { x: clamp(e.clientX - laneBox.left + 12, 0, Math.max(0, laneBox.width - 260)), text } : null);
   };
 
   moveOnLaneRef.current = moveOnLane;
@@ -2912,7 +2962,14 @@ export const SyncEditTimeline: React.FC<{
   const onLaneDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (blade || rangeTool) return;
     const under = partUnder(document.elementFromPoint(e.clientX, e.clientY));
-    if (under) openProps(under.chunk.part.id);
+    if (!under) return;
+    const zone = zoneAt(under.el, under.chunk, e.clientX, e.clientY, false);
+    if ((zone === 'fadeIn' || zone === 'fadeOut') && under.chunk.part[zone] > 0) {
+      const name = zone === 'fadeIn' ? 'fade in' : 'fade out';
+      commit(replacePart(committed, under.chunk, { ...under.chunk.part, [zone]: 0 }), `No ${name} on line ${under.chunk.label}`);
+      return;
+    }
+    openProps(under.chunk.part.id);
   };
   /** Split from the menu: where the pointer was when it opened, when that is inside the line; else as S does. */
   const splitHere = (at: number | null) => {
@@ -4673,6 +4730,15 @@ export const SyncEditTimeline: React.FC<{
             </div>
           </div>
 
+          {fadeGuide && (drag.current?.zone === 'fadeIn' || drag.current?.zone === 'fadeOut') && (
+            <div ref={zoom.strip} className="absolute inset-0 z-20 pointer-events-none">
+              <span
+                aria-hidden="true"
+                className="absolute top-6 bottom-0 w-px"
+                style={{ left: `${pct(fadeGuide.at)}%`, background: `linear-gradient(${fadeGuide.color}, ${withAlpha(fadeGuide.color, 0.15)})`, boxShadow: `0 0 6px ${fadeGuide.color}` }}
+              />
+            </div>
+          )}
           {snapLine !== null && (
             <div ref={zoom.strip} className="absolute inset-0 z-20 pointer-events-none">
               <span aria-hidden="true" className="absolute top-6 bottom-0 border-l border-dashed border-amber-300" style={{ left: `${pct(snapLine)}%` }} />
