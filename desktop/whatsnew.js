@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.23',
+    changes: [
+      'Review: each cue fits on one line, so about twice as many show at once. The speaker is a small chip at the start of the line, time and length sit together, the dub text has no box until you open or type in it, and a cut line\'s scissors sit at the line\'s end.',
+      'Review: the list toolbar is icons only (Find, Show, Speakers, Check grammar, ⋯), with names on hover. The Phonetic switch and Save as Word are in the ⋯ menu.',
+    ],
+  },
+  {
     version: '1.5.22',
     changes: [
       'Review: Dub & sync starts the dub right away. The settings button beside it opens Dub settings in a window, and the toolbar shows the lines\' fit as one colour bar in Show (the counts are in its menu). Find is an icon; Ctrl+F opens it.',
