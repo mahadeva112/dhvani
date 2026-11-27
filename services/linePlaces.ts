@@ -75,6 +75,12 @@ export interface LinePart {
   atPause: boolean;
   /** Cut at the original's pause (Cut at the original's pauses), not by the user: it starts where the speaker starts again. */
   byPause?: boolean;
+  /**
+   * Where the part's room ends, set by withLinePlaces: the line's room for a
+   * part inside it; for a part moved out past it, the gap it was moved into,
+   * up to the next phrase that starts after it.
+   */
+  room?: number;
 }
 
 /**
@@ -361,21 +367,28 @@ export const lineTimeAt = (unit: SyncPreviewUnit, t: number) => {
 };
 
 /**
- * Where a line's room ends on the timeline: its last part's end less the time
- * it runs over (withLinePlaces keeps `estimate - slot` at that), so a word past
- * it is late.
+ * Where a line's room ends on the timeline, from where its first part is
+ * heard: as withLinePlaces set it, else its last part's end less the time it
+ * runs over (`estimate - slot`), so a word past it is late. A part moved out
+ * past it has a room of its own (LinePart.room, partRoomEnd).
  */
 export const roomEnd = (unit: SyncPreviewUnit) => {
   const parts = lanePartsOf(unit);
-  return partEnd(parts[parts.length - 1]) - unit.estimate + unit.slot;
+  return parts[0].room ?? partEnd(parts[parts.length - 1]) - unit.estimate + unit.slot;
 };
+
+/** Where one part's room ends: its own, or the line's. */
+export const partRoomEnd = (unit: SyncPreviewUnit, part: LinePart) => part.room ?? roomEnd(unit);
 
 /**
  * The preview with the user's places and cuts: each placed or cut line gets
  * `dubStart` (where its first word is heard) and `parts`, and is judged where
  * it now starts, as is the line before it, whose room ends where it starts. A
  * line split apart is judged by its last part against its room, less the time
- * its cuts were opened up by. `draft` is a part being dragged.
+ * its cuts were opened up by; a part moved out past the room is judged in the
+ * gap it was moved into, up to the next phrase that starts after it, so a part
+ * put in clear time fits. The line runs over by the most any of them does.
+ * `draft` is a part being dragged.
  */
 export const withLinePlaces = (
   preview: SyncPreview | null,
@@ -441,9 +454,25 @@ export const withLinePlaces = (
     if (!parts && !nextMoved) return unit;
     const start = startOf(i);
     const slotEnd = unit.srcStart + unit.slot + (nextMoved ? startOf(i + 1) - preview.units[i + 1].srcStart : 0);
-    const end = parts ? partEnd(parts[parts.length - 1]) : start + unit.estimate;
-    // The time the cuts were opened up by is the line's no longer.
-    const slot = Math.max(0.05, unit.estimate - (end - slotEnd));
+    // The breath kept before the next phrase, kept too before the phrase a moved part runs up to.
+    const breath = i + 1 < preview.units.length ? Math.max(0, startOf(i + 1) - slotEnd) : 0;
+    const nextAfter = (t: number) => {
+      let next = Infinity;
+      for (let j = 0; j < preview.units.length; j++) if (j !== i && startOf(j) > t + 1e-6) next = Math.min(next, startOf(j));
+      return next;
+    };
+    // Each part's room: the line's while it starts inside it, else the gap it was moved into.
+    const roomed = parts?.map((part) => {
+      const gap = part.start >= slotEnd - 1e-6 ? nextAfter(part.start) - breath : slotEnd;
+      return { ...part, room: Number.isFinite(gap) ? Math.max(part.start, gap) : undefined };
+    });
+    // The part that runs furthest past its room says how far the line runs over; the time the cuts were opened up by is the line's no longer.
+    let margin = Infinity;
+    if (roomed) {
+      for (const part of roomed) if (part.room !== undefined) margin = Math.min(margin, part.room - partEnd(part));
+    } else margin = slotEnd - (start + unit.estimate);
+    if (!Number.isFinite(margin)) margin = 0;
+    const slot = Math.max(0.05, unit.estimate + margin);
     const overflow = unit.estimate - slot;
     const short = isShortSpeech(unit.estimate, unit.spoken);
     const status = overflow > allowed ? 'long' : unit.estimate > slot * TIGHT_SHARE ? 'tight' : short ? 'short' : 'fits';
@@ -461,7 +490,7 @@ export const withLinePlaces = (
       underflow: status === 'short' ? Math.max(0, unit.spoken - unit.estimate) : 0,
       status,
       targetChars,
-      ...(parts && { dubStart: start, parts }),
+      ...(roomed && { dubStart: start, parts: roomed }),
     };
   });
   const count = (status: SyncPreviewUnit['status']) => units.filter((u) => u.status === status).length;

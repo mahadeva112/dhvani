@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Check, Loader2, Pencil, RotateCcw, X } from 'lucide-react';
+import { Check, ChevronsLeftRight, ChevronsRightLeft, Equal, Loader2, Pencil, RotateCcw, X, type LucideIcon } from 'lucide-react';
 import { Playhead, TimelineRuler, TimelineScrollbar, TimelineTransport, TimelineZoomControls, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
 import { hueOf, shadeOf, tintOf, withAlpha } from './lineColors';
@@ -23,7 +23,7 @@ import type { RateBasis } from '../services/voiceRate';
 import { timeLine } from '../services/speechTiming';
 import { reportError } from '../services/errorPopup';
 import { PhoneticTextarea } from './review/PhoneticTextarea';
-import { LINE_GAP_SECONDS, MAX_LINE_RATE, MIN_LINE_RATE, QUICK_RATE, RUSHED_RATE, SLOW_RATE, PART_GAP_SECONDS, PAUSE_MARK, estimatedWords, lanePartsOf, letterCount, lineTimeAt, partEnd, partPiecesOf, rateZone, roomEnd, sourceChunksOf, type LinePart, type PauseMeet, type SourceChunk } from '../services/linePlaces';
+import { LINE_GAP_SECONDS, MAX_LINE_RATE, MIN_LINE_RATE, QUICK_RATE, RUSHED_RATE, SLOW_RATE, PART_GAP_SECONDS, PAUSE_MARK, estimatedWords, lanePartsOf, letterCount, lineTimeAt, partEnd, partPiecesOf, partRoomEnd, rateZone, roomEnd, sourceChunksOf, type LinePart, type PauseMeet, type SourceChunk } from '../services/linePlaces';
 
 /**
  * Sync preview: before anything is voiced, which lines are likely to fit the
@@ -820,44 +820,51 @@ const suggestedReason = (unit: SyncPreviewUnit, direction: RewriteDirection) =>
         ? 'this line ends before the original speaker stops'
         : 'this line fits';
 
-const WORDING_CHOICES: { direction: RewriteDirection; label: string; title: string }[] = [
-  { direction: 'shorter', label: 'Shorter', title: 'Shorter wordings of this line, same meaning' },
-  { direction: 'longer', label: 'Longer', title: 'Longer, fuller wordings of this line, same meaning' },
-  { direction: 'same', label: 'Same length', title: 'Other ways to say this line, about as long, same meaning' },
+const WORDING_CHOICES: { direction: RewriteDirection; label: string; title: string; Icon: LucideIcon }[] = [
+  { direction: 'shorter', label: 'Shorter', title: 'Shorter wordings of this line, same meaning', Icon: ChevronsRightLeft },
+  { direction: 'longer', label: 'Longer', title: 'Longer, fuller wordings of this line, same meaning', Icon: ChevronsLeftRight },
+  { direction: 'same', label: 'Same length', title: 'Other ways to say this line, about as long, same meaning', Icon: Equal },
 ];
 
 /**
  * Shorter, Longer and Same length for one line: nothing is asked for until one
  * is pressed, and only for this line. The way the line's fit points (directionFor)
  * is marked, never chosen for the user; a line too long to shorten without losing
- * meaning (deepCut) marks none.
+ * meaning (deepCut) marks none. With `icons` (Review, Mock A 2026-11-27) each
+ * is an icon named on hover, and only the marked one keeps its word beside it.
  */
 export const WordingButtons: React.FC<{
   unit: SyncPreviewUnit;
   onSuggest: (direction: RewriteDirection) => void;
   /** Smaller buttons, for the row under a settled line. */
   compact?: boolean;
+  /** Icons, named on hover; the marked one keeps its word. */
+  icons?: boolean;
   className?: string;
-}> = ({ unit, onSuggest, compact = false, className = '' }) => {
+}> = ({ unit, onSuggest, compact = false, icons = false, className = '' }) => {
   const natural = directionFor(unit);
-  const marked = deepCut(unit) ? null : natural;
+  // As icons, a line that fits marks none: Same length is no fix, so it doesn't get the word.
+  const marked = deepCut(unit) || (icons && natural === 'same') ? null : natural;
   return (
-    <div role="group" aria-label="Ask for wordings of this line" className={`flex flex-wrap items-center gap-1.5 ${className}`}>
-      {WORDING_CHOICES.map(({ direction, label, title }) => {
+    <div role="group" aria-label="Ask for wordings of this line" className={`flex flex-wrap items-center ${icons ? 'gap-1' : 'gap-1.5'} ${className}`}>
+      {WORDING_CHOICES.map(({ direction, label, title, Icon }) => {
         const isMarked = direction === marked;
+        const iconOnly = icons && !isMarked;
         return (
           <button
             key={direction}
             type="button"
             onClick={() => onSuggest(direction)}
-            title={`${title}. Nothing changes until you use one.${isMarked ? ` Suggested: ${suggestedReason(unit, direction)}.` : ''}`}
-            className={`${compact ? 'h-6 px-2' : 'h-7 px-2.5'} rounded-md border text-[11.5px] cursor-default transition-colors ${
+            title={`${icons ? `${label}: ` : ''}${title}. Nothing changes until you use one.${isMarked ? ` Suggested: ${suggestedReason(unit, direction)}.` : ''}`}
+            aria-label={iconOnly ? label : undefined}
+            className={`${iconOnly ? 'h-6 w-7 justify-center' : compact || icons ? 'h-6 px-2' : 'h-7 px-2.5'} inline-flex items-center gap-1 rounded-md border text-[11.5px] cursor-default transition-colors ${
               isMarked
                 ? 'border-indigo-500/60 bg-indigo-500/10 text-indigo-200 hover:bg-indigo-500/20'
                 : 'border-edge text-slate-300 hover:bg-slate-800'
             }`}
           >
-            {label}
+            {icons && <Icon className="w-3.5 h-3.5 shrink-0" />}
+            {!iconOnly && label}
           </button>
         );
       })}
@@ -1979,6 +1986,8 @@ export const DubEstimateLane: React.FC<{
         const start = parts[0].start;
         const finish = lastEnd(u);
         const room = roomEnd(u);
+        // The time past the room is marked from the last part's own room: a part moved into clear time has a room of its own.
+        const lastRoom = partRoomEnd(u, parts[parts.length - 1]);
         const trim = cut ? undefined : drag?.key === u.key ? drag.seconds : u.wantSeconds;
         const handleAt = trim ?? Math.min(u.estimate, u.slot);
         const title = `${u.text}\nAbout ${u.estimate.toFixed(1)} s${readNote(u)}${
@@ -2031,7 +2040,7 @@ export const DubEstimateLane: React.FC<{
               const partWords = shape?.words.slice(p.first, p.last + 1).map((w) => ({ ...w, start: w.start - p.from, end: w.end - p.from })) ?? [];
               const path = drawn === 'wave' ? (cut ? wavePath(partWords, length, barStep) : shape?.path ?? '') : '';
               // Past this share of the part it runs over the line's room, and turns red.
-              const inSlot = length > 0 ? Math.min(1, Math.max(0, (room - p.start) / length)) : 1;
+              const inSlot = length > 0 ? Math.min(1, Math.max(0, (partRoomEnd(u, p) - p.start) / length)) : 1;
               /** The knife is out over this part: a click cuts where it shows. */
               const knifeHere = knifeOut?.key === u.key && knifeOut.part === p.index ? knifeOut : null;
               // Bars: the part in pieces where the original pauses and it reads on (whole while the knife is out, to show its words).
@@ -2180,7 +2189,7 @@ export const DubEstimateLane: React.FC<{
                     {drawn === 'blocks' &&
                       length > 0 &&
                       partWords.map((w, n) => {
-                        const late = p.start + w.end > room + 0.02;
+                        const late = p.start + w.end > partRoomEnd(u, p) + 0.02;
                         const k = p.first + n;
                         const beside = knifeHere && (k === knifeHere.k || k === knifeHere.k + 1);
                         return (
@@ -2436,7 +2445,7 @@ export const DubEstimateLane: React.FC<{
               <span
                 title={title}
                 className={`absolute top-1.5 bottom-1.5 rounded-r border-r-2 border-rose-400 pointer-events-none ${OVER_LONG_SOFT}`}
-                style={{ left: `${pct(room)}%`, width: `${Math.max(0.3, pct(finish) - pct(room))}%` }}
+                style={{ left: `${pct(lastRoom)}%`, width: `${Math.max(0.3, pct(finish) - pct(lastRoom))}%` }}
               />
             )}
             {over > 0 && showFit && u.status === 'long' && drawn !== 'bars' && (
@@ -2454,14 +2463,14 @@ export const DubEstimateLane: React.FC<{
               <span
                 title={title}
                 className="absolute bottom-0.5 h-[3px] rounded-full pointer-events-none bg-amber-300/80"
-                style={{ left: `${pct(room)}%`, width: `${Math.max(0.3, pct(finish) - pct(room))}%` }}
+                style={{ left: `${pct(lastRoom)}%`, width: `${Math.max(0.3, pct(finish) - pct(lastRoom))}%` }}
               />
             )}
             {over > 0 && showFit && drawn !== 'wave' && drawn !== 'blocks' && (
               <span
                 title={title}
                 className={`absolute top-1.5 bottom-1.5 rounded-r pointer-events-none ${u.status === 'long' ? OVER_LONG : OVER_TIGHT}`}
-                style={{ left: `${pct(room)}%`, width: `${Math.max(0.3, pct(finish) - pct(room))}%` }}
+                style={{ left: `${pct(lastRoom)}%`, width: `${Math.max(0.3, pct(finish) - pct(lastRoom))}%` }}
               />
             )}
             {/* Stretched: a line under it, in the colour of how the speed sounds */}

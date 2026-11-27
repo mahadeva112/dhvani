@@ -4154,14 +4154,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                             targetText: newVal,
                           })
                         }
-                        onOpenKeyboardModal={onOpenPhoneticKeyboard ? () => onOpenPhoneticKeyboard(seg) : undefined}
                         rows={1}
                         autoGrow
                         placeholder={`${targetLanguage} line`}
-                        compactToolbar
+                        bare
                         fontSize={reviewFontPx}
                       />
-                      {showDetail && (
+                      {/* Once the line fit is worked out, its row says it once; the counts sit behind its i. */}
+                      {showDetail && !linePreview && (
                         <span className="flex flex-wrap gap-x-2 mt-1">
                           <CharCount text={tgtText} />
                           <SyllableFitNote fit={syllableFitOf(seg)} />
@@ -4196,6 +4196,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                             unit.parts && (moved.length > 0 || ownCuts > 0 || skippedPauses > 0)
                               ? {
                                   label: ownCuts > 0 ? `Cut in ${ownCuts + 1}` : moved.length > 0 ? 'Placed' : `${skippedPauses} pause cut${skippedPauses === 1 ? '' : 's'} off`,
+                                  // The pill on the fit row: a cut line shows the scissors and its parts, a placed one only an arrow.
+                                  short: ownCuts > 0 ? { kind: 'cut' as const, text: String(ownCuts + 1) } : moved.length > 0 ? { kind: 'moved' as const, text: '' } : { kind: 'pauses' as const, text: `${skippedPauses} off` },
                                   detail: `${ownCuts > 0 ? `Cut by you in ${ownCuts + 1} parts` : moved.length > 0 ? 'Placed by you' : `${skippedPauses} cut at a pause turned off`}${
                                     moved.length > 0
                                       ? `, ${moved
@@ -4219,6 +4221,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                 }
                               : null;
                           const firstCue = cueIndexById.get(String(unit.cueIds[0]));
+                          const syl = syllableFitOf(seg);
+                          const counts = `${unit.text.length} characters · ${syl.syllables} syllables${syl.holds > 0 ? `, the slot holds about ${syl.holds}` : ''}.`;
                           return (
                             <SyncFitStrip
                               unit={unit}
@@ -4230,6 +4234,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                               faster={faster}
                               placed={placed}
                               onResetTrim={() => trimLine(unit, null)}
+                              counts={counts}
                             />
                           );
                         }
@@ -4238,7 +4243,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         const fix = reviewFixes.controlsFor(line);
                         const flagged = line.status === 'long' || line.status === 'short';
                         if (!flagged && fix.state.kind === 'idle')
-                          return isOpen || reviewDetailed ? <WordingButtons unit={line} onSuggest={fix.onSuggest} className={isOpen ? 'mt-1.5' : hoverWordings} /> : null;
+                          return isOpen || reviewDetailed ? <WordingButtons unit={line} onSuggest={fix.onSuggest} icons className={isOpen ? 'mt-1.5' : hoverWordings} /> : null;
                         const started = fix.state.kind !== 'idle' && fix.state.kind !== 'error';
                         return (
                           <>

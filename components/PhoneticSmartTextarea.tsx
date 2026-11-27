@@ -37,6 +37,11 @@ export interface PhoneticSmartTextareaProps {
   /** Show the helper toolbar only while the cue is being edited, for dense lists. */
   compactToolbar?: boolean;
   /**
+   * No helper toolbar (Review, Mock A 2026-11-27): Ctrl+G still turns phonetic
+   * typing on and off, and Convert all shows only when the line has English words.
+   */
+  bare?: boolean;
+  /**
    * Whether AI Polish starts enabled for this cue. Off by default: polish is an
    * opt-in per quote, so nothing is rewritten unless the reviewer asks for it.
    */
@@ -59,6 +64,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
   showQuickSymbols = true,
   defaultAiPolish = false,
   compactToolbar = false,
+  bare = false,
   fontSize,
   autoGrow = false,
 }) => {
@@ -384,10 +390,24 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
 
   return (
     <div className="relative group/phonetic flex flex-col space-y-1">
+      {bare && isPhoneticOn && value && /[a-zA-Z]{2,}/.test(value) && (
+        <div className="flex justify-end text-[11px]">
+          <button
+            type="button"
+            onClick={handleConvertEntireText}
+            disabled={isLoadingSuggestions}
+            className="h-6 px-2 rounded-md border border-edge flex items-center gap-1 font-medium text-slate-300 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-default"
+            title="Turn every English-letter word in this cue into the script"
+          >
+            <Languages className="w-3 h-3" />
+            Convert all
+          </button>
+        </div>
+      )}
       {/* Helper toolbar: quiet chips, so the line itself stays the focus */}
       <div
         className={`items-center justify-between gap-2 text-[11px] text-slate-400 select-none ${
-          compactToolbar ? 'hidden group-focus-within/phonetic:flex' : 'flex'
+          bare ? 'hidden' : compactToolbar ? 'hidden group-focus-within/phonetic:flex' : 'flex'
         }`}
       >
         <div className="flex items-center gap-1 flex-wrap">

@@ -87,6 +87,40 @@ test('a part being dragged stands in for its place, and a line split apart loses
   assert.ok(Math.abs(dragged.slot - 4.2) < 1e-9, 'judged in the room left once the 0.8 s it opened up is taken out');
 });
 
+test('a part moved out past the room is judged in the gap it was moved into, never as the whole line over', () => {
+  // A 5.6 s room ending 0.4 s before the next phrase at 16 s; another phrase at 30 s.
+  const text = 'one two three four, five six seven eight nine ten';
+  const units = [unit(0, 10, 5.6, 8.1, text), unit(1, 16, 4, 3, 'x y'), unit(2, 30, 4, 3, 'p q')];
+  const words = estimatedWords(units[0]);
+  const comma = words.findIndex((w) => w.text.endsWith(','));
+  const letters = words.slice(0, comma + 1).reduce((sum, w) => sum + letterCount(w.text), 0);
+  const cut = withCut(null, units[0], letters, true);
+  const judged = (start: number | null) =>
+    withLinePlaces(preview(units), [cue(1, { dubPlace: withPartStart(cut, units[0], letters, start) ?? undefined }), cue(2), cue(3)])!.units[0];
+
+  // Left where Sync puts it: the last part against the line's room, as before.
+  const stays = judged(null);
+  const length2 = stays.parts![1].to - stays.parts![1].from;
+  assert.ok(Math.abs(stays.overflow - (partEnd(stays.parts![1]) - 15.6)) < 1e-9);
+  assert.equal(stays.parts![1].room, 15.6);
+
+  // Moved into clear time between 16 s and 30 s: it fits there, and the slot is no longer the 0.05 s floor.
+  const clear = judged(22);
+  assert.equal(clear.parts![1].room, 29.6, 'up to the next phrase after it, less the same breath');
+  assert.equal(clear.overflow, 0);
+  assert.notEqual(clear.status, 'long');
+  assert.ok(clear.slot > 1, `slot ${clear.slot}`);
+
+  // Moved so it runs into the phrase at 30 s: over by just that, not by the whole line.
+  const late = judged(29.6 - length2 + 1.5);
+  assert.ok(Math.abs(late.overflow - 1.5) < 1e-6, `overflow ${late.overflow}`);
+  assert.equal(late.status, 'long');
+  assert.ok(Math.abs(late.slot - (late.estimate - 1.5)) < 1e-6);
+
+  // Its first part, left where it was, keeps the line's room and is judged against it.
+  assert.equal(clear.parts![0].room, 15.6);
+});
+
 // ---- Cut at the original's pauses ----
 
 /** The speaker pauses 0.8 s after "one two,"; translation marked it. */
