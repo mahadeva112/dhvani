@@ -191,7 +191,6 @@ function Bench() {
               setSegments((all) => all.map((s) => (byId.has(String(s.id)) ? ({ ...s, targetText: byId.get(String(s.id)), textTarget: byId.get(String(s.id)) } as AudioSegment) : s)));
             }}
             getPacing={pacing}
-            passagePause={0.6}
             activeSegmentId={segments[state.active]?.id ?? null}
             isPlaying={false}
             onSeek={() => {}}

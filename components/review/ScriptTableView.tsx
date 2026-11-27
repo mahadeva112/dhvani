@@ -7,18 +7,9 @@ import { polishIndicDialogueWithAI } from '../../services/geminiService';
 import { buildScriptParagraphs } from './passages';
 import { usePhoneticTyping, type PhoneticField } from './usePhoneticTyping';
 import { inlineField, placeCaret } from './inlineField';
-import {
-  DOCX_MIME,
-  WORD_PARAGRAPH_SIZES,
-  buildScriptDocx,
-  loadWordParagraphSize,
-  saveWordParagraphSize,
-  scriptDocxFileName,
-  scriptDocxRows,
-  type WordParagraphSize,
-} from '../../services/scriptDocx';
+import { DOCX_MIME, buildScriptDocx, scriptDocxFileName, scriptDocxRows } from '../../services/scriptDocx';
 import { saveFileAs } from '../../services/saveFile';
-import { WordSaveMenu } from './ReviewMenus';
+import { WordSaveButton } from './ReviewMenus';
 
 export interface LinePacing {
   level: 'natural' | 'tight' | 'fast';
@@ -84,8 +75,6 @@ interface ScriptTableViewProps {
   getPacing: (seg: AudioSegment, text: string) => LinePacing;
   /** What the lines marked fast are called: "too fast" by characters, "too long" by the Sync fit. */
   fastLabel?: string;
-  /** The pause the Word file's short passages split at, set in the Cues table. */
-  passagePause: number;
   activeSegmentId: string | number | null;
   isPlaying: boolean;
   onSeek: (time: number) => void;
@@ -117,7 +106,6 @@ export function ScriptTableView({
   onUpdateLines,
   getPacing,
   fastLabel = 'too fast',
-  passagePause,
   activeSegmentId,
   isPlaying,
   onSeek,
@@ -488,11 +476,8 @@ export function ScriptTableView({
 
   /** Every passage, not just those shown, as a Word table: the original's paragraph left, the dub's right. */
   const [savingWord, setSavingWord] = useState(false);
-  const [wordSize, setWordSize] = useState<WordParagraphSize>(loadWordParagraphSize);
   const [wordError, setWordError] = useState<string | null>(null);
-  const saveWord = async (size: WordParagraphSize) => {
-    setWordSize(size);
-    saveWordParagraphSize(size);
+  const saveWord = async () => {
     setSavingWord(true);
     setWordError(null);
     const build = async () =>
@@ -502,7 +487,7 @@ export function ScriptTableView({
             title: exportTitle || `${targetLanguage || 'Dub'} script`,
             sourceLanguage,
             targetLanguage,
-            rows: scriptDocxRows(segments, getSourceText, getTargetText, passagePause, size),
+            rows: scriptDocxRows(segments, getSourceText, getTargetText),
           }),
         ],
         { type: DOCX_MIME }
@@ -520,13 +505,11 @@ export function ScriptTableView({
   return (
     <div ref={rootRef}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 border-b border-edge text-[11px] text-slate-400">
-        {/* The Word file's paragraph size is picked as it is saved: it changes the file, not this view */}
-        <WordSaveMenu
-          sizes={WORD_PARAGRAPH_SIZES}
-          current={wordSize}
+        {/* The Word file has this view's paragraphs, sized on their own: nothing to pick */}
+        <WordSaveButton
           saving={savingWord}
-          onSave={(size) => void saveWord(size)}
-          title={`Save as a Word file: the script in paragraphs, ${sourceLanguage || 'the original'} on the left, ${targetLanguage || 'the dub'} on the right`}
+          onSave={() => void saveWord()}
+          title={`Save as a Word file: the script in this view's paragraphs, ${sourceLanguage || 'the original'} on the left, ${targetLanguage || 'the dub'} on the right`}
         />
         {wordError && <span className="text-rose-300">{wordError}</span>}
         <button

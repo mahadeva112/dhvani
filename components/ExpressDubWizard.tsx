@@ -169,7 +169,7 @@ import type { SpeakerMonitor } from '../services/speakerLevels';
 import type { RewriteDirection } from './SyncPreviewPanel';
 import { ScriptFitStrip, needsFix, pauseAdvice } from './FinalScriptFit';
 import { SaveScriptMenu, type ScriptScope } from './SaveScriptMenu';
-import { DOCX_MIME, buildScriptDocx, loadWordParagraphSize, scriptDocxFileName, scriptDocxRows } from '../services/scriptDocx';
+import { DOCX_MIME, buildScriptDocx, scriptDocxFileName, scriptDocxRows } from '../services/scriptDocx';
 import { saveFileAs } from '../services/saveFile';
 import { hueOf, lineIndexByCue } from './lineColors';
 import { DEFAULT_PROMPT_PRESET_ID } from '../services/translationPromptPresets';
@@ -2580,7 +2580,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 title: activeJob?.file?.name || `${targetLanguage || 'Dub'} script`,
                 sourceLanguage: activeJob?.detectedLanguage || activeJob?.sourceLanguage || sourceLanguage,
                 targetLanguage,
-                rows: scriptDocxRows(scriptLinesFor(format), getSourceText, getTargetText, passagePause, loadWordParagraphSize()),
+                rows: scriptDocxRows(scriptLinesFor(format), getSourceText, getTargetText),
               }),
             ],
             { type: DOCX_MIME }
@@ -3852,7 +3852,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   : linePacingOf(seg, text);
               }}
               fastLabel={linePreview ? 'too long' : 'too fast'}
-              passagePause={passagePause}
               activeSegmentId={activeSegmentId}
               isPlaying={isPlaying}
               onSeek={seekSource}

@@ -1,15 +1,14 @@
 import JSZip from 'jszip';
 import type { AudioSegment } from '../types';
-import { DEFAULT_PASSAGE_PAUSE, buildPassages, endsSentence } from '../components/review/passages.ts';
+import { buildScriptParagraphs } from '../components/review/passages.ts';
 
 /**
  * The script as a Word document: one table row per paragraph, the original's
- * lines run together on the left, the dub's on the right. Full (the default)
- * is the whole script in one row, each speaker's turn a paragraph of its own
- * under their name. Short paragraphs are the Script view's passages; Medium
- * and Long join passages until about 25 or 60 seconds have been said, then end
- * where a sentence ends at a pause, and a new speaker starts a new row.
- * Nothing is rewritten: each side is the cues' own text, joined by spaces.
+ * lines run together on the left, the dub's on the right. The paragraphs are
+ * the Script view's own, sized from the script's length, so there is nothing
+ * to pick; a paragraph with more than one speaker puts each turn under the
+ * speaker's name. Nothing is rewritten: each side is the cues' own text,
+ * joined by spaces.
  */
 
 export interface ScriptDocxTurn {
@@ -38,75 +37,17 @@ export const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordproc
 
 const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
 
-export type WordParagraphSize = 'short' | 'medium' | 'long' | 'full';
-
-export const WORD_PARAGRAPH_SIZES: { id: WordParagraphSize; label: string; seconds: number; hint: string }[] = [
-  { id: 'short', label: 'Short', seconds: 0, hint: 'a paragraph per short passage, split where the original pauses' },
-  { id: 'medium', label: 'Medium', seconds: 25, hint: 'paragraphs of about 25 seconds of speech' },
-  { id: 'long', label: 'Long', seconds: 60, hint: 'paragraphs of about a minute of speech' },
-  { id: 'full', label: 'Full', seconds: Infinity, hint: 'the whole script in one passage, a paragraph per speaker turn' },
-];
-
-const SIZE_KEY = 'dhvani_word_paragraph_size';
-
-export const loadWordParagraphSize = (): WordParagraphSize => {
-  try {
-    const saved = localStorage.getItem(SIZE_KEY);
-    if (WORD_PARAGRAPH_SIZES.some((s) => s.id === saved)) return saved as WordParagraphSize;
-  } catch {}
-  return 'full';
-};
-
-export const saveWordParagraphSize = (size: WordParagraphSize) => {
-  try {
-    localStorage.setItem(SIZE_KEY, size);
-  } catch {}
-};
-
-/**
- * The cues in the file's paragraphs: the passages, joined while the speaker
- * stays the same, until the paragraph is `size` long and ends a sentence, or
- * runs to twice that without one.
- */
-export const wordParagraphs = (
-  segments: AudioSegment[],
-  sourceOf: (seg: AudioSegment) => string,
-  pause: number,
-  size: WordParagraphSize
-): AudioSegment[][] => {
-  if (size === 'full') return segments.length ? [segments] : [];
-  const seconds = WORD_PARAGRAPH_SIZES.find((s) => s.id === size)?.seconds ?? 0;
-  const paragraphs: AudioSegment[][] = [];
-  for (const { cues } of buildPassages(segments, pause)) {
-    const open = paragraphs[paragraphs.length - 1];
-    if (open && seconds > 0) {
-      const last = open[open.length - 1];
-      const length = last.endTime - open[0].startTime;
-      // A time that isn't known (NaN) closes the paragraph rather than growing it without end.
-      const done = !(length < seconds) && (endsSentence(sourceOf(last)) || !(length < seconds * 2));
-      if ((last.speaker || '') === (cues[0].speaker || '') && !done) {
-        open.push(...cues);
-        continue;
-      }
-    }
-    paragraphs.push([...cues]);
-  }
-  return paragraphs;
-};
-
 /** The paragraphs as table rows; one with no words on either side is left out. */
 export const scriptDocxRows = (
   segments: AudioSegment[],
   sourceOf: (seg: AudioSegment) => string,
-  targetOf: (seg: AudioSegment) => string,
-  pause: number = DEFAULT_PASSAGE_PAUSE,
-  size: WordParagraphSize = 'short'
+  targetOf: (seg: AudioSegment) => string
 ): ScriptDocxRow[] =>
-  wordParagraphs(segments, sourceOf, pause, size)
-    .map((cues) => {
+  buildScriptParagraphs(segments, sourceOf)
+    .map(({ cues }) => {
       const join = (list: AudioSegment[], textOf: (seg: AudioSegment) => string) =>
         list.map((seg) => oneLine(textOf(seg))).filter(Boolean).join(' ');
-      // The cues in runs by one speaker; a row holds more than one only in Full.
+      // The cues in runs by one speaker: a paragraph can hold more than one.
       const runs: { speaker: string; cues: AudioSegment[] }[] = [];
       for (const seg of cues) {
         const speaker = (seg.speaker || '').trim();

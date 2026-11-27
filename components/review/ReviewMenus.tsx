@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Download, Keyboard, Loader2, Minus, MoreHorizontal, MoreVertical, Plus } from 'lucide-react';
+import { ChevronDown, Download, Keyboard, Loader2, Minus, MoreHorizontal, MoreVertical, Plus } from 'lucide-react';
 
 /** Closes a small menu on a click outside it or on Escape. */
 function useAwayClose(open: boolean, close: () => void) {
@@ -256,68 +256,19 @@ export function ReviewViewMenu(props: {
   );
 }
 
-/**
- * The Script view's Word button: a click asks how big the file's paragraphs
- * are, and the pick saves the file. The size last used is ticked and kept.
- */
-export function WordSaveMenu<T extends string>({
-  sizes,
-  current,
-  saving,
-  onSave,
-  title,
-}: {
-  sizes: { id: T; label: string; hint: string }[];
-  current: T;
-  saving: boolean;
-  onSave: (size: T) => void;
-  title: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useAwayClose(open, () => setOpen(false));
-  // Full first: it is the default, the whole script with a paragraph per speaker turn.
-  const ordered = [...sizes].sort((a, b) => Number(b.id === 'full') - Number(a.id === 'full'));
+/** The Script view's Word button: one click saves the file, in the view's own paragraphs. */
+export function WordSaveButton({ saving, onSave, title }: { saving: boolean; onSave: () => void; title: string }) {
   return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        disabled={saving}
-        aria-haspopup="true"
-        aria-expanded={open}
-        title={title}
-        className={`h-6 px-2 rounded-md border border-edge flex items-center gap-1 font-medium transition-colors cursor-default disabled:opacity-50 ${
-          open ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-        }`}
-      >
-        {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
-        Word
-        <ChevronDown className="w-3 h-3 opacity-70" />
-      </button>
-      {open && (
-        <div className={`${menuPanel} left-0 w-80`} role="menu">
-          <div className="px-2.5 pt-1 pb-1.5 text-[12px] text-slate-400">Save as Word, paragraphs:</div>
-          {ordered.map((size) => (
-            <button
-              key={size.id}
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                onSave(size.id);
-              }}
-              className="w-full flex items-start gap-2 px-2.5 py-1.5 rounded-lg text-left hover:bg-slate-800 cursor-default"
-            >
-              <Check className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${size.id === current ? 'text-indigo-300' : 'text-transparent'}`} />
-              <span className="min-w-0">
-                <span className="block text-[13px] text-slate-100">{size.label}</span>
-                <span className="block text-[12px] text-slate-400 leading-snug">{size.hint[0].toUpperCase() + size.hint.slice(1)}</span>
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    <button
+      type="button"
+      onClick={onSave}
+      disabled={saving}
+      title={title}
+      className="h-6 px-2 rounded-md border border-edge flex items-center gap-1 font-medium transition-colors cursor-default disabled:opacity-50 text-slate-400 hover:text-slate-200"
+    >
+      {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+      Word
+    </button>
   );
 }
 
