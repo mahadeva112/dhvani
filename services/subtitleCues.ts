@@ -16,6 +16,14 @@
  * minimum, short silences bridged so captions do not flicker).
  */
 import { BIND_BACK, BIND_FWD, VERB_END } from './subtitleGrammarData.ts';
+import {
+  EXTRA_BIND_BACK,
+  EXTRA_BIND_FWD,
+  FINITE_ENDINGS,
+  FINITE_VERBS,
+  NOT_BIND_BACK,
+  NOT_BIND_FWD,
+} from './subtitlePhrases.ts';
 
 export interface TimedWord {
   /** Text as it will be displayed (casing / punctuation options applied). */
@@ -25,6 +33,8 @@ export interface TimedWord {
   start: number;
   end: number;
   speaker?: string | null;
+  /** The last word of a dub line: no cue runs past it into the next line. */
+  lineEnd?: boolean;
 }
 
 export interface CueBudget {
@@ -146,8 +156,14 @@ const ENGLISH_BIND_FWD = [
   'at', 'for', 'with', 'from', 'into', 'by', 'my', 'your', 'our', 'their', 'his', 'her', 'its',
 ];
 
-const BIND_BACK_SET = new Set(BIND_BACK.map(normFw));
-const BIND_FWD_SET = new Set([...BIND_FWD, ...ENGLISH_BIND_FWD].map(normFw));
+const without = (words: readonly string[], drop: readonly string[]) => {
+  const gone = new Set(drop.map(normFw));
+  return new Set(words.map(normFw).filter((word) => !gone.has(word)));
+};
+const BIND_BACK_SET = without([...BIND_BACK, ...EXTRA_BIND_BACK], NOT_BIND_BACK);
+const BIND_FWD_SET = without([...BIND_FWD, ...ENGLISH_BIND_FWD, ...EXTRA_BIND_FWD], NOT_BIND_FWD);
+const FINITE_SET = new Set(FINITE_VERBS.map(normFw));
+const FINITE_ENDINGS_NFC = FINITE_ENDINGS.map((ending) => ending.normalize('NFC'));
 const VERB_END_NFC: Record<string, string[]> = Object.fromEntries(
   Object.entries(VERB_END).map(([script, suffixes]) => [script, suffixes.map((s) => s.normalize('NFC'))])
 );
@@ -158,16 +174,20 @@ export const bindsBack = (token: string) => {
   return Boolean(t) && BIND_BACK_SET.has(t);
 };
 
-/** Opens the clause after it (conjunction, subordinator, article). */
+/** Opens the clause after it (conjunction, subordinator, article), or counts the noun after it (10 लोग). */
 export const bindsFwd = (token: string) => {
   const t = normFw(token);
-  return Boolean(t) && BIND_FWD_SET.has(t);
+  return Boolean(t) && (BIND_FWD_SET.has(t) || /^\p{N}+$/u.test(t));
 };
 
 /** A finite verb form closing its clause, in the verb-final languages. */
 const endsClause = (token: string) => {
   const t = normFw(token);
   if (!t) return false;
+  if (FINITE_SET.has(t)) return true;
+  if (wordScript(t) && !bindsFwd(t) && FINITE_ENDINGS_NFC.some((ending) => t.length > ending.length && t.endsWith(ending))) {
+    return true;
+  }
   const script = verbFinalScript(t);
   const suffixes = script ? VERB_END_NFC[script] : null;
   if (!suffixes || bindsFwd(t)) return false;
@@ -253,7 +273,10 @@ const cliticChainStart = (buf: TimedWord[], nextRaw: string) => {
   if (!bindsBack(nextRaw)) return buf.length;
   let j = buf.length;
   while (j > 0 && bindsBack(buf[j - 1].raw)) j -= 1;
-  return Math.max(j - 1, 0);
+  let at = Math.max(j - 1, 0);
+  // "किसी होटल में": the words leading into the head move with it.
+  while (at > 0 && bindsFwd(buf[at - 1].raw)) at -= 1;
+  return at;
 };
 
 /** Where to close the cue in `buf`: 1..buf.length. Ties go to the later cut. */
@@ -290,9 +313,17 @@ const bestCut = (buf: TimedWord[], nextRaw: string, nextStart: number, cap: numb
 
 const joinText = (words: TimedWord[]) => words.map((word) => word.text).join(' ');
 
+/**
+ * Words as a word limit counts them: a word that only completes the one before
+ * it (है, में, की, দিয়ে) is not counted. Hindi writes those apart where
+ * Bengali joins them on, so "होटल में जाते हैं" is two words, like "হোটেলে যান".
+ * The character limit still holds every word.
+ */
+const countWords = (words: TimedWord[]) => words.reduce((n, word) => n + (bindsBack(word.raw) ? 0 : 1), 0);
+
 const lineFits = (line: TimedWord[], budget: CueBudget) =>
   vlen(joinText(line)) <= budget.maxCharsPerLine &&
-  (budget.maxWordsPerLine <= 0 || line.length <= budget.maxWordsPerLine);
+  (budget.maxWordsPerLine <= 0 || countWords(line) <= budget.maxWordsPerLine);
 
 /**
  * Greedy wrap that never drops a word. A phrase-completing word never opens a
@@ -449,9 +480,10 @@ const reattachClitics = (groups: TimedWord[][], { budget, maxWords, maxSecs, pau
       const gap = head.start - prev[prev.length - 1].end;
       const limit = words.length === 1 ? GLUE_MAX_GAP : pauses.split;
       if (
+        prev[prev.length - 1].lineEnd ||
         wordScript(head.text) !== wordScript(joinText(prev)) ||
         !(gap >= -0.1 && gap <= limit) ||
-        (maxWords > 0 && prev.length >= maxWords) ||
+        (maxWords > 0 && countWords([...prev, head]) > maxWords) ||
         head.end - prev[0].start > maxSecs ||
         !fitsLines([...prev, head], budget)
       ) {
@@ -465,6 +497,10 @@ const reattachClitics = (groups: TimedWord[][], { budget, maxWords, maxSecs, pau
   return out;
 };
 
+/** Must a cue close between `prev` and the word `nextRaw`? */
+const breaksBefore = (prev: TimedWord, nextRaw: string) =>
+  Boolean(prev.lineEnd) || (!bindsBack(nextRaw) && !endsWith(prev.raw, STRONG_END) && endsClause(prev.raw) && Boolean(wordScript(prev.raw)));
+
 const speakerOf = (words: TimedWord[]) => words.find((word) => word.speaker != null)?.speaker ?? null;
 
 /**
@@ -476,7 +512,7 @@ const rebalanceCues = (groups: TimedWord[][], { cap, maxWords, maxSecs, pauses }
   const floor = Math.min(cap * RUNT_FRACTION, RUNT_MAX_CHARS);
   const legal = (words: TimedWord[]) =>
     words.length > 0 &&
-    (maxWords <= 0 || words.length <= maxWords) &&
+    (maxWords <= 0 || countWords(words) <= maxWords) &&
     words[words.length - 1].end - words[0].start <= maxSecs &&
     vlen(joinText(words)) <= cap;
 
@@ -504,7 +540,8 @@ const rebalanceCues = (groups: TimedWord[][], { cap, maxWords, maxSecs, pauses }
       (ps != null && bs != null && ps !== bs) ||
       wordScript(joinText(prev)) !== wordScript(joinText(words)) ||
       gap > GLUE_MAX_GAP ||
-      joined.slice(0, -1).some((word) => endsWith(word.raw, STRONG_END))
+      breaksBefore(prev[prev.length - 1], words[0].raw) ||
+      joined.slice(0, -1).some((word) => endsWith(word.raw, STRONG_END) || word.lineEnd)
     ) {
       out.push(words);
       continue;
@@ -580,11 +617,19 @@ export const buildCues = (words: TimedWord[], budget: CueBudget): TimedCue[] => 
     return buf.slice(cut);
   };
   const phraseCanMove = (at: number, endTime: number) =>
-    (maxWords <= 0 || buf.length - at + 1 <= maxWords) && endTime - buf[at].start <= maxSecs;
+    (maxWords <= 0 || countWords(buf.slice(at)) <= maxWords) && endTime - buf[at].start <= maxSecs;
   const cueFits = (at: number) => buf[at - 1].end - buf[0].start <= maxSecs;
 
   for (const word of spoken) {
     const { raw, text, start: ws, end: we } = word;
+
+    // A dub line ends its cue; so does a finite verb the next word doesn't
+    // complete — Hindi and Bengali close the clause on it, danda or not.
+    if (buf.length && breaksBefore(buf[buf.length - 1], raw)) {
+      buf = flushAt(buf.length);
+      start = null;
+      end = null;
+    }
     if (start === null) start = ws;
 
     const speaker = word.speaker ?? null;
@@ -621,7 +666,7 @@ export const buildCues = (words: TimedWord[], budget: CueBudget): TimedCue[] => 
     const tooLong = prospectiveLen > cap;
     const tooLongDur = buf.length > 0 && dur > maxSecs;
     const tooFast = cps > 0 && buf.length > 0 && dur >= 0.5 && prospectiveLen / dur > cps;
-    const tooManyWords = maxWords > 0 && buf.length >= maxWords;
+    const tooManyWords = maxWords > 0 && !bindsBack(raw) && countWords(buf) >= maxWords;
 
     if ((tooLong || tooLongDur || tooFast || tooManyWords) && buf.length) {
       let cut = bestCut(buf, raw, ws, cap, pauses);
@@ -630,6 +675,14 @@ export const buildCues = (words: TimedWord[], budget: CueBudget): TimedCue[] => 
       // A word only moves to the next cue across a boundary that exists.
       if (cut < buf.length && !cutSupported(buf, cut, ws, pauses)) {
         if (!(cut === chain && phraseCanMove(chain, we)) && cueFits(buf.length)) cut = buf.length;
+      }
+
+      // A cue taken whole never ends on a word that leads into the next one
+      // ("छह या | सात"): those words go forward with it.
+      if (cut === buf.length && !bindsBack(raw)) {
+        let lead = cut;
+        while (lead > 1 && bindsFwd(buf[lead - 1].raw)) lead -= 1;
+        if (lead < cut && phraseCanMove(lead, we)) cut = lead;
       }
 
       // Keep a phrase whole: hold the incoming word here (one word over

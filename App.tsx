@@ -198,7 +198,7 @@ import {
   generateTargetLanguageScript,
   downloadFile,
   TargetScriptFormat,
-  DEFAULT_SRT_OPTIONS,
+  loadSrtOptions,
   SrtOptions,
 } from './services/srtService';
 import {
@@ -4522,11 +4522,7 @@ export default function App() {
   // Download SubRip (.SRT) Subtitles
   const handleDownloadMasterSrt = useCallback(() => {
     if (!activeJob) return;
-    let srtOpts = DEFAULT_SRT_OPTIONS;
-    try {
-      const saved = localStorage.getItem('dhvani_srt_options');
-      if (saved) srtOpts = JSON.parse(saved);
-    } catch {}
+    const srtOpts = loadSrtOptions();
     const srtContent = generateSrtContent(activeJob.segments, srtOpts);
     const blob = new Blob([srtContent], { type: 'text/srt' });
     const url = URL.createObjectURL(blob);

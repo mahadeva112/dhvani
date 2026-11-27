@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.5.25',
+    changes: [
+      'Export subtitles: Hindi and Bengali subtitles are cut where the phrase ends, even when the dub text has no danda or comma. "रख दें", "के बाद", "किसी होटल" stay together, a new clause starts a new subtitle, and a subtitle never runs from one dub line into the next.',
+      'Export subtitles: the default is now one line of up to five words. Lines whose words could not be timed are cut by the same rules instead of every few words.',
+    ],
+  },
+  {
     version: '1.5.24',
     changes: [
       'Review: the wording buttons that show when you point at a line no longer cover its words. They sit after the last word, or just above the line when it runs to the edge.',

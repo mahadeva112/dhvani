@@ -50,3 +50,27 @@ test('words that do not spell out the script give no timing at all', () => {
   assert.equal(wordTimesForCues([{ text: 'hello', start: 0, end: 1 }], [{ id: 'a', text: 'goodbye' }]), null);
   assert.equal(wordTimesForCues([{ text: 'one', start: 0, end: 1 }], [{ id: 'a', text: 'one two' }]), null);
 });
+
+test('a word said differently costs only its own cue its timing', () => {
+  const cues = [
+    { id: 'a', text: 'we went home' },
+    { id: 'b', text: 'the dog barked loudly' },
+    { id: 'c', text: 'then everyone slept' },
+  ];
+  const words = [
+    { text: 'we', start: 0, end: 0.2 },
+    { text: 'went', start: 0.2, end: 0.5 },
+    { text: 'home', start: 0.5, end: 0.9 },
+    { text: 'the', start: 1, end: 1.1 },
+    { text: 'cat', start: 1.1, end: 1.4 },
+    { text: 'barked', start: 1.4, end: 1.8 },
+    { text: 'loudly', start: 1.8, end: 2.2 },
+    { text: 'then', start: 2.5, end: 2.7 },
+    { text: 'everyone', start: 2.7, end: 3.1 },
+    { text: 'slept', start: 3.1, end: 3.5 },
+  ];
+  const out = wordTimesForCues(words, cues);
+  assert.equal(out[0].words.length, 3);
+  assert.deepEqual(out[1].words, []);
+  assert.deepEqual(out[2].words.map((word) => word.start), [2.5, 2.7, 3.1]);
+});

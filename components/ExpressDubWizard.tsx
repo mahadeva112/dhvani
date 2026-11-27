@@ -84,7 +84,7 @@ import {
   downloadFile,
   TargetScriptFormat,
   SrtOptions,
-  DEFAULT_SRT_OPTIONS,
+  loadSrtOptions,
   adjustSegmentsForDubbedTimeline,
   SubtitleExportChoice,
   loadSubtitleExportChoice,
@@ -958,13 +958,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   useEffect(() => {
     if (!editingTiming) setTimingTakesKey(null);
   }, [editingTiming]);
-  const [srtOptions, setSrtOptions] = useState<SrtOptions>(() => {
-    try {
-      const saved = localStorage.getItem('dhvani_srt_options');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return DEFAULT_SRT_OPTIONS;
-  });
+  const [srtOptions, setSrtOptions] = useState<SrtOptions>(() => loadSrtOptions());
   /** The language and timing last chosen in Export subtitles, shown on the Export subtitles button. */
   const [subtitleChoice, setSubtitleChoice] = useState<SubtitleExportChoice>(loadSubtitleExportChoice);
   const [exportSuccessMessage, setExportSuccessMessage] = useState<string | null>(null);

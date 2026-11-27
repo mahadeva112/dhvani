@@ -5,6 +5,8 @@ import {
   SrtOptions,
   DEFAULT_SRT_OPTIONS,
   SRT_PRESETS,
+  loadSrtOptions,
+  presetIdFor,
   generateSrtContent,
   generateVttContent,
   downloadFile,
@@ -113,15 +115,9 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   subtitleEdits,
   onSubtitleEditChange,
 }) => {
-  const [options, setOptions] = useState<SrtOptions>(() => {
-    try {
-      const saved = localStorage.getItem('dhvani_srt_options');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return initialOptions || DEFAULT_SRT_OPTIONS;
-  });
+  const [options, setOptions] = useState<SrtOptions>(() => loadSrtOptions(initialOptions || DEFAULT_SRT_OPTIONS));
 
-  const [activePresetId, setActivePresetId] = useState<string>('shorts_viral');
+  const [activePresetId, setActivePresetId] = useState<string>(() => presetIdFor(options));
   const [copied, setCopied] = useState<boolean>(false);
   const [previewIndex, setPreviewIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<'srt' | 'vtt'>('srt');
@@ -243,7 +239,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   /** Reading speed limit for the Edit list's marks; not an SRT option, so kept on its own. */
   const [maxCps, setMaxCps] = useState(loadMaxCps);
   const handleResetDefaults = () => {
-    handleUpdateOptions({ ...DEFAULT_SRT_OPTIONS }, 'shorts_viral');
+    handleUpdateOptions({ ...DEFAULT_SRT_OPTIONS }, presetIdFor(DEFAULT_SRT_OPTIONS));
     setMaxCps(saveMaxCps(DEFAULT_MAX_CPS));
   };
 
