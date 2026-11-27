@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Line Fit Less Crowded</title>
+<style>
+  *,::before,::after { box-sizing:border-box; }
+  html, body { overflow-x: clip; margin:0; }
+  body { background:#06080d; color:#cbd5e1; font-family: Inter, system-ui, "Nirmala UI", "Noto Sans Bengali", sans-serif; padding:32px 16px; }
+  h1, h2, p { margin:0; }
+  .wrap { max-width:60rem; margin:0 auto; display:flex; flex-direction:column; gap:44px; }
+  h1 { font-size:20px; font-weight:600; color:#f1f5f9; }
+  h2 { font-size:18px; font-weight:600; color:#f1f5f9; }
+  .lead { font-size:14px; line-height:1.55; color:#94a3b8; margin-top:6px; max-width:46rem; }
+  .lead b { color:#e2e8f0; font-weight:600; }
+  .sec { display:flex; flex-direction:column; gap:12px; }
+  .stage { background:#0d1016; border:1px solid #1e2430; border-radius:14px; padding:14px 16px 16px; max-width:720px; }
+  .box { border:1px solid #2b313d; border-radius:12px; background:#0b0d12; padding:9px 13px; font-size:17px; line-height:1.7; color:#f8fafc; font-family:"Nirmala UI","Noto Sans Devanagari",system-ui,sans-serif; }
+  .row { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:8px; min-height:26px; }
+  .right { margin-left:auto; display:flex; align-items:center; gap:4px; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .chip { position:relative; font-size:11.5px; padding:1px 7px; border-radius:6px; border:1px solid; white-space:nowrap; cursor:default; }
+  .chip.long { background:rgba(245,158,11,.15); color:#fcd34d; border-color:rgba(245,158,11,.35); }
+  .meter { width:64px; height:6px; border-radius:99px; background:#1e2430; position:relative; }
+  .meter i { position:absolute; inset:0 auto 0 0; border-radius:99px; background:#fbbf24; width:100%; }
+  .meter b { position:absolute; top:-4px; bottom:-4px; width:1px; background:#cbd5e1; }
+  .secs { font-size:11px; color:#94a3b8; }
+  .gone { text-decoration:line-through; opacity:.45; }
+  .delta { font-size:12px; color:#fde68a; }
+  svg.i { width:14px; height:14px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; }
+  svg.i.s { width:12px; height:12px; }
+  .btn { position:relative; height:26px; width:28px; border-radius:7px; border:1px solid #2b313d; color:#cbd5e1; display:inline-flex; align-items:center; justify-content:center; cursor:default; }
+  .btn:hover { background:#1e2430; color:#fff; }
+  .btn.ghost { border-color:transparent; color:#94a3b8; }
+  .pill { position:relative; display:inline-flex; align-items:center; gap:4px; height:22px; padding:0 8px; border-radius:999px; border:1px solid; font-size:11.5px; white-space:nowrap; cursor:default; }
+  .pill.on { border-color:rgba(99,102,241,.6); background:rgba(99,102,241,.15); color:#c7d2fe; }
+  .pill.off { border-style:dashed; border-color:#475569; color:#94a3b8; }
+  .warn { position:relative; display:inline-flex; color:#fbbf24; cursor:default; }
+  .tip { display:none; position:absolute; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%); background:#1e2430; border:1px solid #334155; color:#f1f5f9; font-size:12px; line-height:1.45; padding:7px 10px; border-radius:8px; width:max-content; max-width:300px; white-space:normal; box-shadow:0 8px 20px rgba(0,0,0,.5); z-index:5; pointer-events:none; }
+  .tip small { display:block; color:#94a3b8; font-size:11px; margin-top:2px; }
+  .chip:hover .tip, .pill:hover .tip, .warn:hover .tip, .btn:hover .tip, .showtip .tip { display:block; }
+  .hint { font-size:12px; color:#fbbf24; margin-top:6px; }
+  .why { border:1px solid #27292d; border-radius:10px; background:#0a0c11; padding:10px 12px; font-size:12.5px; line-height:1.5; color:#cbd5e1; margin-top:8px; }
+  .why p + p { margin-top:4px; }
+  .note { font-size:13px; color:#94a3b8; border-top:1px solid #1e293b; padding-top:20px; line-height:1.6; }
+  .note b { color:#e2e8f0; }
+  .cap { font-size:12px; color:#64748b; margin-bottom:6px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="shorter" viewBox="0 0 24 24"><path d="m20 17-5-5 5-5"/><path d="m4 17 5-5-5-5"/></symbol>
+  <symbol id="longer" viewBox="0 0 24 24"><path d="m9 7-5 5 5 5"/><path d="m15 7 5 5-5 5"/></symbol>
+  <symbol id="same" viewBox="0 0 24 24"><path d="M5 9h14"/><path d="M5 15h14"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
+  <symbol id="ff" viewBox="0 0 24 24"><path d="m13 19 9-7-9-7v14zM2 19l9-7-9-7v14z"/></symbol>
+  <symbol id="undo" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+  <symbol id="cut" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/></symbol>
+  <symbol id="warn" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4M12 17h.01"/></symbol>
+</svg>
+
+<div class="wrap">
+
+  <header>
+    <h1>লম্বা লাইনের সারি: ভিড় কমানোর mock</h1>
+    <p class="lead">একই লাইন সব জায়গায়: দুই ভাগে কাটা, Faster আছে, ছোট করলে এক-তৃতীয়াংশের বেশি কাটা পড়বে। (<b>0.1 s</b> সংখ্যাটা সম্ভবত ভুল হিসাব, সেটা আলাদা করে দেখছি; এখানে শুধু দেখানোর ধরন।)</p>
+  </header>
+
+  <!-- NOW -->
+  <section class="sec">
+    <div>
+      <h2>এখন যেমন আছে</h2>
+      <p class="lead">দুই সারি: সংখ্যা, pill, বোতাম, তারপর লম্বা হলুদ লেখা।</p>
+    </div>
+    <div class="stage">
+      <div class="box">पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की। पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की।</div>
+      <div class="row">
+        <span class="chip long mono">+8.0 s</span>
+        <span class="meter"><i></i><b style="left:2%"></b></span>
+        <span class="mono secs">8.1 / 0.1 s</span>
+        <span class="delta">−23 syl</span>
+        <span class="pill on"><svg class="i s"><use href="#undo"/></svg>Cut in 2 · auto</span>
+        <span class="right">
+          <span class="pill off"><svg class="i s"><use href="#ff"/></svg>Faster 7.1 s</span>
+          <span class="btn"><svg class="i"><use href="#shorter"/></svg></span>
+          <span class="btn"><svg class="i"><use href="#longer"/></svg></span>
+          <span class="btn"><svg class="i"><use href="#same"/></svg></span>
+          <span class="btn ghost"><svg class="i"><use href="#check"/></svg></span>
+          <span class="btn ghost"><svg class="i"><use href="#info"/></svg></span>
+        </span>
+      </div>
+      <p class="hint">Shorter would cut over a third of its words: drag its end on the timeline, or join it with the next line.</p>
+    </div>
+  </section>
+
+  <!-- MOCK A -->
+  <section class="sec">
+    <div>
+      <h2>Mock A: এক সারি, পরামর্শ ⚠-এর ভেতরে (আমার পরামর্শ)</h2>
+      <p class="lead">
+        <b>8.1 / 0.1 s</b> বাদ: chip-এ hover করলে আর ⓘ-তে। হলুদ লেখার জায়গায় <b>−23 syl</b>-এর পাশে ⚠, hover করলে পুরো কথা।
+        <b>Cut in 2 · auto</b> হয় <b>✂ 2</b>, <b>Faster 7.1 s</b> হয় <b>⏩ 7.1 s</b>; hover করলে পুরো নাম, ক্লিক আগের মতোই কাজ করে।
+        নিচে ⚠-এর ওপর hover করা অবস্থা দেখানো।
+      </p>
+    </div>
+    <div class="stage">
+      <div class="box">पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की। पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की।</div>
+      <div class="row">
+        <span class="chip long mono">+8.0 s<span class="tip">8.0 s over<small>About 8.1 s of speech · slot 0.1 s · original speech 4.3 s</small></span></span>
+        <span class="meter"><i></i><b style="left:2%"></b></span>
+        <span class="delta">−23 syl</span>
+        <span class="warn showtip"><svg class="i"><use href="#warn"/></svg><span class="tip">Shorter would cut over a third of its words.<small>Drag its end on the timeline, or join it with the next line.</small></span></span>
+        <span class="pill on"><svg class="i s"><use href="#cut"/></svg>2<span class="tip">Cut by you in 2 parts<small>Click to join them and let Sync place the line again.</small></span></span>
+        <span class="right">
+          <span class="pill off"><svg class="i s"><use href="#ff"/></svg>7.1 s<span class="tip">Read faster: about 7.1 s<small>Eleven v3 ignores speed, so Sync asks the voice to read faster.</small></span></span>
+          <span class="btn"><svg class="i"><use href="#shorter"/></svg></span>
+          <span class="btn"><svg class="i"><use href="#longer"/></svg></span>
+          <span class="btn"><svg class="i"><use href="#same"/></svg></span>
+          <span class="btn ghost"><svg class="i"><use href="#check"/></svg></span>
+          <span class="btn ghost"><svg class="i"><use href="#info"/></svg></span>
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- MOCK B -->
+  <section class="sec">
+    <div>
+      <h2>Mock B: হলুদ লেখা থাকে, শুধু খোলা লাইনে</h2>
+      <p class="lead">
+        সারি Mock A-র মতোই ছোট (✂ 2, ⏩ 7.1 s, সেকেন্ড বাদ), কিন্তু ⚠ নেই। পরামর্শের লেখাটা ছোট হয়ে নিচে থাকে, তবে শুধু যে লাইনটা বাছা আছে তাতে।
+        বাকি লাইনে শুধু এক সারি।
+      </p>
+    </div>
+    <div class="stage">
+      <div class="cap">বাছা লাইন</div>
+      <div class="box" style="border-color:#6366f1">पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की। पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की।</div>
+      <div class="row">
+        <span class="chip long mono">+8.0 s</span>
+        <span class="meter"><i></i><b style="left:2%"></b></span>
+        <span class="delta">−23 syl</span>
+        <span class="pill on"><svg class="i s"><use href="#cut"/></svg>2</span>
+        <span class="right">
+          <span class="pill off"><svg class="i s"><use href="#ff"/></svg>7.1 s</span>
+          <span class="btn"><svg class="i"><use href="#shorter"/></svg></span>
+          <span class="btn"><svg class="i"><use href="#longer"/></svg></span>
+          <span class="btn"><svg class="i"><use href="#same"/></svg></span>
+          <span class="btn ghost"><svg class="i"><use href="#check"/></svg></span>
+          <span class="btn ghost"><svg class="i"><use href="#info"/></svg></span>
+        </span>
+      </div>
+      <p class="hint">Too long to shorten: drag its end, or join it with the next line.</p>
+      <div class="cap" style="margin-top:18px">অন্য লাইন (বাছা নয়)</div>
+      <div class="box">पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की। पॉडकास्ट में फिर स्वागत है।</div>
+      <div class="row">
+        <span class="chip long mono">+2.4 s</span>
+        <span class="meter"><i></i><b style="left:70%"></b></span>
+        <span class="delta">−9 syl</span>
+        <span class="pill on"><svg class="i s"><use href="#cut"/></svg>2</span>
+        <span class="right">
+          <span class="pill off"><svg class="i s"><use href="#ff"/></svg>6.0 s</span>
+          <span class="btn"><svg class="i"><use href="#shorter"/></svg></span>
+          <span class="btn"><svg class="i"><use href="#longer"/></svg></span>
+          <span class="btn"><svg class="i"><use href="#same"/></svg></span>
+          <span class="btn ghost"><svg class="i"><use href="#check"/></svg></span>
+          <span class="btn ghost"><svg class="i"><use href="#info"/></svg></span>
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- MOCK C -->
+  <section class="sec">
+    <div>
+      <h2>Mock C: বাঁদিকে শুধু সমস্যা, ডানদিকে শুধু কাজ</h2>
+      <p class="lead">
+        বাঁদিকে একটাই chip: <b>+8.0 s · −23 syl</b>, মিটার নেই। ✂ 2 আর ⏩ 7.1 s ডানদিকে বোতামগুলোর সাথে, কারণ ওগুলোও কাজ।
+        পরামর্শ chip-এ hover করলে, আর ⓘ-তে।
+      </p>
+    </div>
+    <div class="stage">
+      <div class="box">पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की। पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की।</div>
+      <div class="row">
+        <span class="chip long mono showtip">+8.0 s · −23 syl<span class="tip">8.0 s over · about 23 syllables too many<small>Shorter would cut over a third of its words: drag its end on the timeline, or join it with the next line.</small></span></span>
+        <span class="right">
+          <span class="pill on"><svg class="i s"><use href="#cut"/></svg>2</span>
+          <span class="pill off"><svg class="i s"><use href="#ff"/></svg>7.1 s</span>
+          <span class="btn"><svg class="i"><use href="#shorter"/></svg></span>
+          <span class="btn"><svg class="i"><use href="#longer"/></svg></span>
+          <span class="btn"><svg class="i"><use href="#same"/></svg></span>
+          <span class="btn ghost"><svg class="i"><use href="#check"/></svg></span>
+          <span class="btn ghost"><svg class="i"><use href="#info"/></svg></span>
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <section class="note">
+    <p><b>আমার পরামর্শ: Mock A।</b> এক সারিতে আঁটে, মিটারটা থাকে (চোখে দেখেই বোঝা যায় কতটা বেশি), আর পরামর্শটা হারায় না, ⚠ দেখলেই বোঝা যায় কিছু বলার আছে। B-তে বাছা লাইনে এখনও দুই সারি। C সবচেয়ে কম, কিন্তু মিটার চলে যায় আর পরামর্শটা চোখে পড়ে না।</p>
+    <p style="margin-top:6px">Chip, ⚠, ✂ 2 আর ⏩-এর ওপর mouse নিলে পুরো কথা দেখায় (এই পাতাতেও)।</p>
+  </section>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Review Timeline Edit</title>
+<style>
+  *,::before,::after{box-sizing:border-box} h1,h2,h3,p{margin:0}
+  html,body{overflow-x:clip}
+  body{background:#0b0c0e;color:#c6c8ce;font-family:Inter,system-ui,"Nirmala UI","Noto Sans Bengali",sans-serif;padding:32px 16px;font-size:13px}
+  .wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:48px}
+  h1{font-size:20px;color:#ececef;font-weight:600}
+  h2{font-size:16px;color:#ececef;font-weight:600}
+  .sub{color:#8b8e98;margin-top:6px;max-width:820px;line-height:1.65}
+  .lbl{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:#5a5d66;font-weight:600;margin:14px 0 6px}
+  ul.notes{margin:12px 0 0;padding-left:18px;color:#abadb5;line-height:1.75;max-width:900px}
+  ul.notes b{color:#dcdde1;font-weight:600}
+  ul.notes kbd,.kbd{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;border:1px solid #33363c;border-bottom-width:2px;border-radius:4px;padding:0 4px;color:#dcdde1;background:#16171a}
+  svg.i{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+  .mono{font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
+  .bn{font-family:"Nirmala UI","Noto Sans Bengali",system-ui,sans-serif}
+
+  /* panel */
+  .panel{background:#111214;border:1px solid #27292d;border-radius:14px;overflow:hidden}
+  .scroll{overflow-x:auto}
+  .inner{min-width:980px}
+  .bar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #1f2125}
+  .ib{width:30px;height:30px;border:1px solid #27292d;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#abadb5}
+  .ib.on{background:#1d2030;border-color:#3a4170;color:#a9b4ff}
+  .btn{height:30px;padding:0 10px;border:1px solid #27292d;border-radius:10px;display:flex;align-items:center;gap:7px;font-size:12.5px;color:#c6c8ce;white-space:nowrap}
+  .btn.pri{background:#ececef;color:#111214;border-color:#ececef;font-weight:600}
+  .seg{display:flex;gap:2px;padding:2px;border:1px solid #27292d;border-radius:10px}
+  .seg span{padding:3px 9px;border-radius:7px;font-size:12px;color:#8b8e98}
+  .seg span.on{background:#232529;color:#ececef}
+  .ml{margin-left:auto}
+  .quiet{color:#8b8e98;font-size:12px;white-space:nowrap}
+  .sep{width:1px;height:18px;background:#27292d}
+  .zoom{display:flex;align-items:center;gap:6px;color:#8b8e98}
+  .zoom i{display:block;width:84px;height:4px;border-radius:99px;background:#2a2c31;position:relative}
+  .zoom i::after{content:"";position:absolute;left:30%;top:-4px;width:12px;height:12px;border-radius:50%;background:#c6c8ce}
+
+  /* timeline */
+  .tl{position:relative;display:grid;grid-template-columns:var(--gut,44px) 1fr}
+  .gut{border-right:1px solid #1f2125;background:#0f1012}
+  .gut .g{display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;letter-spacing:.06em;color:#5a5d66;border-bottom:1px solid #1a1b1f}
+  .lanes{position:relative}
+  .lane{position:relative;border-bottom:1px solid #1a1b1f}
+  .ruler{height:24px;background:#0f1012}
+  .ruler .tk{position:absolute;bottom:0;width:1px;background:#2a2c31;height:5px}
+  .ruler .tk.big{height:9px;background:#3a3d44}
+  .ruler .tl-l{position:absolute;top:4px;font-size:10px;color:#6b6e78;transform:translateX(-50%)}
+  .clip{position:absolute;top:6px;bottom:6px;border-radius:6px;overflow:hidden}
+  .clip svg.w{position:absolute;inset:0;width:100%;height:100%}
+  .clip .t{position:absolute;left:6px;right:6px;top:3px;font-size:11px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#dcdde1;text-shadow:0 1px 2px #000a}
+  .clip .t b{font-weight:600;color:#fff;margin-right:4px;font-family:ui-monospace,Consolas,monospace;font-size:10px;opacity:.75}
+  .clip.dub .t{font-size:12.5px;line-height:16px}
+  .clip.pick{box-shadow:0 0 0 1.5px #ececef inset}
+  .clip.dim{opacity:.72}
+  .clip .t{background:linear-gradient(#0009,#0000);margin:-3px -6px 0;padding:3px 6px 6px}
+  .fitline{position:absolute;left:0;right:0;bottom:0;height:3px}
+  .over{position:absolute;top:6px;bottom:6px;border-radius:0 6px 6px 0;background:repeating-linear-gradient(135deg,#e5484d55 0 4px,#e5484d22 4px 8px);border:1px solid #e5484d88;border-left:none}
+  .room{position:absolute;top:2px;bottom:2px;border:1px dashed #6b6e78;border-radius:8px;background:#ffffff05}
+  .room span{position:absolute;left:6px;bottom:-1px;transform:translateY(100%);font-size:10px;color:#8b8e98;background:#111214;padding:0 4px}
+  .tag{position:absolute;font-size:10px;font-weight:600;padding:0 5px;border-radius:5px;line-height:16px;white-space:nowrap}
+  .wt{position:absolute;top:22px;bottom:8px;width:0;border-left:1px dotted #ffffff40}
+  .ps{position:absolute;bottom:3px;font-size:9.5px;color:#5ec9d6;transform:translateX(-50%)}
+  .ph{position:absolute;top:0;bottom:0;width:2px;background:#e5484d;z-index:5}
+  .ph::before{content:"";position:absolute;top:0;left:-5px;border:6px solid transparent;border-top:8px solid #e5484d}
+  .grip{position:absolute;top:10px;bottom:10px;width:4px;border-radius:2px;background:#ececef}
+  .hint{position:absolute;z-index:6;background:#1b1c20;border:1px solid #33363c;border-radius:10px;padding:7px 10px;font-size:11.5px;color:#c6c8ce;white-space:nowrap;box-shadow:0 8px 24px #0008;display:flex;gap:12px}
+  .hint b{color:#ececef;font-weight:600}
+  .callout{position:absolute;z-index:7;font-size:10.5px;color:#0b0c0e;background:#f5c451;border-radius:99px;width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-weight:700}
+
+  /* overview */
+  .ov{height:30px;position:relative;background:#0c0d0f;border-bottom:1px solid #1f2125}
+  .ov i{position:absolute;top:9px;height:12px;border-radius:2px}
+  .ov .vp{position:absolute;top:3px;bottom:3px;border:1.5px solid #c6c8ce;border-radius:6px;background:#ffffff0a}
+
+  /* lens */
+  .lens{background:#0d0e10}
+  .chip{position:absolute;top:9px;height:28px;border-radius:6px;background:#26231b;border:1px solid #4a4230;font-size:12px;color:#ece3cc;display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;padding:0 3px}
+  .chip.sel{background:#3a3220;border-color:#f5c451;color:#fff}
+  .cut{position:absolute;top:6px;height:34px;width:0;border-left:1.5px solid #5ec9d6}
+  .cut::after{content:"S";position:absolute;top:-2px;left:3px;font-size:9px;color:#5ec9d6;font-family:ui-monospace,Consolas,monospace}
+
+  /* headers */
+  .hd{display:flex;flex-direction:column;justify-content:center;gap:5px;padding:0 10px;border-bottom:1px solid #1a1b1f;position:relative}
+  .hd .nm{font-size:12px;color:#dcdde1;font-weight:600;display:flex;align-items:center;gap:6px}
+  .hd .nm small{font-weight:400;color:#6b6e78;font-size:11px}
+  .hd .ms{display:flex;gap:4px}
+  .hd .ms span{width:20px;height:18px;border:1px solid #2c2e33;border-radius:5px;font-size:10px;display:flex;align-items:center;justify-content:center;color:#8b8e98;font-weight:600}
+  .hd .ms span.on{background:#f5c451;color:#111;border-color:#f5c451}
+  .hd::after{content:"";position:absolute;left:40%;right:40%;bottom:2px;height:2px;border-radius:2px;background:#2c2e33}
+
+  /* line card */
+  .card{display:flex;align-items:center;gap:14px;padding:10px 14px;border-top:1px solid #1f2125}
+  .tp{display:flex;align-items:center;gap:6px}
+  .play{width:34px;height:34px;border-radius:50%;background:#ececef;color:#111;display:flex;align-items:center;justify-content:center}
+  .play svg{fill:#111;stroke:none}
+  .ctext{flex:1;min-width:0}
+  .ctext .d{color:#f6f6f7;font-size:14.5px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .ctext .e{color:#7d808a;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+  .fitbar{width:150px}
+  .fitbar .b{height:6px;border-radius:99px;background:#2a2c31;position:relative;overflow:hidden}
+  .fitbar .b i{position:absolute;left:0;top:0;bottom:0;width:87%;background:#d8c9a3}
+  .fitbar .b u{position:absolute;left:87%;top:0;bottom:0;right:0;background:#e5484d}
+  .fitbar .n{display:flex;justify-content:space-between;font-size:10px;color:#6b6e78;margin-top:4px}
+
+  table.cmp{width:100%;border-collapse:collapse;margin-top:12px;max-width:980px}
+  table.cmp th,table.cmp td{border:1px solid #27292d;padding:9px 12px;text-align:left;vertical-align:top;line-height:1.55}
+  table.cmp th{background:#0e0f11;color:#8b8e98;font-size:11.5px;font-weight:600}
+  table.cmp td:first-child{color:#dcdde1;width:180px}
+  .pick-b{border:1px solid #3a4170;background:#14162a;border-radius:12px;padding:14px 16px;color:#c6c8ce;line-height:1.7;max-width:900px}
+  .pick-b b{color:#ececef}
+  .bad{outline:2px dashed #e5484d;outline-offset:1px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="undo" viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></symbol>
+  <symbol id="redo" viewBox="0 0 24 24"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 15-6.7L21 13"/></symbol>
+  <symbol id="hist" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l4 2"/></symbol>
+  <symbol id="down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="zin" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/></symbol>
+  <symbol id="zout" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M8 11h6"/></symbol>
+  <symbol id="mag" viewBox="0 0 24 24"><path d="m6 15-4-4 6.75-6.77a7.79 7.79 0 0 1 11 11L13 22l-4-4 6.39-6.36a2.14 2.14 0 0 0-3-3L6 15M5 8l4 4M12 15l4 4"/></symbol>
+  <symbol id="help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/></symbol>
+  <symbol id="play" viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></symbol>
+  <symbol id="prev" viewBox="0 0 24 24"><path d="M19 20 9 12l10-8zM5 19V5"/></symbol>
+  <symbol id="next" viewBox="0 0 24 24"><path d="m5 4 10 8-10 8zM19 5v14"/></symbol>
+  <symbol id="loop" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></symbol>
+  <symbol id="arrowdown" viewBox="0 0 24 24"><path d="M12 5v14M19 12l-7 7-7-7"/></symbol>
+  <symbol id="eye" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></symbol>
+</svg>
+
+<div class="wrap">
+
+<header>
+  <h1>Review টাইমলাইন — এডিট করার মতো, কিন্তু পরিষ্কার</h1>
+  <p class="sub">একই জায়গা (01:10 – 01:32, Line 19–22), একই কাজ। মূল নিয়ম: <b>সব লাইন শান্ত থাকে, শুধু যে লাইনে আপনি কাজ করছেন সেটাই সব খুঁটিনাটি দেখায়।</b> কোনো টুল-বাটন নেই — কোথায় টানছেন সেটাই ঠিক করে কী হবে (মাঝে টানলে সরে, ধারে টানলে trim), শর্টকাট দেখায় hover-এ।</p>
+</header>
+
+<!-- ================= NOW ================= -->
+<section>
+  <h2>এখন কোথায় ভিড় হচ্ছে</h2>
+  <ul class="notes">
+    <li><b>তিন সারি লেখা</b> — ওয়েভ, তার নিচে ইংরেজি বার, তার নিচে বাংলা বার। একই লাইন তিনবার পড়তে হয়।</li>
+    <li><b>বাংলা লেখা পাশের লাইনের উপর চড়ে যায়</b> (01:25-এর কাছে "আপনি কিছুই…" আর "নেহাত দৈবাৎ…" একসাথে পড়া যায় না)।</li>
+    <li><b>সব লাইনে</b> pause সংখ্যা (0.4, 0.7), হলুদ ▲ চিহ্ন, সময় (≈1.4 s) — যে লাইন দেখছেন না সেটাতেও।</li>
+    <li>টুলবারে Split, Undo-র লেখা, History, Cue, সময়, Speaker, View, গতি, zoom, Fit — সব এক লাইনে সমান জোরে।</li>
+    <li>লাইন কত বড়, কোথায় সমস্যা — পুরো ফাইলের ছবি নেই; 33 লাইনের কোনটা লাল খুঁজতে স্ক্রল করতে হয়।</li>
+  </ul>
+</section>
+
+<!-- ================= MOCK A ================= -->
+<section>
+  <h2>Mock A — দুই লেন, একটা লাইন খোলা</h2>
+  <p class="sub">উপরে মূল (ইংরেজি), নিচে ডাব (বাংলা)। লেখা থাকে <b>ক্লিপের ভিতরেই</b>, এক লাইনে, জায়গা না থাকলে "…" — কখনো পাশের উপর চড়ে না। বেছে নেওয়া লাইনে (Line 20) দেখা যায় তার room, শব্দের ফাঁক, pause; বাকিরা চুপ।</p>
+  <div class="lbl">Review player</div>
+  <div class="panel"><div class="scroll"><div class="inner" id="mockA"></div></div></div>
+  <ul class="notes">
+    <li><b>①</b> Room = ড্যাশ দেওয়া বাক্স, শুধু বেছে নেওয়া লাইনের। বাক্সের বাইরে যা যায় সেটা লাল ডোরা + <b>+1.5 s</b>।</li>
+    <li><b>②</b> শব্দের ফাঁক (ডট লাইন) শুধু বেছে নেওয়া লাইনে — এখানেই <kbd>S</kbd> কাটে, শব্দের মাঝে কখনো না।</li>
+    <li><b>③</b> Hover করলে ধারে সাদা হ্যান্ডেল আর ছোট hint। হলুদ/লাল দাগ শুধু ক্লিপের নিচে, সমস্যা থাকলে; ঠিক থাকলে কোনো দাগ নেই।</li>
+    <li>টুলবার: বাঁয়ে Undo/Redo/History (শুধু আইকন), মাঝে কোন লাইন, ডানে View · zoom · Snap · ?. <b>Split বাটন নেই</b> (<kbd>S</kbd> hover-এ দেখায়), <b>Loop</b> নিচে প্লেয়ারে।</li>
+  </ul>
+</section>
+
+<!-- ================= MOCK B ================= -->
+<section>
+  <h2>Mock B — A + পুরো ফাইলের মানচিত্র + শব্দ-লেন্স <span style="color:#a9b4ff;font-weight:500">(আমার পছন্দ)</span></h2>
+  <p class="sub">A-র মতোই পরিষ্কার, কিন্তু pro কাজের জন্য দুটো জিনিস বেশি: <b>উপরে ছোট মানচিত্র</b> (33 লাইন, লাল/হলুদ এক নজরে, ফ্রেম টেনে জায়গা বদলান) আর <b>বেছে নেওয়া অংশের নিচে শব্দ-লেন্স</b> — প্রতিটা শব্দ নিজের সময়ে, বড় করে, যাতে ঠিক কোথায় কাটবেন দেখা যায়।</p>
+  <div class="lbl">Review player</div>
+  <div class="panel"><div class="scroll"><div class="inner" id="mockB"></div></div></div>
+  <ul class="notes">
+    <li><b>মানচিত্র</b>: ধূসর = ঠিক, হলুদ = টাইট, লাল = বেশি লম্বা। ক্লিক = সেখানে যান, ফ্রেমের ধার টানা = zoom। আলাদা zoom স্লাইডারের দরকার কমে।</li>
+    <li><b>শব্দ-লেন্স</b> শুধু তখন খোলে যখন একটা অংশ বেছে নেওয়া আছে (এখানে "আসলে আপনি জানেনই না…")। নীল দাগ = এখন যেখানে কাটা আছে; দুই শব্দের ফাঁকে hover করলে <kbd>S</kbd>। শব্দে double-click = টাইপ (phonetic)। <kbd>Esc</kbd> = লেন্স বন্ধ।</li>
+    <li>লেন উঁচু-নিচু করা: লেনের নিচের ধার টানুন (Edit timing-এর মতো, প্রজেক্টে মনে থাকে)।</li>
+    <li>সব pause সংখ্যা / সব চিহ্ন একসাথে দেখতে চাইলে <b>View ▾ › All marks</b> — ডিফল্ট বন্ধ।</li>
+  </ul>
+</section>
+
+<!-- ================= MOCK C ================= -->
+<section>
+  <h2>Mock C — DAW-র মতো ট্র্যাক হেডার</h2>
+  <p class="sub">বাঁয়ে প্রতিটা লেনের নাম, <b>M</b> (mute) আর <b>S</b> (solo) — মূল বা ডাব আলাদা করে শোনার জন্য। DaVinci / REAPER যারা চালান তাদের চেনা লাগবে; কিন্তু বাঁয়ে ~130 px জায়গা যায়।</p>
+  <div class="lbl">Review player</div>
+  <div class="panel"><div class="scroll"><div class="inner" id="mockC"></div></div></div>
+  <ul class="notes">
+    <li>Dub-এ <b>S</b> চালু — শুধু ডাব বাজছে, মূল চুপ। এখন এটা Review-তে নেই, শুনে মেলাতে কাজে লাগে।</li>
+    <li>লেনের নিচের ছোট দাগ = উচ্চতা বদলানোর হাতল।</li>
+    <li>বাকি সব A-র মতো।</li>
+  </ul>
+</section>
+
+<!-- ================= RULES ================= -->
+<section>
+  <h2>কোন জিনিস কখন দেখা যাবে (তিনটেতেই একই)</h2>
+  <table class="cmp">
+    <tr><th>কখন</th><th>কী দেখা যায়</th></tr>
+    <tr><td>সবসময়</td><td>ওয়েভ, লাইনের রং, ক্লিপের ভিতরে এক লাইনের লেখা, প্লেহেড, সমস্যা থাকলে নিচে হলুদ/লাল দাগ, room-এর বাইরের লাল ডোরা</td></tr>
+    <tr><td>Hover করলে</td><td>ধারের হ্যান্ডেল, পুরো লেখা (tooltip), শর্টকাট hint: Drag = move · Edge = trim · <kbd>S</kbd> = cut · Double-click = type · <kbd>Alt</kbd>+drag = copy</td></tr>
+    <tr><td>লাইন বেছে নিলে</td><td>Room বাক্স, শব্দের ফাঁক, মূলের pause (সায়ান সংখ্যা), নিচের লাইন-কার্ড; B-তে শব্দ-লেন্স</td></tr>
+    <tr><td>View ▾ মেনুতে</td><td>Wave | Blocks | Bars, All marks (সব লাইনের pause/▲), লাইন নম্বর দেখানো</td></tr>
+    <tr><td>কখনো না</td><td>পাশের ক্লিপের উপর লেখা চড়া, প্রতি লাইনে ≈সময় লেখা, আলাদা Split/Trim টুল-বাটন</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>তুলনা</h2>
+  <table class="cmp">
+    <tr><th></th><th>A — দুই লেন</th><th>B — মানচিত্র + লেন্স</th><th>C — ট্র্যাক হেডার</th></tr>
+    <tr><td>পরিষ্কার</td><td>সবচেয়ে বেশি</td><td>প্রায় A-র মতো (লেন্স শুধু বাছলে)</td><td>ভালো, কিন্তু বাঁয়ে জায়গা কম</td></tr>
+    <tr><td>Pro এডিট</td><td>move / trim / S / টাইপ</td><td>A + শব্দ ধরে কাটা, পুরো ফাইলে লাফ</td><td>A + mute / solo</td></tr>
+    <tr><td>লম্বা ভিডিও</td><td>স্ক্রল</td><td>মানচিত্রে এক ক্লিকে লাল লাইন</td><td>স্ক্রল</td></tr>
+    <tr><td>উচ্চতা</td><td>≈ এখনকার চেয়ে 30 px কম</td><td>≈ এখনকার সমান (লেন্স খুললে +40 px)</td><td>A-র সমান</td></tr>
+  </table>
+  <div class="pick-b" style="margin-top:16px"><b>আমার পরামর্শ: Mock B।</b> দেখতে A-র মতোই শান্ত, কিন্তু 33+ লাইনের ফাইলে মানচিত্রটা সত্যি সময় বাঁচায়, আর শব্দ-লেন্সে <kbd>S</kbd> দিয়ে ঠিক জায়গায় কাটা এখনকার ছোট বারের চেয়ে অনেক সহজ। Mute/Solo (C) পরে B-তেই View মেনু থেকে যোগ করা যায়।</div>
+</section>
+
+</div>
+
+<script>
+const T0 = 70, T1 = 92.6, SPAN = T1 - T0;
+const X = t => ((t - T0) / SPAN * 100) + '%';
+const W = (a, b) => ((b - a) / SPAN * 100) + '%';
+const COL = { 19: '#8b7fd4', 20: '#b9a57c', 21: '#5b93b5', 22: '#c27aa0' };
+
+const orig = [
+  {id:19,a:70.95,b:72.65,t:'So stress is not about your job,'},
+  {id:19,a:72.95,b:74.1,t:"obviously, isn't it?"},
+  {id:20,a:74.95,b:77.8,t:'It is just that you do not know how to manage your body,'},
+  {id:20,a:78.5,b:79.6,t:'how to manage your mind,'},
+  {id:20,a:80.0,b:81.3,t:'how to manage your emotions,'},
+  {id:20,a:81.7,b:82.95,t:'your energy, your chemistry.'},
+  {id:20,a:83.35,b:84.95,t:'You do not know how to manage anything.'},
+  {id:21,a:85.6,b:87.1,t:'You are functioning by accident,'},
+  {id:21,a:87.5,b:88.6,t:'so everything is stressful.'},
+  {id:21,a:89.0,b:90.5,t:'Stress is not situational.'},
+  {id:22,a:91.1,b:92.6,t:'It is just an inability'},
+];
+const dub = [
+  {id:19,a:70.0,b:74.3,t:'আমি যদি আপনার চাকরিটা ছেড়ে দিই, তাহলে কি চাপ যাবে? নিশ্চয়ই না, তাই না?'},
+  {id:20,a:74.95,b:78.9,t:'আসলে আপনি জানেনই না নিজের শরীর কীভাবে সামলাবেন,'},
+  {id:20,a:79.15,b:80.75,t:'মন কীভাবে সামলাবেন,'},
+  {id:20,a:81.0,b:84.4,t:'আবেগ, নিজের শক্তি আর রসায়ন কীভাবে সামলাবেন।'},
+  {id:20,a:84.6,b:86.75,t:'আপনি কিছুই সামলাতে জানেন না।'},
+  {id:21,a:86.9,b:88.45,t:'আপনি নেহাত দৈবাৎভাবে চলছেন,',fit:'tight'},
+  {id:21,a:88.6,b:90.05,t:'তাই সবকিছুতেই চাপ।'},
+  {id:21,a:90.2,b:92.4,t:'মানসিক চাপ কিন্তু পরিস্থিতিগত নয়।'},
+  {id:22,a:92.5,b:94,t:'এটা স্রেফ অক্ষমতা'},
+];
+const PICK = 20, ROOM = [74.95, 85.25];
+
+function rnd(seed){ let s = seed * 9301 + 49297; return () => (s = (s * 9301 + 49297) % 233280) / 233280; }
+function wave(seed, dur, color, op, words){
+  const n = Math.max(12, Math.round(dur * 26)), r = rnd(seed);
+  // word envelope: louder inside words, quiet in gaps
+  const w = words || Math.max(2, Math.round(dur * 2.6));
+  let p = '';
+  for (let i = 0; i < n; i++){
+    const u = i / n, k = (u * w) % 1;
+    const env = Math.sin(Math.PI * Math.min(1, k * 1.15)) ** 0.7;
+    const h = Math.max(1.5, (0.25 + r() * 0.75) * env * 44);
+    p += `M${i + .5} ${50 - h}V${50 + h}`;
+  }
+  return `<svg class="w" viewBox="0 0 ${n} 100" preserveAspectRatio="none"><path d="${p}" stroke="${color}" stroke-opacity="${op}" stroke-width=".62" fill="none"/></svg>`;
+}
+function ruler(){
+  let h = '';
+  for (let t = Math.ceil(T0); t <= T1; t++){
+    const big = t % 5 === 0;
+    h += `<i class="tk${big ? ' big' : ''}" style="left:${X(t)}"></i>`;
+    if (big) h += `<span class="tl-l mono" style="left:${X(t)}">01:${String(t - 60).padStart(2, '0')}</span>`;
+  }
+  return `<div class="lane ruler">${h}<span class="tag mono" style="left:calc(${X(74.95)} + 6px);top:4px;color:#ececef;background:#e5484d33">01:14.9</span></div>`;
+}
+function wordGaps(c){
+  const ws = c.t.split(' '); const tot = ws.join('').length; let acc = 0, out = [];
+  ws.slice(0, -1).forEach(w => { acc += w.length; out.push(c.a + (c.b - c.a) * (acc / tot)); });
+  return out;
+}
+function origLane(h, pick){
+  let s = '';
+  orig.forEach((c, i) => {
+    const on = c.id === PICK, col = COL[c.id];
+    s += `<div class="clip${pick && !on ? ' dim' : ''}" style="left:${X(c.a)};width:${W(c.a, c.b)};background:${col}1c">${wave(i + 3, c.b - c.a, col, on ? .95 : .7)}<div class="t">${c.t}</div></div>`;
+  });
+  if (pick){ // pauses inside the picked line only
+    const p = orig.filter(c => c.id === PICK);
+    for (let i = 1; i < p.length; i++){ const g = p[i].a - p[i - 1].b; s += `<span class="ps mono" style="left:${X((p[i].a + p[i - 1].b) / 2)}">${g.toFixed(1)}</span>`; }
+  }
+  return `<div class="lane" style="height:${h}px">${s}</div>`;
+}
+function dubLane(h, o){
+  let s = `<div class="room" style="left:${X(ROOM[0])};width:${W(ROOM[0], ROOM[1])}"><span class="mono">room 10.3 s</span></div>`;
+  dub.forEach((c, i) => {
+    const on = c.id === PICK, col = COL[c.id];
+    const end = Math.min(c.b, T1), visB = c.id === PICK ? Math.min(c.b, ROOM[1]) : c.b;
+    const over = c.id === PICK && c.b > ROOM[1];
+    const cls = 'clip dub' + (on ? ' pick' : '') + (o.hover === i ? ' pick' : '');
+    let inner = wave(i + 40, c.b - c.a, col, on ? .9 : .6, c.t.split(' ').length);
+    inner += `<div class="t bn">${c.t}</div>`;
+    if (c.fit === 'tight') inner += `<i class="fitline" style="background:#f5a524"></i>`;
+    if (over) inner += `<i class="fitline" style="background:#e5484d"></i>`;
+    s += `<div class="${cls}" style="left:${X(c.a)};width:${W(c.a, end)};background:${col}${on ? '30' : '22'}">${inner}</div>`;
+    if (on && !o.noTicks) wordGaps(c).forEach(g => s += `<i class="wt" style="left:${X(g)}"></i>`);
+  });
+  s += `<div class="over" style="left:${X(ROOM[1])};width:${W(ROOM[1], 86.75)}"></div>`;
+  s += `<span class="tag mono" style="left:calc(${X(86.75)} - 46px);top:-9px;background:#e5484d;color:#fff">+1.5 s</span>`;
+  if (o.hover != null){
+    const c = dub[o.hover];
+    s += `<i class="grip" style="left:calc(${X(c.a)} + 2px)"></i><i class="grip" style="left:calc(${X(c.b)} - 6px)"></i>`;
+  }
+  if (o.cuts) o.cuts.forEach(t => s += `<i class="wt" style="left:${X(t)};border-left:1.5px solid #5ec9d6;top:6px;bottom:6px"></i>`);
+  return `<div class="lane" style="height:${h}px;background:#0e0f11">${s}</div>`;
+}
+function overview(){
+  const fits = ['o','o','o','t','o','o','o','o','o','r','o','o','o','o','o','o','o','o','o','r','t','o','o','o','o','o','o','t','o','o','o','o','o'];
+  const cm = { o:'#3a3d44', t:'#f5a524', r:'#e5484d' };
+  let s = '';
+  fits.forEach((f, i) => { const a = i / 33 * 84; s += `<i style="left:${a + .15}%;width:${84 / 33 - .4}%;background:${cm[f]}"></i>`; });
+  const vA = 18 / 33 * 84 - .2, vB = 22 / 33 * 84;
+  s += `<span class="vp" style="left:${vA}%;width:${vB - vA}%"></span>`;
+  s += `<span style="position:absolute;right:8px;top:7px;font-size:10.5px;color:#6b6e78" class="mono">33 lines · <b style="color:#e5484d">2</b> long · <b style="color:#f5a524">3</b> tight</span>`;
+  return s;
+}
+function lens(h){
+  const c = dub[1]; const ws = c.t.split(' '); const tot = ws.join('').length + ws.length * .6;
+  const L = t => (1.5 + (t - c.a) / (c.b - c.a) * 68) + '%', LW = (a, b) => ((b - a) / (c.b - c.a) * 68) + '%';
+  let acc = 0, s = '';
+  ws.forEach((w, i) => {
+    const a = c.a + (c.b - c.a) * (acc / tot); acc += w.length + .6; const b = c.a + (c.b - c.a) * ((acc - .6) / tot);
+    s += `<span class="chip bn${i === 5 ? ' sel' : ''}" style="left:${L(a)};width:${LW(a, b)}">${w}</span>`;
+    if (i === 4) s += `<i class="cut" style="left:calc(${L(b)} + 0.4%)"></i>`;
+  });
+  s += `<span style="position:absolute;left:72%;top:6px;font-size:11px;color:#6b6e78;line-height:1.5">Part 1 of Line 20 · 01:14.9–01:18.9<br>Double-click = type · gap = <span class="kbd">S</span> cut · <span class="kbd">Esc</span></span>`;
+  return `<div class="lane lens" style="height:${h}px">${s}</div>`;
+}
+function toolbar(){
+  return `<div class="bar">
+    <span class="ib" title="Undo · Edit 4 lines (Ctrl+Z)"><svg class="i"><use href="#undo"/></svg></span>
+    <span class="ib" style="opacity:.45"><svg class="i"><use href="#redo"/></svg></span>
+    <span class="btn"><svg class="i"><use href="#hist"/></svg><span class="mono" style="color:#8b8e98">73</span></span>
+    <span class="sep"></span>
+    <span class="quiet"><b style="color:#ececef;font-weight:600">Line 20</b> · <span class="mono">01:14.9 – 01:17.8</span> · Speaker 1</span>
+    <span class="seg ml"><span>Wave</span><span>Blocks</span><span class="on">Bars</span></span>
+    <span class="zoom"><svg class="i"><use href="#zout"/></svg><i></i><svg class="i"><use href="#zin"/></svg></span>
+    <span class="btn">Fit</span>
+    <span class="ib on" title="Snap"><svg class="i"><use href="#mag"/></svg></span>
+    <span class="ib"><svg class="i"><use href="#help"/></svg></span>
+  </div>`;
+}
+function card(){
+  return `<div class="card">
+    <div class="tp"><span class="ib"><svg class="i"><use href="#loop"/></svg></span><span class="ib"><svg class="i"><use href="#prev"/></svg></span><span class="play"><svg class="i"><use href="#play"/></svg></span><span class="ib"><svg class="i"><use href="#next"/></svg></span></div>
+    <span class="mono" style="color:#dcdde1">01:14.9 <span style="color:#5a5d66">/ 01:37.4</span></span>
+    <div class="ctext"><div class="d bn">আসলে আপনি জানেনই না নিজের শরীর কীভাবে সামলাবেন, মন কীভাবে সামলাবেন, আবেগ, নিজের শক্তি আর রসায়ন কীভাবে সামলাবেন। আপনি কিছুই সামলাতে জানেন না।</div><div class="e">It is just that you do not know how to manage your body, how to manage your mind, how to manage your emotions…</div></div>
+    <div class="fitbar"><div class="b"><i></i><u></u></div><div class="n mono"><span>dub 11.8 s</span><span>room 10.3 s</span></div></div>
+    <span style="color:#e5484d;font-weight:600;white-space:nowrap">1.5 s too long</span>
+    <span class="btn"><svg class="i"><use href="#arrowdown"/></svg>Shorter</span>
+    <span class="btn">Read 1.15×</span>
+    <span class="btn">Open line</span>
+  </div>`;
+}
+function build(id, o){
+  const el = document.getElementById(id);
+  const gut = o.headers
+    ? `<div class="gut">${o.overview ? '<div class="g" style="height:30px"></div>' : ''}<div class="g" style="height:24px"></div>
+        <div class="hd" style="height:${o.oh}px"><div class="nm"><svg class="i"><use href="#eye"/></svg>Original <small>EN</small></div><div class="ms"><span>M</span><span>S</span></div></div>
+        <div class="hd" style="height:${o.dh}px"><div class="nm"><svg class="i"><use href="#eye"/></svg>Dub <small>বাংলা</small></div><div class="ms"><span>M</span><span class="on">S</span></div></div></div>`
+    : `<div class="gut">${o.overview ? '<div class="g" style="height:30px;font-size:9px">ALL</div>' : ''}<div class="g" style="height:24px"></div><div class="g" style="height:${o.oh}px">EN</div><div class="g bn" style="height:${o.dh}px;font-size:11px">বাং</div>${o.lens ? `<div class="g" style="height:46px;font-size:9px">WORDS</div>` : ''}</div>`;
+  let lanes = '';
+  if (o.overview) lanes += `<div class="ov">${overview()}</div>`;
+  lanes += ruler() + origLane(o.oh, true) + dubLane(o.dh, o);
+  if (o.lens) lanes += lens(46);
+  lanes += `<i class="ph" style="left:${X(74.95)};top:${o.overview ? 30 : 0}px"></i>`;
+  if (o.hint){
+    const c = dub[o.hover];
+    lanes += `<div class="hint" style="right:8px;top:${(o.overview ? 30 : 0) + 24 + o.oh + o.dh + 6}px"><span><b>Drag</b> move</span><span><b>Edge</b> trim</span><span><span class="kbd">S</span> cut between words</span><span><b>Double-click</b> type</span><span><span class="kbd">Alt</span>+drag copy</span></div>`;
+  }
+  if (o.callouts){
+    const top0 = 24 + o.oh;
+    lanes += `<span class="callout" style="left:calc(${X(85.25)} - 9px);top:${top0 + o.dh - 6}px">1</span>`;
+    lanes += `<span class="callout" style="left:calc(${X(76.2)} - 9px);top:${top0 + 4}px">2</span>`;
+    lanes += `<span class="callout" style="left:calc(${X(dub[o.hover].a)} - 22px);top:${top0 + 22}px">3</span>`;
+  }
+  el.innerHTML = toolbar() + `<div class="tl" style="--gut:${o.headers ? 132 : 44}px">${gut}<div class="lanes">${lanes}</div></div>` + (o.hint ? '<div style="height:34px"></div>' : '') + card();
+}
+build('mockA', { oh: 62, dh: 70, hover: 3, hint: true, callouts: true });
+build('mockB', { oh: 62, dh: 70, overview: true, lens: true, noTicks: false });
+build('mockC', { oh: 62, dh: 70, headers: true });
+</script>
+</body>
+</html>

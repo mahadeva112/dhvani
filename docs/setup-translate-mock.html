@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Setup With Translate</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script>
+  tailwind.config = { theme: { extend: { colors: {
+    slate: { 50:'#f6f6f7',100:'#ececef',200:'#dcdde1',300:'#c6c8ce',400:'#abadb5',500:'#8b8e98',600:'#5a5d66',700:'#34363c',800:'#232529',900:'#18191c',950:'#111214' },
+    indigo: { 200:'#c9cefa',300:'#a5adf5',400:'#7b86ec',500:'#5866e0',600:'#4c59d0',950:'#23253a' },
+    edge: '#27292d',
+  } } } };
+</script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#0b0c0e; font-family: Inter, system-ui, "Noto Sans Bengali", "Noto Sans Devanagari", sans-serif; }
+  button { cursor: default; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .seg button.on { background:#5866e0; color:#fff; }
+  .scroll { scrollbar-width: thin; scrollbar-color: #34363c transparent; }
+  .sw { width:30px; height:17px; border-radius:999px; background:#34363c; position:relative; flex-shrink:0; display:inline-block; }
+  .sw::after { content:''; position:absolute; top:3px; left:3px; width:11px; height:11px; border-radius:50%; background:#fff; }
+  .sw.on { background:#5866e0; } .sw.on::after { left:16px; }
+  .bar { background: linear-gradient(90deg,#5866e0,#22d3ee); }
+  .fade-in { animation: f .2s ease-out; } @keyframes f { from { opacity:0; transform: translateY(4px) } to { opacity:1; transform:none } }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-3 sm:p-5">
+
+<div class="max-w-[92rem] mx-auto mb-3 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+  <span class="seg inline-flex rounded-lg border border-edge overflow-hidden" id="frameSeg">
+    <button data-f="1" class="px-3 py-1.5">১ · Transcribe-এর আগে</button>
+    <button data-f="2" class="px-3 py-1.5">২ · Transcript তৈরি → Translate</button>
+    <button data-f="3" class="px-3 py-1.5">৩ · অনুবাদ চলছে</button>
+    <button data-f="4" class="px-3 py-1.5">৪ · নিজের script</button>
+  </span>
+</div>
+
+<!-- Flow: now vs new -->
+<div class="max-w-[92rem] mx-auto mb-3 grid md:grid-cols-2 gap-2 text-[12.5px]">
+  <div class="rounded-xl border border-edge bg-slate-900/40 px-3 py-2 flex flex-wrap items-center gap-1.5 text-slate-400">
+    <span class="text-rose-300 font-semibold mr-1">এখন</span>
+    <span class="px-2 py-0.5 rounded-md bg-slate-800">Setup · Transcribe</span>›
+    <span class="px-2 py-0.5 rounded-md bg-slate-800">Go to translation</span>›
+    <span class="px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-200 line-through decoration-rose-300/60">Translation পাতা (একই transcript আবার)</span>›
+    <span class="px-2 py-0.5 rounded-md bg-slate-800">Review</span>
+  </div>
+  <div class="rounded-xl border border-emerald-500/30 bg-emerald-500/[.05] px-3 py-2 flex flex-wrap items-center gap-1.5 text-slate-300">
+    <span class="text-emerald-300 font-semibold mr-1">নতুন</span>
+    <span class="px-2 py-0.5 rounded-md bg-slate-800">Setup · Transcribe → Edit → Translate, এক পাতায়</span>›
+    <span class="px-2 py-0.5 rounded-md bg-slate-800">Review</span>
+    <span class="ml-auto text-[11.5px] text-emerald-300/80">এক পাতা আর এক ক্লিক কম</span>
+  </div>
+</div>
+<p id="note" class="max-w-[92rem] mx-auto mb-3 text-[13px] leading-relaxed text-slate-300"></p>
+
+<div id="stage" class="max-w-[92rem] mx-auto rounded-2xl border border-edge bg-[#0d0e10] overflow-hidden" style="height:min(860px, calc(100vh - 11rem)); min-height:640px"></div>
+
+<script>
+const ic = (n, c='w-4 h-4') => `<i data-lucide="${n}" class="${c}"></i>`;
+const SEGS = [
+  [0.0, 4.2, 1, 'When you sit quietly, the mind slowly settles on its own.'],
+  [4.2, 7.9, 1, "You don't have to fight it,"],
+  [7.9, 11.6, 1, 'just stop feeding it.'],
+  [12.4, 15.8, 2, 'So is that why mornings feel easier?'],
+  [16.3, 21.0, 1, 'Yes. In the early hours the body is still and the air is fresh.'],
+  [21.0, 24.1, 1, 'Use that time well.'],
+  [24.9, 29.5, 1, 'Even ten minutes of stillness changes how the whole day goes.'],
+  [30.2, 33.0, 2, "I'll try it tomorrow."],
+  [33.4, 36.8, 1, "Don't try. Just do it."],
+];
+const SPK = { 1:['Speaker 1','#7b86ec'], 2:['Speaker 2','#e0a458'] };
+const ft = (t) => { const m = Math.floor(t/60); return `${m}:${(t-m*60).toFixed(1).padStart(4,'0')}`; };
+const S = { f:2, open:false, done:4 };
+
+function wave(h=36, tint=false){
+  let s = 7, out = ''; const n = 90, w = 280;
+  for (let i=0;i<n;i++){ s=(s*9301+49297)%233280; const r=s/233280; const t=(i+.5)/n*36.8; const g=SEGS.find(x=>t>=x[0]&&t<x[1]);
+    const a = g ? .25+r*.75 : .06; const bh = Math.max(2,a*h*.9);
+    out += `<rect x="${(i*w/n).toFixed(1)}" y="${((h-bh)/2).toFixed(1)}" width="${(w/n-1).toFixed(1)}" height="${bh.toFixed(1)}" rx="1" fill="${tint&&g?SPK[g[2]][1]:'#5a5d66'}"/>`; }
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" class="w-full block" style="height:${h}px">${out}</svg>`;
+}
+function steps(){
+  const st = [['Source & voice',1],['Review',2],['Dub',3]];
+  return st.map(([n,i])=>`<span class="flex items-center gap-1.5 px-2.5 h-7 rounded-md ${i===1?'bg-slate-800 text-slate-100':'text-slate-500'}"><span class="w-4 h-4 rounded-full grid place-items-center text-[9.5px] font-bold ${i===1?'bg-indigo-500 text-white':'bg-slate-800'}">${i}</span>${n}</span>`).join('<span class="text-slate-700">›</span>');
+}
+function appBar(){
+  return `<header class="h-12 shrink-0 flex items-center gap-3 px-4 border-b border-edge bg-[#0e0f11]">
+    <span class="w-6 h-6 rounded-md bg-indigo-500 grid place-items-center text-[12px]">ध</span><span class="font-semibold text-[14px]">Dhvani</span>
+    <span class="text-[12.5px] text-slate-400">morning-talk_ep12 · English → Hindi</span>
+    <nav class="mx-auto flex items-center gap-1 text-[12px]">${steps()}</nav>
+    <button class="h-8 px-3 rounded-lg bg-slate-100 text-slate-950 text-[12.5px] font-semibold flex items-center gap-1">${ic('plus','w-3.5 h-3.5')}New dub</button>
+  </header>`;
+}
+const card = (inner, extra='') => `<div class="rounded-2xl border border-edge bg-slate-900/90 ${extra}">${inner}</div>`;
+const sel = (label, val, w='w-full') => `<label class="block ${w}"><span class="block text-[11px] text-slate-500 mb-1">${label}</span><span class="h-9 px-3 rounded-lg border border-edge bg-slate-950 flex items-center gap-2 text-[13px]"><span class="flex-1 truncate font-medium">${val}</span>${ic('chevron-down','w-4 h-4 text-slate-500')}</span></label>`;
+
+function fileCard(){
+  return card(`<div class="p-3"><div class="flex items-center gap-2.5"><span class="w-9 h-9 rounded-lg bg-cyan-500/10 text-cyan-400 grid place-items-center">${ic('film','w-4 h-4')}</span>
+    <div class="min-w-0 flex-1"><div class="text-[13px] font-semibold truncate">morning-talk_ep12.mp4</div><div class="text-[11px] text-slate-400 mono">0:36 · 48 kHz stereo · 12 MB</div></div>
+    <button class="px-2 py-1 rounded-lg text-[11.5px] text-slate-400 hover:bg-slate-800">Replace</button></div>
+    <div class="mt-2.5">${wave(36, S.f>=2)}</div></div>`);
+}
+function transcribeFull(){
+  return card(`<div class="p-4 space-y-3">
+      <div class="grid grid-cols-[1fr_auto_1fr] items-end gap-2">${sel('Spoken in','Auto detect')}<span class="w-9 h-9 rounded-lg border border-edge grid place-items-center text-slate-500">${ic('arrow-left-right','w-4 h-4')}</span>${sel('Dub into','Hindi <span class="text-slate-500 font-normal">हिन्दी</span>')}</div>
+      <div class="flex items-center justify-between"><span class="text-[13px] font-semibold">Speakers</span><span class="flex bg-slate-950 border border-edge rounded-lg p-0.5 gap-0.5 text-[12px]">${['1','2','3','4+','Detect'].map(x=>`<span class="px-2 h-6 grid place-items-center rounded-md ${x==='2'?'bg-slate-700 text-white':'text-slate-400'}">${x}</span>`).join('')}</span></div>
+    </div>
+    <div class="px-4 py-4 border-t border-edge">
+      <button class="w-full h-10 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold flex items-center justify-center gap-2">${ic('mic','w-4 h-4')}Transcribe</button>
+      <p class="mt-2 text-[11.5px] text-slate-500 leading-snug">Writes down what is said, in the spoken language. Never translates.</p>
+    </div>`);
+}
+function transcribedRow(){
+  return `<button data-toggle class="w-full rounded-2xl border border-edge bg-slate-900/90 px-3.5 py-3 flex items-center gap-2.5 text-left hover:border-slate-600">
+    <span class="w-7 h-7 rounded-lg bg-emerald-500/15 text-emerald-300 grid place-items-center">${ic('check','w-4 h-4')}</span>
+    <span class="flex-1 min-w-0"><span class="block text-[13px] font-semibold">Transcribed</span><span class="block text-[11.5px] text-slate-500">English · 2 speakers · 9 lines</span></span>
+    <span class="text-[11.5px] text-slate-400 flex items-center gap-1">${ic('rotate-ccw','w-3.5 h-3.5')}Again</span>
+  </button>`;
+}
+function translateCard(){
+  const running = S.f === 3;
+  const head = `<div class="px-4 pt-4 pb-3 border-b border-edge"><div class="flex items-center gap-2"><span class="w-7 h-7 rounded-lg bg-indigo-500/15 text-indigo-300 grid place-items-center">${ic('languages','w-4 h-4')}</span><h3 class="text-[14px] font-semibold">Get the Hindi script</h3></div>
+    <p class="text-[11.5px] text-slate-500 mt-1">Nothing is translated until you press a button.</p></div>`;
+  if (running) {
+    const pct = Math.round(S.done/9*100);
+    return card(head + `<div class="p-4 space-y-3 fade-in">
+      <div class="flex items-center gap-2 text-[13px]">${ic('loader-circle','w-4 h-4 animate-spin text-indigo-300')}<span class="font-medium">Natural translating</span><span class="ml-auto mono text-[12px] text-slate-400">${S.done} / 9</span></div>
+      <div class="h-1.5 rounded-full bg-slate-800 overflow-hidden"><div class="bar h-full rounded-full" style="width:${pct}%"></div></div>
+      <p class="text-[11.5px] text-slate-500">Lines fill in on the transcript as they come. Review opens when it's done.</p>
+      <button class="w-full h-9 rounded-lg border border-edge hover:border-rose-500/50 hover:bg-slate-800 text-[12.5px] flex items-center justify-center gap-1.5">${ic('x','w-3.5 h-3.5')}Cancel translation</button>
+    </div>`);
+  }
+  return card(head + `<div class="p-4 space-y-3">
+      ${sel('Dub into','Hindi <span class="text-slate-500 font-normal">हिन्दी</span>')}
+      ${sel('Style','Sadhguru — spoken, warm')}
+      <label class="flex items-start gap-2.5 rounded-lg border border-edge bg-slate-950/60 p-2.5"><span class="sw on mt-0.5"></span><span><span class="block text-[12.5px] font-medium">Fit to the voice's speed</span><span class="block text-[11px] text-slate-500">Meera speaks Hindi at 5.6 syllables/s</span></span></label>
+      <button data-go class="w-full h-10 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[13.5px] font-semibold flex items-center justify-center gap-2">${ic('languages','w-4 h-4')}Translate to Hindi</button>
+      <div class="grid grid-cols-2 gap-2">
+        <button data-go class="h-8 rounded-lg border border-edge hover:bg-slate-800 text-[12px] flex items-center justify-center gap-1.5" title="Whole sentences in everyday spoken words, quickly. Skips meaning, length and term checks.">${ic('zap','w-3.5 h-3.5 text-amber-300')}Fast</button>
+        <button data-go class="h-8 rounded-lg border border-edge hover:bg-slate-800 text-[12px] flex items-center justify-center gap-1.5" title="Sentence by sentence, the way it is spoken, then cut back onto the lines.">${ic('messages-square','w-3.5 h-3.5 text-cyan-300')}Natural</button>
+      </div>
+      <p class="text-[11px] text-slate-500">Sends 9 lines to your translation engine · uses credits</p>
+    </div>
+    <div class="px-4 py-3 border-t border-edge flex items-center gap-2">
+      <span class="text-[12px] text-slate-400 flex-1">Have the script already?</span>
+      <button data-paste class="h-8 px-2.5 rounded-lg border border-edge hover:bg-slate-800 text-[12px] flex items-center gap-1.5">${ic('clipboard-paste','w-3.5 h-3.5 text-slate-400')}Paste my script</button>
+    </div>`);
+}
+function pasteCard(){
+  return card(`<div class="px-4 pt-4 pb-3 border-b border-edge flex items-center gap-2"><span class="w-7 h-7 rounded-lg bg-slate-800 text-slate-300 grid place-items-center">${ic('clipboard-paste','w-4 h-4')}</span><h3 class="text-[14px] font-semibold flex-1">Use my Hindi script</h3><button data-back class="text-[11.5px] text-slate-400 hover:text-slate-200">‹ Translate instead</button></div>
+    <div class="p-4 space-y-3 fade-in">
+      <div class="rounded-xl border-[1.5px] border-dashed border-slate-700 px-3 py-6 text-center">
+        <div class="text-[12.5px] text-slate-300">Press <span class="mono text-[11px] px-1.5 py-0.5 rounded border border-slate-600">Ctrl+V</span> to paste, or drop a file</div>
+        <div class="text-[11px] text-slate-500 mt-1">.txt · .srt · a saved script</div>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <button class="h-9 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[12.5px] font-semibold flex items-center justify-center gap-1.5">${ic('clipboard-paste','w-3.5 h-3.5')}Paste script</button>
+        <button class="h-9 rounded-lg border border-edge hover:bg-slate-800 text-[12.5px] flex items-center justify-center gap-1.5">${ic('folder-open','w-3.5 h-3.5 text-slate-400')}Open file</button>
+      </div>
+      <div class="flex flex-wrap gap-1.5 text-[10.5px]">${['Not translated','Keeps timestamps','No credits'].map(t=>`<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">${t}</span>`).join('')}</div>
+    </div>`);
+}
+function transcript(){
+  if (S.f === 1) return `<div class="h-12 px-4 flex items-center gap-2 border-b border-edge">${ic('file-text','w-4 h-4 text-slate-400')}<span class="text-[14px] font-semibold">Transcript</span></div>
+    <div class="flex-1 grid place-items-center text-center p-8"><div><div class="w-11 h-11 mx-auto mb-3 rounded-xl bg-slate-950 border border-edge grid place-items-center text-slate-500">${ic('file-text','w-5 h-5')}</div><p class="text-[13.5px] font-semibold text-slate-300">No transcript yet</p><p class="text-[12px] text-slate-500 mt-1">Set the language and speakers on the left, then press Transcribe.</p></div></div>`;
+  const hindi = ['जब आप शांत बैठते हैं, मन अपने आप धीरे-धीरे ठहर जाता है।','आपको उससे लड़ना नहीं है,','बस उसे खुराक देना बंद कर दीजिए।','तो क्या इसीलिए सुबह आसान लगती है?'];
+  return `<div class="h-12 shrink-0 px-4 flex items-center gap-2.5 border-b border-edge">${ic('file-text','w-4 h-4 text-slate-400')}<span class="text-[14px] font-semibold">Transcript</span><span class="text-[11.5px] text-slate-500 mono">9 lines · 0:36 · English</span>
+      <div class="ml-auto flex gap-1.5">${S.f===3?'<span class="text-[11.5px] text-slate-500 self-center">Edit waits for the translation</span>':`<button class="h-8 px-3 rounded-lg border border-edge bg-slate-950 hover:bg-slate-800 text-[12.5px] font-medium flex items-center gap-1.5">${ic('pencil','w-3.5 h-3.5 text-slate-400')}Edit</button>`}<button class="h-8 px-2.5 rounded-lg border border-edge bg-slate-950 text-[12.5px] flex items-center gap-1.5">${ic('download','w-3.5 h-3.5 text-slate-400')}Export ${ic('chevron-down','w-3 h-3 text-slate-500')}</button></div></div>
+    <div class="flex-1 min-h-0 overflow-y-auto scroll">${SEGS.map((g,i)=>`<div class="grid grid-cols-[2rem_7.2rem_minmax(0,1fr)] gap-2.5 items-baseline px-4 py-2.5 ${i?'border-t border-slate-800/70':''} ${i===0&&S.f===2?'bg-indigo-500/10':''}">
+        <span class="mono text-[11px] text-slate-500">${String(i+1).padStart(2,'0')}</span><span class="mono text-[11px] text-slate-400">${ft(g[0])}–${ft(g[1])}</span>
+        <span class="text-[13px] leading-snug"><span class="mr-1.5 text-[11px] text-slate-500">${SPK[g[2]][0]}</span>${g[3]}
+          ${S.f===3 && i < S.done ? `<span class="block mt-1 text-[13.5px] text-indigo-200 fade-in">${hindi[i] || 'हिंदी पंक्ति…'}</span>` : S.f===3 && i===S.done ? `<span class="block mt-1 h-3 w-40 rounded bg-slate-800 animate-pulse"></span>` : ''}</span></div>`).join('')}</div>`;
+}
+function voiceCol(){
+  const v = [['Meera','Woman · warm · Hindi',1],['Kabir','Man · deep · Hindi',0],['Aarav','Man · calm · narrator',0],['Ishita','Woman · bright',0],['Tara','Woman · soft · story',0]];
+  return `<div class="space-y-3">
+    ${card(`<div class="p-3 space-y-1"><div class="px-1 pb-1 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Cast</div>
+      ${[['Main voice','Meera',0],['Speaker 1','Main voice',1],['Speaker 2','Kabir',2]].map(([a,b,c],k)=>`<div class="flex items-center gap-2 px-2 py-2 rounded-xl ${k===0?'bg-indigo-500/10 ring-1 ring-indigo-500/60':''}">${c?`<span class="w-2.5 h-2.5 rounded-full" style="background:${SPK[c][1]}"></span>`:`<span class="w-6 h-6 rounded-full bg-orange-500 text-[11px] font-bold grid place-items-center">M</span>`}<span class="text-[12.5px] font-semibold">${a}</span><span class="ml-auto text-[11.5px] text-slate-400">${b}</span></div>`).join('')}`)}
+    ${card(`<div class="p-3"><div class="text-[14px] font-semibold mb-2">Main voice</div>
+      <div class="h-8 px-2.5 rounded-lg border border-edge bg-slate-950 flex items-center gap-2 text-[12px] text-slate-500 mb-2">${ic('search','w-3.5 h-3.5')}Search all 5,382 voices</div>
+      <div class="space-y-1">${v.map(([n,t,on])=>`<div class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg ${on?'bg-indigo-500/10 ring-1 ring-indigo-500/50':''}"><span class="w-7 h-7 rounded-full ${on?'bg-indigo-500':'bg-slate-800'} grid place-items-center">${ic('play','w-3 h-3')}</span><span class="flex-1 min-w-0"><span class="block text-[12.5px] font-medium">${n}</span><span class="block text-[10.5px] text-slate-500 truncate">${t}</span></span>${on?ic('check','w-4 h-4 text-indigo-300'):''}</div>`).join('')}</div></div>`)}
+  </div>`;
+}
+const NOTES = {
+  1: '<b>১ · Transcribe-এর আগে।</b> এখনকার মতোই: বাঁয়ে ফাইল, ভাষা, স্পিকার আর Transcribe; মাঝে খালি transcript; ডানে voice। এখানে কিছু বদলাচ্ছে না।',
+  2: '<b>২ · Transcript তৈরি।</b> বাঁয়ের ভাষা-স্পিকারের অংশ গুটিয়ে এক লাইন হয়ে যায় ("✓ Transcribed · Again")। তার নিচে আসে <b>"Get the Hindi script"</b> কার্ড: Dub into, Style, voice-এর গতিতে মেলানো, বড় সবুজ <b>Translate to Hindi</b>, পাশে Fast আর Natural। মাঝে transcript আর তার Edit, তাই আগে ঠিক করে নিয়ে তারপর পাশেই Translate চাপা যায়। "Go to translation" বোতাম আর আলাদা Translation পাতা আর নেই। (Translate বোতাম চাপলে ৩ নম্বর দেখায়।)',
+  3: '<b>৩ · অনুবাদ চলছে।</b> কার্ডের জায়গায় progress (৪/৯) আর <b>Cancel translation</b>। অনুবাদ হওয়া লাইনগুলো মাঝের transcript-এ ইংরেজির নিচে হিন্দিতে ভরে উঠতে থাকে, তাই কী আসছে চোখের সামনে দেখা যায়। শেষ হলে আগের মতোই নিজে থেকে Review খোলে।',
+  4: '<b>৪ · নিজের script।</b> কার্ডের নিচের "Paste my script" চাপলে (বা পাতায় কোথাও Ctrl+V / ফাইল drop করলে) কার্ডটা Paste-এর কার্ড হয়ে যায়: Paste script, Open file, আর মনে করানো "Not translated · Keeps timestamps · No credits"। "‹ Translate instead" দিয়ে ফেরা যায়। Paste করলে আগের মতো line মেলানোর জানলা খোলে।',
+};
+let timer;
+function render(){
+  document.querySelectorAll('#frameSeg button').forEach(b=>b.classList.toggle('on', +b.dataset.f===S.f));
+  document.getElementById('note').innerHTML = NOTES[S.f];
+  const left = S.f === 1 ? fileCard() + transcribeFull()
+    : fileCard() + (S.open ? transcribeFull() : transcribedRow()) + (S.f === 4 ? pasteCard() : translateCard());
+  document.getElementById('stage').innerHTML = `<div class="h-full flex flex-col">${appBar()}
+    <div class="flex-1 min-h-0 grid grid-cols-[20rem_minmax(0,1fr)_21rem] gap-4 p-4">
+      <aside class="min-h-0 overflow-y-auto scroll space-y-3 pr-0.5">${left}</aside>
+      <section class="min-h-0 flex flex-col rounded-2xl border border-edge bg-slate-900/90 overflow-hidden">${transcript()}</section>
+      <aside class="min-h-0 overflow-y-auto scroll">${voiceCol()}</aside>
+    </div></div>`;
+  lucide.createIcons();
+  clearInterval(timer);
+  if (S.f === 3) timer = setInterval(()=>{ S.done = S.done >= 9 ? 1 : S.done + 1; render(); }, 1400);
+}
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('button'); if (!t) return;
+  if (t.dataset.f){ S.f = +t.dataset.f; S.open = false; S.done = 4; render(); }
+  else if (t.dataset.toggle !== undefined){ S.open = !S.open; render(); }
+  else if (t.dataset.go !== undefined){ S.f = 3; S.done = 1; render(); }
+  else if (t.dataset.paste !== undefined){ S.f = 4; render(); }
+  else if (t.dataset.back !== undefined){ S.f = 2; render(); }
+});
+render();
+</script>
+</body>
+</html>

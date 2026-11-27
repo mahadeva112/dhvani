@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Line Fit Icons</title>
+<style>
+  *,::before,::after { box-sizing:border-box; }
+  html, body { overflow-x: clip; margin:0; }
+  body { background:#06080d; color:#cbd5e1; font-family: Inter, system-ui, "Nirmala UI", "Noto Sans Bengali", sans-serif; padding:32px 16px; }
+  h1, h2, p { margin:0; }
+  .wrap { max-width:60rem; margin:0 auto; display:flex; flex-direction:column; gap:44px; }
+  h1 { font-size:20px; font-weight:600; color:#f1f5f9; }
+  h2 { font-size:18px; font-weight:600; color:#f1f5f9; }
+  .lead { font-size:14px; line-height:1.55; color:#94a3b8; margin-top:6px; max-width:46rem; }
+  .lead b { color:#e2e8f0; font-weight:600; }
+  .sec { display:flex; flex-direction:column; gap:12px; }
+  .stage { background:#0d1016; border:1px solid #1e2430; border-radius:14px; padding:14px 16px 16px; max-width:720px; }
+  .cap { font-size:12px; color:#64748b; margin-bottom:6px; }
+  .box { border:1px solid #2b313d; border-radius:12px; background:#0b0d12; padding:9px 13px; font-size:17px; line-height:1.7; color:#f8fafc; font-family:"Nirmala UI","Noto Sans Devanagari",system-ui,sans-serif; }
+  .box.on { border-color:#6366f1; }
+  .row { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:8px; min-height:26px; }
+  .right { margin-left:auto; display:flex; align-items:center; gap:4px; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .chip { font-size:11.5px; padding:1px 7px; border-radius:6px; border:1px solid; white-space:nowrap; }
+  .chip.long { background:rgba(245,158,11,.15); color:#fcd34d; border-color:rgba(245,158,11,.35); }
+  .chip.fits { background:rgba(16,185,129,.1); color:#6ee7b7; border-color:rgba(16,185,129,.25); }
+  .chip.short { background:rgba(14,165,233,.15); color:#7dd3fc; border-color:rgba(14,165,233,.35); }
+  .meter { position:relative; width:64px; height:6px; border-radius:99px; background:#1e2430; }
+  .meter i { position:absolute; inset:0 auto 0 0; border-radius:99px; }
+  .meter b { position:absolute; top:-4px; bottom:-4px; width:1px; background:#cbd5e1; }
+  .secs { font-size:11px; color:#94a3b8; }
+  .delta { font-size:12px; }
+  svg.i { width:14px; height:14px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; }
+  .btn { position:relative; height:26px; padding:0 8px; border-radius:7px; border:1px solid #2b313d; font-size:11.5px; color:#cbd5e1; display:inline-flex; align-items:center; gap:5px; cursor:default; background:transparent; }
+  .btn:hover { background:#1e2430; color:#fff; }
+  .btn.ico { width:28px; padding:0; justify-content:center; }
+  .btn.mark { border-color:rgba(99,102,241,.6); background:rgba(99,102,241,.1); color:#c7d2fe; }
+  .btn.ghost { border-color:transparent; color:#94a3b8; }
+  .btn.dash { border-style:dashed; border-color:#475569; color:#94a3b8; border-radius:999px; padding:0 8px; height:22px; }
+  .seg { display:inline-flex; border:1px solid #2b313d; border-radius:8px; overflow:hidden; }
+  .seg .btn { border:0; border-radius:0; height:26px; }
+  .seg .btn + .btn { border-left:1px solid #2b313d; }
+  .seg .btn.mark { background:rgba(99,102,241,.18); }
+  .tip { position:absolute; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%); background:#1e2430; border:1px solid #334155; color:#f1f5f9; font-size:12px; padding:6px 9px; border-radius:8px; white-space:nowrap; box-shadow:0 8px 20px rgba(0,0,0,.5); pointer-events:none; }
+  .tip small { display:block; color:#94a3b8; font-size:11px; margin-top:2px; }
+  .btn .tip { display:none; }
+  .btn:hover .tip, .btn.showtip .tip { display:block; }
+  .hint { font-size:12px; color:#fbbf24; margin-top:6px; }
+  .legend { display:flex; flex-wrap:wrap; gap:14px; font-size:13px; color:#cbd5e1; }
+  .legend span { display:inline-flex; align-items:center; gap:6px; }
+  .legend .k { width:28px; height:26px; border:1px solid #2b313d; border-radius:7px; display:inline-flex; align-items:center; justify-content:center; }
+  .note { font-size:13px; color:#94a3b8; border-top:1px solid #1e293b; padding-top:20px; line-height:1.6; }
+  .note b { color:#e2e8f0; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="shorter" viewBox="0 0 24 24"><path d="m20 17-5-5 5-5"/><path d="m4 17 5-5-5-5"/></symbol>
+  <symbol id="longer" viewBox="0 0 24 24"><path d="m9 7-5 5 5 5"/><path d="m15 7 5 5-5 5"/></symbol>
+  <symbol id="same" viewBox="0 0 24 24"><path d="M5 9h14"/><path d="M5 15h14"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
+  <symbol id="ff" viewBox="0 0 24 24"><path d="m13 19 9-7-9-7v14zM2 19l9-7-9-7v14z"/></symbol>
+</svg>
+
+<div class="wrap">
+
+  <header>
+    <h1>Shorter / Longer / Same length / Keep: icon করার mock</h1>
+    <p class="lead">
+      চারটে বোতাম icon হয়ে যায়, hover করলে নাম আর কী করে দেখায়। Faster 7.1 s যেমন আছে তেমনই, কারণ ওর সেকেন্ডটাই তথ্য। সব mock-এ উপরে ৩.৬ সেকেন্ড লম্বা লাইন, নিচে ঠিকঠাক লাইন আর ছোট লাইন।
+    </p>
+    <div class="legend" style="margin-top:14px">
+      <span><i class="k"><svg class="i"><use href="#shorter"/></svg></i>Shorter (চেপে ছোট)</span>
+      <span><i class="k"><svg class="i"><use href="#longer"/></svg></i>Longer (টেনে বড়)</span>
+      <span><i class="k"><svg class="i"><use href="#same"/></svg></i>Same length</span>
+      <span><i class="k"><svg class="i"><use href="#check"/></svg></i>Keep</span>
+    </div>
+  </header>
+
+  <!-- ============ MOCK A ============ -->
+  <section class="sec">
+    <div>
+      <h2>Mock A: সাজেস্ট করা বোতামে লেখাও থাকে (আমার পরামর্শ)</h2>
+      <p class="lead">লাইন লম্বা হলে <b>Shorter</b>-এ icon আর লেখা দুটোই থাকে (নীল দাগ, এখনকার মতো), বাকিগুলো শুধু icon। লাইন ঠিকঠাক বসলে কোনোটাই সাজেস্ট করা নয়, তাই চারটেই শুধু icon। নিচে Longer-এর ওপর hover করা অবস্থা দেখানো।</p>
+    </div>
+    <div class="stage">
+      <div class="cap">লম্বা লাইন</div>
+      <div class="box on">पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की। पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की।</div>
+      <div class="row">
+        <span class="chip long mono">+3.6 s</span>
+        <span class="meter"><i style="width:100%;background:#fbbf24"></i><b style="left:55%"></b></span>
+        <span class="mono secs">8.1 / 4.5 s</span>
+        <span class="delta" style="color:#fde68a">−23 syl</span>
+        <span class="right">
+          <span class="btn dash"><svg class="i"><use href="#ff"/></svg>Faster 7.1 s</span>
+          <span class="btn mark"><svg class="i"><use href="#shorter"/></svg>Shorter<span class="tip">Shorter<small>A shorter wording. Nothing changes until you use it.</small></span></span>
+          <span class="btn ico showtip"><svg class="i"><use href="#longer"/></svg><span class="tip">Longer<small>A longer wording. Nothing changes until you use it.</small></span></span>
+          <span class="btn ico"><svg class="i"><use href="#same"/></svg><span class="tip">Same length<small>Another wording, about as long.</small></span></span>
+          <span class="btn ico ghost"><svg class="i"><use href="#check"/></svg><span class="tip">Keep as is</span></span>
+          <span class="btn ico ghost"><svg class="i"><use href="#info"/></svg><span class="tip">Why, and syllables, pauses and lips</span></span>
+        </span>
+      </div>
+      <p class="hint">Shorter would cut over a third of its words: drag its end on the timeline, or join it with the next line.</p>
+    </div>
+    <div class="stage">
+      <div class="cap">ঠিকঠাক লাইন (বোতাম আসে mouse নিলে) · ছোট লাইন (Longer সাজেস্ট করা)</div>
+      <div class="box">आज बात एआई के नए दौर की।</div>
+      <div class="row">
+        <span class="chip fits mono">Fits</span>
+        <span class="meter"><i style="width:82%;background:#34d399"></i><b style="left:92%"></b></span>
+        <span class="mono secs">4.1 / 4.5 s</span>
+        <span class="right">
+          <span class="btn ico"><svg class="i"><use href="#shorter"/></svg><span class="tip">Shorter</span></span>
+          <span class="btn ico"><svg class="i"><use href="#longer"/></svg><span class="tip">Longer</span></span>
+          <span class="btn ico"><svg class="i"><use href="#same"/></svg><span class="tip">Same length</span></span>
+          <span class="btn ico ghost"><svg class="i"><use href="#info"/></svg><span class="tip">Why, and syllables, pauses and lips</span></span>
+        </span>
+      </div>
+      <div class="box" style="margin-top:14px">नमस्ते।</div>
+      <div class="row">
+        <span class="chip short mono">Ends 1.8 s early</span>
+        <span class="meter"><i style="width:40%;background:#38bdf8"></i><b style="left:100%"></b></span>
+        <span class="mono secs">1.2 / 3.0 s spoken</span>
+        <span class="delta" style="color:#7dd3fc">+20 ch</span>
+        <span class="right">
+          <span class="btn ico"><svg class="i"><use href="#shorter"/></svg><span class="tip">Shorter</span></span>
+          <span class="btn mark"><svg class="i"><use href="#longer"/></svg>Longer<span class="tip">Longer</span></span>
+          <span class="btn ico"><svg class="i"><use href="#same"/></svg><span class="tip">Same length</span></span>
+          <span class="btn ico ghost"><svg class="i"><use href="#check"/></svg><span class="tip">Keep as is</span></span>
+          <span class="btn ico ghost"><svg class="i"><use href="#info"/></svg><span class="tip">Why, and syllables, pauses and lips</span></span>
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ MOCK B ============ -->
+  <section class="sec">
+    <div>
+      <h2>Mock B: সব শুধু icon</h2>
+      <p class="lead">সবচেয়ে কম জায়গা নেয়। সাজেস্ট করা বোতামটা শুধু নীল রঙে আলাদা, লেখা নেই। কোনটা কী, সেটা hover করে দেখতে হবে।</p>
+    </div>
+    <div class="stage">
+      <div class="box on">पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की। पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की।</div>
+      <div class="row">
+        <span class="chip long mono">+3.6 s</span>
+        <span class="meter"><i style="width:100%;background:#fbbf24"></i><b style="left:55%"></b></span>
+        <span class="mono secs">8.1 / 4.5 s</span>
+        <span class="delta" style="color:#fde68a">−23 syl</span>
+        <span class="right">
+          <span class="btn dash"><svg class="i"><use href="#ff"/></svg>Faster 7.1 s</span>
+          <span class="btn ico mark showtip"><svg class="i"><use href="#shorter"/></svg><span class="tip">Shorter · suggested<small>A shorter wording. Nothing changes until you use it.</small></span></span>
+          <span class="btn ico"><svg class="i"><use href="#longer"/></svg><span class="tip">Longer</span></span>
+          <span class="btn ico"><svg class="i"><use href="#same"/></svg><span class="tip">Same length</span></span>
+          <span class="btn ico ghost"><svg class="i"><use href="#check"/></svg><span class="tip">Keep as is</span></span>
+          <span class="btn ico ghost"><svg class="i"><use href="#info"/></svg><span class="tip">Why, and syllables, pauses and lips</span></span>
+        </span>
+      </div>
+      <p class="hint">Shorter would cut over a third of its words: drag its end on the timeline, or join it with the next line.</p>
+    </div>
+  </section>
+
+  <!-- ============ MOCK C ============ -->
+  <section class="sec">
+    <div>
+      <h2>Mock C: তিনটে wording icon একটা জোড়া বোতামে</h2>
+      <p class="lead">Shorter, Longer আর Same length একসাথে জোড়া, যাতে বোঝা যায় এই তিনটে একই কাজের তিন রকম (নতুন wording চাওয়া)। Keep আর ⓘ আলাদা পাশে। সাজেস্ট করাটা নীল।</p>
+    </div>
+    <div class="stage">
+      <div class="box on">पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की। पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की।</div>
+      <div class="row">
+        <span class="chip long mono">+3.6 s</span>
+        <span class="meter"><i style="width:100%;background:#fbbf24"></i><b style="left:55%"></b></span>
+        <span class="mono secs">8.1 / 4.5 s</span>
+        <span class="delta" style="color:#fde68a">−23 syl</span>
+        <span class="right">
+          <span class="btn dash"><svg class="i"><use href="#ff"/></svg>Faster 7.1 s</span>
+          <span class="seg">
+            <span class="btn ico mark"><svg class="i"><use href="#shorter"/></svg><span class="tip">Shorter · suggested</span></span>
+            <span class="btn ico"><svg class="i"><use href="#longer"/></svg><span class="tip">Longer</span></span>
+            <span class="btn ico showtip"><svg class="i"><use href="#same"/></svg><span class="tip">Same length<small>Another wording, about as long.</small></span></span>
+          </span>
+          <span class="btn ico ghost"><svg class="i"><use href="#check"/></svg><span class="tip">Keep as is</span></span>
+          <span class="btn ico ghost"><svg class="i"><use href="#info"/></svg><span class="tip">Why, and syllables, pauses and lips</span></span>
+        </span>
+      </div>
+      <p class="hint">Shorter would cut over a third of its words: drag its end on the timeline, or join it with the next line.</p>
+    </div>
+  </section>
+
+  <section class="note">
+    <p><b>আমার পরামর্শ: Mock A।</b> যেটায় সবচেয়ে বেশি ক্লিক পড়ে, সেটা না পড়েই চেনা যায়; বাকি তিনটে জায়গা নেয় না। B সবচেয়ে ছোট, কিন্তু প্রতিবার hover করতে হয়। C-তে তিনটে wording একসাথে বোঝা যায়, তবে লেখা না থাকায় B-এর মতোই hover লাগে।</p>
+    <p style="margin-top:6px">বোতামের ওপর mouse নিলে নাম দেখায় (এই পাতাতেও hover করে দেখা যায়)।</p>
+  </section>
+
+</div>
+</body>
+</html>

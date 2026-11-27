@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Compact Cue Rows</title>
+<style>
+  *,::before,::after{box-sizing:border-box} h1,h2,p,ul{margin:0}
+  html,body{overflow-x:clip}
+  body{background:#06080d;color:#cbd5e1;font-family:Inter,system-ui,"Nirmala UI","Noto Sans Bengali",sans-serif;padding:32px 16px}
+  @media(min-width:640px){body{padding:32px}}
+  .wrap{max-width:84rem;margin:0 auto;display:flex;flex-direction:column;gap:40px}
+  h1{font-size:20px;color:#f1f5f9;font-weight:600}
+  h2{font-size:17px;color:#f1f5f9;font-weight:600;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .sub{font-size:13px;color:#94a3b8;margin-top:6px;line-height:1.6}
+  .notes{font-size:12.5px;color:#94a3b8;line-height:1.7;margin-top:8px;padding-left:18px}
+  .notes b{color:#e2e8f0;font-weight:500}
+  .stat{font-size:12px;padding:2px 9px;border-radius:99px;border:1px solid rgba(16,185,129,.35);background:rgba(16,185,129,.1);color:#6ee7b7;font-weight:500}
+  .stat.now{border-color:rgba(148,163,184,.3);background:rgba(148,163,184,.08);color:#cbd5e1}
+  .mono{font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
+  svg.i{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+  .bn{font-family:"Nirmala UI","Noto Sans Bengali",system-ui,sans-serif}
+
+  /* The Review list window: same height for every mock, so the counts compare. */
+  .stage{margin-top:14px;background:#0d1016;border:1px solid #1e2430;border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+  .list{height:520px;overflow:auto;position:relative}
+  .foot{display:flex;align-items:center;gap:14px;padding:6px 10px;border-top:1px solid #1e2430;font-size:12.5px;color:#94a3b8}
+  .foot .go{margin-left:auto;display:flex;align-items:center;gap:12px}
+  .foot button{height:30px;padding:0 14px;border-radius:7px;border:0;background:#4f46e5;color:#fff;font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:6px}
+
+  .row{position:relative;display:grid;border-bottom:1px solid #1e2430;cursor:default}
+  .row:hover{background:rgba(30,41,59,.3)}
+  .row.open{background:rgba(30,41,59,.45)}
+  .row.open::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:#64748b}
+  .play{border-radius:99px;border:1px solid #334155;color:#cbd5e1;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:transparent}
+  .play:hover{border-color:#818cf8;color:#a5b4fc}
+  input[type=checkbox]{accent-color:#6366f1;margin:0;flex-shrink:0}
+  .num{font-size:12px;color:#94a3b8}
+  .en{font-size:13px;color:#94a3b8;line-height:1.6}
+  .tgt{font-size:16px;color:#f1f5f9;line-height:1.6;outline:none;border-radius:8px}
+  .menu{color:#94a3b8;opacity:0;display:flex;justify-content:flex-end}
+  .row:hover .menu,.row.open .menu{opacity:1}
+  .cut{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 7px;border-radius:99px;border:1px solid rgba(99,102,241,.5);background:rgba(99,102,241,.12);color:#c7d2fe;font-size:11.5px;vertical-align:middle;white-space:nowrap}
+  .counts{display:none;gap:10px;font-size:11.5px;color:#94a3b8;margin-top:2px}
+  .counts .ok{color:#6ee7b7}
+  .row.open .counts{display:flex}
+  .picker{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 8px;border-radius:7px;border:1px solid #2b313d;background:#0d1017;color:#e2e8f0;font-size:12px;font-weight:500}
+  .dot{width:7px;height:7px;border-radius:99px;flex-shrink:0}
+
+  /* ---- Now ---- */
+  .now .row{grid-template-columns:4.75rem 5.5rem minmax(0,1fr) minmax(0,1.3fr) 2rem;gap:8px 16px;padding:12px 16px}
+  .now .c1{display:flex;align-items:flex-start;gap:8px}
+  .now .c1 input{width:14px;height:14px;margin-top:7px}
+  .now .play{width:28px;height:28px}
+  .now .num{padding-top:6px}
+  .now .time{font-size:12.5px;padding-top:4px;color:#cbd5e1;line-height:1.4}
+  .now .time span{display:block;font-size:12px;color:#94a3b8}
+  .now .picker{margin-bottom:4px}
+  .now .tgt{border:1px solid #334155;padding:5px 10px}
+  .now .tgt:focus{border-color:#6366f1}
+
+  /* ---- Shared compact pieces ---- */
+  .cmp .c1{display:flex;align-items:center;gap:7px;height:26px}
+  .cmp .c1 input{width:13px;height:13px}
+  .cmp .play{width:22px;height:22px}
+  .cmp .time{font-size:12px;color:#cbd5e1;line-height:26px;white-space:nowrap}
+  .cmp .time span{color:#64748b;margin-left:6px}
+  .cmp .tgt{padding:0 8px;margin:0 -8px;border:1px solid transparent}
+  .cmp .tgt:hover{background:rgba(148,163,184,.06)}
+  .cmp .tgt:focus,.cmp .row.open .tgt{border-color:#334155;background:#0b0d12}
+  .cmp .tgt:focus{border-color:#6366f1}
+  .spk{display:inline-flex;align-items:center;gap:4px;height:19px;padding:0 6px;margin-right:7px;border-radius:6px;font-size:11px;font-weight:600;vertical-align:1px;border:1px solid transparent}
+  .spk .chev{display:none}
+  .spk:hover{border-color:#334155;background:#0d1017}
+  .spk:hover .chev{display:inline}
+  .menu.cmp-menu{height:26px;align-items:center}
+
+  /* ---- Mock A: one line per cue ---- */
+  .a .row{grid-template-columns:4.6rem 6.4rem minmax(0,1fr) minmax(0,1.3fr) 1.25rem;gap:0 14px;padding:4px 16px;align-items:start}
+  .a .en,.a .tgt{line-height:26px}
+  .a .tgt{font-size:16px}
+  .a .cut{margin-left:8px}
+
+  /* ---- Mock B: English over the dub line ---- */
+  .b .row{grid-template-columns:4.6rem 4.2rem minmax(0,1fr) 1.25rem;gap:0 14px;padding:5px 16px;align-items:start}
+  .b .time{line-height:20px;padding-top:3px}
+  .b .time span{display:block;margin-left:0}
+  .b .en{font-size:12.5px;line-height:20px}
+  .b .tgt{line-height:26px}
+  .b .cut{margin-left:8px}
+
+  /* ---- Mock C: speaker named once, where it changes ---- */
+  .c .row{grid-template-columns:4.6rem 6.4rem minmax(0,1fr) minmax(0,1.3fr) 1.25rem;gap:0 14px;padding:4px 16px;align-items:start}
+  .c .en,.c .tgt{line-height:26px}
+  .c .cut{margin-left:8px}
+  .c .stripe{position:absolute;left:calc(16px + 4.6rem + 14px + 6.4rem + 5px);top:6px;bottom:6px;width:2px;border-radius:2px;opacity:.7}
+  .c .en{padding-left:0}
+  .c .spk{display:none}
+  .c .row:hover .spk,.c .row.open .spk{display:inline-flex}
+  .c .run{display:flex;align-items:center;gap:8px;height:28px;padding:0 16px 0 calc(16px + 4.6rem + 14px + 6.4rem + 14px);border-bottom:1px solid #1e2430;background:#0b0e14;font-size:12px;color:#94a3b8;position:sticky;top:0;z-index:2}
+  .c .run b{color:#e2e8f0;font-weight:500}
+  .c .run .chev{color:#64748b}
+
+  .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:#94a3b8;margin-top:8px}
+  .legend span::before{content:"→ ";color:#64748b}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="play" viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></symbol>
+  <symbol id="dots" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></symbol>
+  <symbol id="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="cut" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/></symbol>
+  <symbol id="up" viewBox="0 0 24 24"><path d="m17 11-5-5-5 5M17 18l-5-5-5 5"/></symbol>
+  <symbol id="down" viewBox="0 0 24 24"><path d="m7 6 5 5 5-5M7 13l5 5 5-5"/></symbol>
+  <symbol id="arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
+</svg>
+
+<div class="wrap">
+  <div>
+    <h1>Review-এর cue সারি: কম জায়গায়, কোনো কিছু বাদ না দিয়ে</h1>
+    <p class="sub">চারটে জানালাই সমান উঁচু (520 px), তাই কোনটায় কটা cue ধরে তা পাশাপাশি মেলানো যায়। cue 03 খোলা সারি (যেটায় কাজ চলছে): সেটা আগের মতোই বড় থাকে, গোনা আর fit সহ।<br>
+    সারিতে ক্লিক করলে সেটা খোলে। বাংলা লাইনে ক্লিক করে লেখা যায়। উদাহরণের জন্য cue 09–10 Speaker 2।</p>
+  </div>
+
+  <section>
+    <h2>এখন <span class="stat now" data-stat="now"></span></h2>
+    <p class="sub">Speaker picker নিজের লাইনে, সময় দুই লাইনে, বাংলা বর্ডারওয়ালা বাক্সে, ✂ pill আলাদা লাইনে, উপর-নিচে 12 px padding।</p>
+    <div class="stage now"><div class="list" id="now"></div><div class="foot" data-foot></div></div>
+  </section>
+
+  <section>
+    <h2>Mock A · এক লাইনে এক cue <span class="stat" data-stat="a"></span></h2>
+    <ul class="notes">
+      <li><b>Speaker</b> ইংরেজির শুরুতে ছোট রঙিন chip (S1)। Hover করলে ⌄ দেখায়, ক্লিক করলে এখনকার picker খোলে।</li>
+      <li><b>সময় আর দৈর্ঘ্য</b> এক লাইনে: <span class="mono">0:04.8 3.4s</span>। সময়ে ক্লিক করলে player আগের মতোই সেখানে যায়।</li>
+      <li><b>বাংলা</b> বর্ডার ছাড়া। Hover করলে হালকা ছায়া, লিখতে গেলে বর্ডার দেখায়। লেখার মাপ একই (16 px)।</li>
+      <li><b>✂ 2</b> বাংলা লাইনের শেষে, একই লাইনে। ⋮ মেনু hover-এ।</li>
+    </ul>
+    <div class="stage cmp a"><div class="list" id="a"></div><div class="foot" data-foot></div></div>
+  </section>
+
+  <section>
+    <h2>Mock B · ইংরেজির নিচে বাংলা <span class="stat" data-stat="b"></span></h2>
+    <ul class="notes">
+      <li>দুই কলামের বদলে <b>এক কলাম</b>: উপরে ছোট ধূসর ইংরেজি, নিচে পুরো চওড়া বাংলা।</li>
+      <li>লম্বা লাইন (cue 07, 08) আর ভাঙে না, কারণ বাংলা পুরো চওড়া জায়গা পায়। মিলিয়ে পড়াও সহজ, চোখ নিচে নামলেই হয়।</li>
+      <li>সারি A-র চেয়ে একটু উঁচু, কিন্তু লম্বা লাইনে A-র মতো দুই লাইন হয় না।</li>
+    </ul>
+    <div class="stage cmp b"><div class="list" id="b"></div><div class="foot" data-foot></div></div>
+  </section>
+
+  <section>
+    <h2>Mock C · Speaker-এর নাম শুধু যেখানে বদলায় <span class="stat" data-stat="c"></span></h2>
+    <ul class="notes">
+      <li>A-র মতো এক লাইন, কিন্তু প্রতি সারিতে S1 chip নেই। <b>যেখানে speaker বদলায়</b> সেখানে একটা পাতলা নামের সারি, আর ইংরেজির বাঁ পাশে speaker-এর রঙের দাগ।</li>
+      <li>একটা cue-র speaker বদলাতে: সারিতে hover করলে chip আসে, ক্লিক করলে picker। Checkbox দিয়ে অনেকগুলো একসাথে বদলানো আগের মতোই।</li>
+      <li>এক speaker-এর ভিডিওতে উপরে একটাই নামের সারি থাকে।</li>
+    </ul>
+    <div class="stage cmp c"><div class="list" id="c"></div><div class="foot" data-foot></div></div>
+  </section>
+
+  <p class="sub">তিনটে mock-এই কিছু বাদ যায়নি: checkbox (Shift-click), ▶ শোনা, নম্বর, grammar বিন্দু, সময়ে লাফ, speaker বদল, word pick, ⋮ (Split / Adjust the cut / Join), ✂ pill, লাল/নীল fit দাগ, খোলা সারির গোনা আর fit row। সব mock-এ View ▾ মেনুতে "Compact rows" সুইচ রাখা যায়, যাতে আগের চেহারায় ফেরা যায়।</p>
+</div>
+
+<script>
+const S = { 'Speaker 1': ['S1', '#818cf8'], 'Speaker 2': ['S2', '#fbbf24'] };
+const cues = [
+  ['0:00.3', '2.5', 'Speaker 1', 'When I first went to United States a few years ago,', 'কয়েক বছর আগে যখন প্রথম আমেরিকায় গেলাম,'],
+  ['0:04.8', '3.4', 'Speaker 1', 'wherever I went, everybody was talking about stress management.', 'যেখানেই যাই, সবাই স্ট্রেস ম্যানেজমেন্ট নিয়ে কথা বলছিল।', 2],
+  ['0:09.1', '1.4', 'Speaker 1', "I really couldn't understand this.", 'আমি সত্যিই এটা বুঝতে পারলাম না।'],
+  ['0:11.9', '1.6', 'Speaker 1', 'Because in my understanding,', 'কারণ আমার বিচারে,'],
+  ['0:15.0', '1.8', 'Speaker 1', 'we manage things which are precious to us.', 'যা আমাদের কাছে মূল্যবান আমরা সেটাই ম্যানেজ করি।'],
+  ['0:19.3', '0.1', 'Speaker 1', 'Okay?', 'ঠিক তো?'],
+  ['0:20.3', '3.4', 'Speaker 1', 'Our business, our family, our money, our wealth, our children,', 'আমাদের ব্যবসা, আমাদের পরিবার, আমাদের টাকা, আমাদের সম্পদ, আমাদের সন্তান,'],
+  ['0:24.4', '2.6', 'Speaker 1', 'we manage these because these are precious to us.', 'আমরা এসব ম্যানেজ করি কারণ এগুলো আমাদের কাছে মূল্যবান।'],
+  ['0:27.6', '2.1', 'Speaker 2', 'So why would you want to manage stress?', 'তাহলে স্ট্রেস কেন ম্যানেজ করতে চাইবেন?'],
+  ['0:30.2', '1.9', 'Speaker 2', 'Is it so precious to you?', 'এটা কি আপনার কাছে এত মূল্যবান?'],
+  ['0:32.8', '2.7', 'Speaker 1', 'If you want to be stressed, you must manage it.', 'চাপে থাকতে চাইলে, সেটা ম্যানেজ করতেই হবে।'],
+  ['0:36.0', '1.2', 'Speaker 1', 'Otherwise, why?', 'না হলে, কেন?'],
+  ['0:37.9', '2.8', 'Speaker 1', 'Stress is not something you need to manage.', 'স্ট্রেস এমন কিছু নয় যা ম্যানেজ করতে হয়।'],
+  ['0:41.2', '2.2', 'Speaker 1', 'It is something you need to drop.', 'এটা এমন কিছু যা ছেড়ে দিতে হয়।'],
+  ['0:44.0', '3.1', 'Speaker 1', 'Most people think stress comes from their work.', 'বেশিরভাগ মানুষ ভাবেন স্ট্রেস আসে তাঁদের কাজ থেকে।'],
+  ['0:47.6', '1.5', 'Speaker 1', 'It does not.', 'তা আসে না।'],
+  ['0:49.4', '2.9', 'Speaker 1', 'It comes from not knowing how to handle your own system.', 'আসে নিজের শরীর-মন সামলাতে না জানা থেকে।'],
+  ['0:52.8', '1.7', 'Speaker 1', 'Every job is stressful for someone.', 'প্রত্যেক কাজই কারো না কারো কাছে চাপের।'],
+];
+const OPEN = 2;
+const ic = (id, s = 12) => `<svg class="i" style="width:${s}px;height:${s}px"><use href="#${id}"/></svg>`;
+const n2 = (i) => String(i + 1).padStart(2, '0');
+const cutPill = (c) => (c[5] ? `<span class="cut">${ic('cut', 11)}${c[5]}</span>` : '');
+const chip = (name) => `<span class="spk" title="${name}. Click to change." style="color:${S[name][1]};background:${S[name][1]}1f"><span class="dot" style="background:${S[name][1]}"></span>${S[name][0]}<span class="chev">${ic('chev', 10)}</span></span>`;
+const counts = (c) => `<div class="counts"><span>${c[3].length} chars</span><span>${Math.round(c[3].split(/\s+/).length * 1.4)} syl</span></div>`;
+const tcounts = (c) => `<div class="counts"><span>${c[4].length} chars</span><span class="ok">fits · ${(+c[1] - 0.1).toFixed(1)} of ${c[1]} s</span></div>`;
+const menu = `<div class="menu cmp-menu" title="Split · Adjust the cut · Join">${ic('dots', 14)}</div>`;
+
+function nowRow(c, i) {
+  const [t, d, spk, en, bn] = c;
+  return `<div class="row${i === OPEN ? ' open' : ''}">
+    <div class="c1"><input type="checkbox"><button class="play">${ic('play', 11)}</button><span class="num mono">${n2(i)}</span></div>
+    <div class="time mono">${t}<span>${d}s</span></div>
+    <div><div class="picker"><span class="dot" style="background:${S[spk][1]}"></span>${spk}${ic('chev', 12)}</div><div class="en">${en}</div>${counts(c)}</div>
+    <div><div class="tgt bn" contenteditable spellcheck="false">${bn}</div>${c[5] ? `<div style="margin-top:8px">${cutPill(c)}</div>` : ''}${tcounts(c)}</div>
+    <div class="menu" style="padding-top:4px">${ic('dots', 14)}</div>
+  </div>`;
+}
+function aRow(c, i, withChip = true) {
+  const [t, d, spk, en, bn] = c;
+  return `<div class="row${i === OPEN ? ' open' : ''}">
+    <div class="c1"><input type="checkbox"><button class="play">${ic('play', 9)}</button><span class="num mono">${n2(i)}</span></div>
+    <div class="time mono">${t}<span>${d}s</span></div>
+    <div><div class="en">${withChip ? chip(spk) : ''}${en}</div>${counts(c)}</div>
+    <div><div class="tgt bn"><span contenteditable spellcheck="false" style="outline:none">${bn}</span>${cutPill(c)}</div>${tcounts(c)}</div>
+    ${menu}
+  </div>`;
+}
+function bRow(c, i) {
+  const [t, d, spk, en, bn] = c;
+  return `<div class="row${i === OPEN ? ' open' : ''}">
+    <div class="c1" style="height:46px;align-items:flex-start;padding-top:2px"><input type="checkbox" style="margin-top:5px"><button class="play">${ic('play', 9)}</button><span class="num mono" style="padding-top:3px">${n2(i)}</span></div>
+    <div class="time mono">${t}<span>${d}s</span></div>
+    <div>
+      <div class="en">${chip(spk)}${en}<span class="counts" style="display:none"></span></div>
+      <div class="tgt bn"><span contenteditable spellcheck="false" style="outline:none">${bn}</span>${cutPill(c)}</div>
+      ${i === OPEN ? `<div class="counts"><span>EN ${c[3].length} chars · ${Math.round(c[3].split(/\s+/).length * 1.4)} syl</span><span>বাংলা ${c[4].length} chars</span><span class="ok">fits · ${(+c[1] - 0.1).toFixed(1)} of ${c[1]} s</span></div>` : ''}
+    </div>
+    ${menu}
+  </div>`;
+}
+function cList() {
+  let out = '', prev = null;
+  cues.forEach((c, i) => {
+    const spk = c[2];
+    if (spk !== prev) {
+      let j = i; while (j + 1 < cues.length && cues[j + 1][2] === spk) j++;
+      out += `<div class="run"><span class="dot" style="background:${S[spk][1]}"></span><b>${spk}</b><span class="chev">${ic('chev', 11)}</span><span>· cues ${n2(i)}–${n2(j)}</span></div>`;
+      prev = spk;
+    }
+    out += aRow(c, i).replace('<div class="row', `<div style="--s:${S[spk][1]}" class="row`).replace('</div>\n    <div><div class="en">', `</div>\n    <span class="stripe" style="background:${S[spk][1]}"></span><div><div class="en">`);
+  });
+  return out;
+}
+
+document.getElementById('now').innerHTML = cues.map(nowRow).join('');
+document.getElementById('a').innerHTML = cues.map((c, i) => aRow(c, i)).join('');
+document.getElementById('b').innerHTML = cues.map(bRow).join('');
+document.getElementById('c').innerHTML = cList();
+
+const foot = `<span>Showing 33 of 33 cues</span><span style="display:inline-flex;gap:4px;align-items:center">${ic('up')}Top</span><span style="display:inline-flex;gap:4px;align-items:center">${ic('down')}Bottom</span><span class="go">QA clear. Ready to dub.<button>Open the dub ${ic('arrow', 14)}</button></span>`;
+document.querySelectorAll('[data-foot]').forEach((f) => (f.innerHTML = foot));
+
+// Clicking a row opens it (like Review); only one open at a time per list.
+document.querySelectorAll('.list').forEach((list) => {
+  list.addEventListener('mousedown', (e) => {
+    const row = e.target.closest('.row');
+    if (!row) return;
+    list.querySelectorAll('.row.open').forEach((r) => r !== row && r.classList.remove('open'));
+    row.classList.add('open');
+    requestAnimationFrame(measure);
+  });
+});
+
+// Counts what fits in the window and the plain row height, measured, not guessed.
+function measure() {
+  const base = {};
+  ['now', 'a', 'b', 'c'].forEach((id) => {
+    const list = document.getElementById(id);
+    const rows = [...list.querySelectorAll('.row')];
+    const shown = rows.filter((r) => r.offsetTop + r.offsetHeight <= list.clientHeight + 1).length;
+    const plain = rows.filter((r) => !r.classList.contains('open') && r.querySelector('.en').textContent.length < 50);
+    const h = Math.round(plain.reduce((s, r) => s + r.offsetHeight, 0) / plain.length);
+    base[id] = shown;
+    const el = document.querySelector(`[data-stat="${id}"]`);
+    el.textContent = `এক লাইনের সারি ${h} px · জানালায় ${shown}টা cue` + (id === 'now' ? '' : ` (এখন ${base.now}টা)`);
+  });
+}
+document.fonts.ready.then(measure);
+window.addEventListener('resize', measure);
+</script>
+</body>
+</html>

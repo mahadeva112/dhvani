@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Line Fit Simple</title>
+<style>
+  /* The utilities this page uses, so it reads the same without the Tailwind script. */
+  .flex{display:flex}.flex-col{flex-direction:column}.flex-wrap{flex-wrap:wrap}.items-center{align-items:center}.justify-end{justify-content:flex-end}
+  .gap-0\.5{gap:2px}.gap-1{gap:4px}.gap-1\.5{gap:6px}.gap-2{gap:8px}.gap-3{gap:12px}.gap-12{gap:48px}
+  .ml-auto{margin-left:auto}.mx-auto{margin-left:auto;margin-right:auto}.mr-1{margin-right:4px}.mx-1{margin-left:4px;margin-right:4px}.my-1{margin-top:4px;margin-bottom:4px}
+  .mt-1{margin-top:4px}.mt-1\.5{margin-top:6px}.mt-2{margin-top:8px}.mt-2\.5{margin-top:10px}.mt-3{margin-top:12px}.mb-1{margin-bottom:4px}.mb-2{margin-bottom:8px}
+  .px-2{padding-left:8px;padding-right:8px}.px-4{padding-left:16px;padding-right:16px}.py-1\.5{padding-top:6px;padding-bottom:6px}.py-8{padding-top:32px;padding-bottom:32px}.pt-6{padding-top:24px}
+  @media (min-width:640px){.sm\:px-8{padding-left:32px;padding-right:32px}}
+  .w-16{width:64px}.w-20{width:80px}.w-28{width:112px}.max-w-\[16rem\]{max-width:16rem}.max-w-\[46rem\]{max-width:46rem}.max-w-\[60rem\]{max-width:60rem}
+  .rounded-md{border-radius:6px}.border-t{border-top:1px solid}.border-slate-800{border-color:#1e293b}.hover\:bg-slate-800:hover{background:#1e293b}
+  .text-\[11px\]{font-size:11px}.text-\[11\.5px\]{font-size:11.5px}.text-\[12px\]{font-size:12px}.text-\[13px\]{font-size:13px}.text-sm{font-size:14px;line-height:20px}.text-lg{font-size:18px;line-height:28px}.text-xl{font-size:20px;line-height:28px}
+  .font-medium{font-weight:500}.font-semibold{font-weight:600}
+  .text-slate-100{color:#f1f5f9}.text-slate-200{color:#e2e8f0}.text-slate-300{color:#cbd5e1}.text-slate-400{color:#94a3b8}.text-amber-200{color:#fde68a}.text-amber-300{color:#fcd34d}
+  *,::before,::after{box-sizing:border-box}h1,h2,p{margin:0}
+  html, body { overflow-x: clip; }
+  body { background:#06080d; color:#cbd5e1; font-family: Inter, system-ui, "Nirmala UI", "Noto Sans Bengali", sans-serif; }
+  .stage { background:#0d1016; border:1px solid #1e2430; border-radius:14px; padding:14px 16px 16px; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  svg.i { width:14px; height:14px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; }
+  .tag { display:inline-flex; align-items:center; gap:5px; height:24px; padding:0 8px; border-radius:7px; font-size:12px; color:#94a3b8; border:1px solid transparent; }
+  .tag.on { background:rgba(99,102,241,.15); border-color:rgba(99,102,241,.45); color:#c7d2fe; }
+  .box { border:1px solid #6366f1; border-radius:12px; background:#0b0d12; padding:10px 14px; font-size:17px; line-height:1.7; color:#f8fafc; font-family:"Nirmala UI","Noto Sans Devanagari",system-ui,sans-serif; }
+  .chip { font-size:11.5px; padding:1px 7px; border-radius:6px; border:1px solid; white-space:nowrap; }
+  .chip.long { background:rgba(245,158,11,.15); color:#fcd34d; border-color:rgba(245,158,11,.35); }
+  .chip.fits { background:rgba(16,185,129,.1); color:#6ee7b7; border-color:rgba(16,185,129,.25); }
+  .btn { height:26px; padding:0 9px; border-radius:7px; border:1px solid #2b313d; font-size:12px; color:#cbd5e1; display:inline-flex; align-items:center; gap:5px; cursor:default; background:#0d1017; }
+  .btn:hover { background:#1e2430; color:#fff; }
+  .btn.pri { background:rgba(99,102,241,.2); border-color:rgba(99,102,241,.55); color:#e0e7ff; }
+  .btn.ghost { border-color:transparent; background:transparent; color:#94a3b8; }
+  .btn.dash { border-style:dashed; border-color:#475569; color:#94a3b8; border-radius:999px; }
+  .meter { position:relative; height:6px; border-radius:99px; background:#1e2430; }
+  .meter i { position:absolute; inset:0 auto 0 0; border-radius:99px; }
+  .meter b { position:absolute; top:-4px; bottom:-4px; width:2px; background:#e2e8f0; border-radius:2px; }
+  .hint { font-size:12px; color:#fbbf24; }
+  .why { border:1px solid #27292d; border-radius:10px; background:#0a0c11; padding:10px 12px; font-size:12.5px; color:#cbd5e1; }
+  .lbl { font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:#64748b; font-weight:600; }
+  .gone { text-decoration: line-through; color:#64748b; }
+</style>
+</head>
+<body class="px-4 py-8 sm:px-8">
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="kb" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
+  <symbol id="dots" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
+  <symbol id="ff" viewBox="0 0 24 24"><path d="m13 19 9-7-9-7v14zM2 19l9-7-9-7v14z"/></symbol>
+  <symbol id="down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+</svg>
+
+<div class="max-w-[60rem] mx-auto flex flex-col gap-12">
+
+  <header>
+    <h1 class="text-xl font-semibold text-slate-100">Review-এ খোলা লাইন: সহজ করার mock</h1>
+    <p class="text-sm text-slate-400 mt-1 max-w-[46rem]">
+      এখন লেখার নিচে তিনটে সারি আর একটা হলুদ লেখা। একই কথা দুবার আসে: "36 syl · 23 fewer to fit" আর "−23 syl", "107 chars" আর "−52 ch"।
+      তিনটে mock-এই <b class="text-slate-200">✎ (Edit it myself)</b> বাদ, কারণ লাইনটা তো আগে থেকেই লেখার box-এ খোলা। আর লাইনের ওপরের <b class="text-slate-200">Phonetic on · AI polish · Keyboard</b> সারিটাও বাদ: লেখার সময় Ctrl+G দিয়ে phonetic চালু-বন্ধ হয়, Script view-এর মতো।
+      সব জায়গায় একই লাইন দেখানো হয়েছে: ৩.৬ সেকেন্ড বেশি লম্বা।
+    </p>
+  </header>
+
+  <!-- ============ NOW ============ -->
+  <section class="flex flex-col gap-3">
+    <div>
+      <h2 class="text-lg font-semibold text-slate-100">এখন যেমন আছে</h2>
+      <p class="text-sm text-slate-400 mt-1">তুলনার জন্য। কাটা দাগ দেওয়া অংশগুলো একই তথ্য দ্বিতীয়বার দেখায়, বা বাদ যাবে (ওপরের Phonetic সারিটাও)।</p>
+    </div>
+    <div class="stage">
+      <div class="flex items-center gap-1.5 mb-2" style="opacity:.45;text-decoration:line-through">
+        <span class="text-[12px] text-slate-300 mr-1">हिन्दी</span>
+        <span class="tag on"><svg class="i"><use href="#kb"/></svg>Phonetic on</span>
+        <span class="tag">AI polish off</span>
+        <span class="tag ml-auto"><svg class="i"><use href="#kb"/></svg>Keyboard</span>
+        <span class="tag"><svg class="i"><use href="#dots"/></svg></span>
+      </div>
+      <div class="box">पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की। पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की।</div>
+      <div class="mt-2 mono text-[12px]"><span class="gone">107 chars</span> <span class="gone">36 syl · 23 fewer to fit</span></div>
+      <div class="mt-1.5 flex flex-wrap items-center gap-2">
+        <span class="chip long mono">+3.6 s over</span>
+        <div class="meter w-16"><i style="width:100%;background:#fbbf24"></i><b style="left:55%"></b></div>
+        <span class="mono text-[11px] text-slate-400">8.1 / 4.5 s</span>
+        <span class="text-[12px] text-amber-200 gone">−52 ch · −23 syl</span>
+        <span class="btn dash"><svg class="i"><use href="#ff"/></svg>Faster 7.1 s</span>
+      </div>
+      <div class="mt-1.5 flex flex-wrap items-center gap-1 justify-end">
+        <span class="btn">Shorter</span><span class="btn">Longer</span><span class="btn">Same length</span>
+        <span class="btn ghost gone">✎</span>
+        <span class="btn ghost"><svg class="i"><use href="#check"/></svg>Keep</span>
+        <span class="btn ghost"><svg class="i"><use href="#info"/></svg></span>
+      </div>
+      <p class="hint mt-1.5">Shortening would cut more than a third of its words. Give it more time instead: drag its end on the timeline, or join it with the next line.</p>
+    </div>
+  </section>
+
+  <!-- ============ MOCK A ============ -->
+  <section class="flex flex-col gap-3">
+    <div>
+      <h2 class="text-lg font-semibold text-slate-100">Mock A: এক সারি</h2>
+      <p class="text-sm text-slate-400 mt-1 max-w-[46rem]">
+        সব তথ্য আর বোতাম একটাই সারিতে। সংখ্যা থাকে শুধু একবার: কত সেকেন্ড বেশি, আর কত syllable কাটতে হবে।
+        অক্ষর গোনা, মোট syllable বা কোন cue — এসব ⓘ-এর ভেতরে।
+        হলুদ লেখাটা ছোট হয়ে এক লাইনে।
+      </p>
+    </div>
+    <div class="stage">
+      <div class="box">पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की। पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की।</div>
+      <div class="mt-2 flex flex-wrap items-center gap-2">
+        <span class="chip long mono">+3.6 s</span>
+        <div class="meter w-20"><i style="width:100%;background:#fbbf24"></i><b style="left:55%"></b></div>
+        <span class="mono text-[11.5px] text-slate-400">8.1 / 4.5 s</span>
+        <span class="text-[12px] text-amber-200">23 syl বেশি</span>
+        <span class="ml-auto flex flex-wrap items-center gap-1">
+          <span class="btn dash"><svg class="i"><use href="#ff"/></svg>Faster 7.1 s</span>
+          <span class="btn">Shorter</span><span class="btn">Longer</span><span class="btn">Same length</span>
+          <span class="btn ghost"><svg class="i"><use href="#check"/></svg>Keep</span>
+          <span class="btn ghost"><svg class="i"><use href="#info"/></svg></span>
+        </span>
+      </div>
+      <p class="hint mt-1.5">ছোট করলে এক-তৃতীয়াংশের বেশি শব্দ কাটা পড়বে। তার বদলে timeline-এ শেষটা টেনে বাড়ান, বা পরের লাইনের সাথে জুড়ুন।</p>
+    </div>
+    <p class="text-sm text-slate-400">যখন লাইন ঠিকঠাক বসে, তখন শুধু এটুকু দেখায় (বোতাম আসে mouse নিলে):</p>
+    <div class="stage">
+      <div class="box">आज बात एआई के नए दौर की।</div>
+      <div class="mt-2 flex items-center gap-2">
+        <span class="chip fits mono">fits</span>
+        <div class="meter w-20"><i style="width:82%;background:#34d399"></i><b style="left:92%"></b></div>
+        <span class="mono text-[11.5px] text-slate-400">4.1 / 4.5 s</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ MOCK B ============ -->
+  <section class="flex flex-col gap-3">
+    <div>
+      <h2 class="text-lg font-semibold text-slate-100">Mock B: সাধারণ বাক্যে বলা, শুধু দরকারি বোতাম</h2>
+      <p class="text-sm text-slate-400 mt-1 max-w-[46rem]">
+        মিটারটা লেখার box-এর নিচের কিনারায় বসে, পুরো চওড়া জুড়ে। তার নিচে এক বাক্যে বলা থাকে কী হয়েছে।
+        লাইন লম্বা হলে শুধু সেই বোতামগুলো দেখায় যা কাজে লাগে (Shorter, Faster, Keep); Longer আর Same length থাকে ▾-এর ভেতরে।
+      </p>
+    </div>
+    <div class="stage">
+      <div class="box" style="border-bottom-left-radius:4px;border-bottom-right-radius:4px">पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की। पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की।</div>
+      <div class="meter mt-1 mx-1"><i style="width:100%;background:#fbbf24"></i><b style="left:55%"></b></div>
+      <div class="mt-2.5 flex flex-wrap items-center gap-2">
+        <span class="text-[13px] text-amber-200"><b class="font-semibold">৩.৬ সেকেন্ড বেশি লম্বা</b> <span class="text-slate-400">· প্রায় 23 syllable কাটতে হবে</span></span>
+        <span class="ml-auto flex flex-wrap items-center gap-1">
+          <span class="btn pri">Shorter</span>
+          <span class="btn dash"><svg class="i"><use href="#ff"/></svg>Faster 7.1 s</span>
+          <span class="btn ghost"><svg class="i"><use href="#check"/></svg>Keep</span>
+          <span class="btn ghost">More <svg class="i"><use href="#down"/></svg></span>
+        </span>
+      </div>
+      <p class="hint mt-1">বেশি কাটা পড়বে: timeline-এ শেষটা টেনে বাড়ান, বা পরের লাইনের সাথে জুড়ুন।</p>
+    </div>
+    <p class="text-sm text-slate-400">More ▾ খুললে:</p>
+    <div class="stage max-w-[16rem]">
+      <div class="flex flex-col gap-0.5 text-[13px]">
+        <span class="px-2 py-1.5 rounded-md hover:bg-slate-800">Longer</span>
+        <span class="px-2 py-1.5 rounded-md hover:bg-slate-800">Same length</span>
+        <div class="border-t border-slate-800 my-1"></div>
+        <span class="px-2 py-1.5 rounded-md hover:bg-slate-800 text-slate-400">Why, syllables, pauses, lips</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ MOCK C ============ -->
+  <section class="flex flex-col gap-3">
+    <div>
+      <h2 class="text-lg font-semibold text-slate-100">Mock C: সবচেয়ে কম</h2>
+      <p class="text-sm text-slate-400 mt-1 max-w-[46rem]">
+        লেখার নিচে শুধু একটা মিটার আর "+3.6 s", ডানে Shorter, Keep আর ⓘ। বাকি সব — সেকেন্ডের হিসাব, syllable, Faster, Longer, Same length, হলুদ পরামর্শ — ⓘ খুললে।
+      </p>
+    </div>
+    <div class="stage">
+      <div class="box">पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की। पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की।</div>
+      <div class="mt-2 flex items-center gap-2">
+        <div class="meter w-28"><i style="width:100%;background:#fbbf24"></i><b style="left:55%"></b></div>
+        <span class="mono text-[12px] text-amber-300">+3.6 s</span>
+        <span class="ml-auto flex items-center gap-1">
+          <span class="btn">Shorter</span>
+          <span class="btn ghost"><svg class="i"><use href="#check"/></svg>Keep</span>
+          <span class="btn ghost" style="color:#c7d2fe;background:rgba(99,102,241,.15)"><svg class="i"><use href="#info"/></svg></span>
+        </span>
+      </div>
+      <div class="why mt-2">
+        <p class="text-amber-200">৮.১ সেকেন্ডের কথা, জায়গা ৪.৫ সেকেন্ড। প্রায় 23 syllable বেশি।</p>
+        <p class="text-slate-400 mt-1">ছোট করলে এক-তৃতীয়াংশের বেশি শব্দ কাটা পড়বে: timeline-এ শেষটা টেনে বাড়ান, বা পরের লাইনের সাথে জুড়ুন।</p>
+        <div class="flex flex-wrap items-center gap-1 mt-2">
+          <span class="btn dash"><svg class="i"><use href="#ff"/></svg>Faster 7.1 s</span>
+          <span class="btn">Longer</span><span class="btn">Same length</span>
+        </div>
+        <p class="lbl mt-3">Syllables, pauses and lips</p>
+        <p class="text-slate-400 mt-1">(এখন যা ⓘ-তে দেখায়, তাই থাকবে)</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="text-sm text-slate-400 border-t border-slate-800 pt-6">
+    <p class="text-slate-200 font-medium mb-1">আমার পরামর্শ: Mock A।</p>
+    <p>এখনকার মতোই সব এক নজরে দেখা যায়, শুধু দুবার দেখানো সংখ্যা আর ✎ বাদ, তিন সারি থেকে এক সারি। B-তে বোতাম লাইন অনুযায়ী বদলায়, তাই হাত অভ্যস্ত হতে সময় লাগবে। C সবচেয়ে পরিষ্কার, কিন্তু Faster-এর মতো কাজের জিনিস এক ক্লিক দূরে চলে যায়।</p>
+  </section>
+
+</div>
+</body>
+</html>
