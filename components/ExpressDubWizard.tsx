@@ -45,6 +45,7 @@ import {
   Zap,
   Ear,
   FileOutput,
+  Users,
 } from 'lucide-react';
 import { AudioSegment, BatchJob, MixPeakMode, ProcessingStatus, SpeakerProfile, SpeakerVoice, TargetSource, TrackSwitchOptions } from '../types';
 import { hasTranscript } from '../services/steps';
@@ -52,7 +53,7 @@ import { projectFileStem } from '../services/projects';
 import { useVoiceMatches } from '../services/useVoiceMatches';
 import { listSpeakers, likelySlips, overlapsBefore, speakerOf, isMultiSpeaker, newSpeakerName, ownSettingsOf, speakerGenderMatters, SPEAKER_COLORS } from '../services/speakers';
 import type { SpeakerSlip } from '../services/speakers';
-import { SpeakerBar, SpeakerStrip, CueSelectionBar, SpeakerPicker, SpeakerCueNotes, SpeakerChip, CastCard, MixPeakChoice, StemDownloads, mixWarnings } from './SpeakerPanel';
+import { SpeakerBar, SpeakerStrip, CueSelectionBar, SpeakerPicker, SpeakerCueNotes, SpeakerChip, CastCard, MixPeakChoice, StemDownloads, mixWarnings, speakerShortName } from './SpeakerPanel';
 import { retranslateCues, translationFraction, type RetranslateProgress } from '../services/subtitleService';
 import { TargetScriptChoice } from './TargetScriptChoice';
 import { scrollWithin } from './scrollWithin';
@@ -98,7 +99,7 @@ import { DavinciExportWindow } from './DavinciExportWindow';
 import { timelineMapper } from '../services/playbackTimeline';
 import { ReviewWaveformPlayer } from './ReviewWaveformPlayer';
 import { GrammarCheckButton, GrammarPanel, type GrammarScope } from './review/GrammarPanel';
-import { CueRowMenu, ReviewViewMenu, ShowLinesMenu } from './review/ReviewMenus';
+import { CueRowMenu, ReviewViewMenu, ShowLinesMenu, ToolCount, ToolDot, ToolTip, toolIcon } from './review/ReviewMenus';
 import { CenteredPanel } from './CenteredPanel';
 import { checkGrammar as checkGrammarLines, type GrammarFix, type GrammarState } from '../services/grammarCheck';
 import { needsPauseMarks, requestPauseMarks, withPauseMarks } from '../services/pauseMarks';
@@ -157,7 +158,7 @@ import type { EstimateMethod, LineContext, SpeakerFitRates, SyncOptions, SyncPre
 import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
 import { learnedPace, learnPaceFromSync, voicePaceKey, type LearnedPace } from '../services/voicePace';
 import { useSyncPreview, useLineFixes, LineFixControls, WordingButtons, isShort, EstimateSwitch, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, SourceLineLane, LaneViewSwitch, useLaneView, PauseTicksLane, WordingSuggestRow, LineFitRow, LineFitWordings, type PlaceDrag, type StretchDraft } from './SyncPreviewPanel';
-import { SyncFitStrip } from './SyncFitStrip';
+import { SyncFitPills, SyncFitStrip, hasSyncFitPills } from './SyncFitStrip';
 import { ExpressionLineHearing, ExpressionPrepChip, ExpressionPrepNote, ExpressionTagChips, type ExpressionPrepView } from './ExpressionPrep';
 import { tagsInLine, type ExpressionLine } from '../services/expressionPrep';
 import { placeOf, withCut, withLinePlaces, withLineRate, withLineRates, withPartStart, withPauseSkip } from '../services/linePlaces';
@@ -178,7 +179,8 @@ import { runQa, useQaConfig } from '../services/qaService';
 import { useGlossaryTerms } from '../services/glossaryService';
 import { choicesFor, rememberChoice } from '../services/wordingChoices';
 import { useSignoff } from '../services/signoffService';
-import { ScriptTableView, type LinePacing } from './review/ScriptTableView';
+import { ScriptTableView, saveScriptWord, type LinePacing } from './review/ScriptTableView';
+import { findIndicLanguageConfig } from '../services/indicTransliteration';
 import { PASSAGE_PAUSES, buildPassages, loadPassagePause, savePassagePause } from './review/passages';
 import { CueEditButtons, CueEditNotice, PickableWords, useCueEditing, useReviewUndoKeys, type ReviewUndo } from './review/CueEditBar';
 import { reviewHistoryLabels } from '../services/reviewHistory';
@@ -203,6 +205,10 @@ const REVIEW_VIEWS: { id: ReviewMode; label: string; Icon: React.ComponentType<{
   { id: 'script', label: 'Script', Icon: FileText },
   { id: 'qa', label: 'QA', Icon: ShieldCheck },
 ];
+
+/** The Show icon's fit bar in greys (Mock B, 2026-11-27): too long the lightest, colour stays in the menu. */
+const GREY_FIT: Record<string, string> = { 'bg-emerald-400': 'bg-slate-600', 'bg-amber-400': 'bg-slate-500', 'bg-rose-400': 'bg-slate-300', 'bg-sky-400': 'bg-slate-500' };
+const greyFitParts = (parts: { n: number; color: string }[]) => parts.map((p) => ({ ...p, color: GREY_FIT[p.color] ?? p.color }));
 
 /** Review text size: the reviewer scales the script with − and +, remembered per machine. */
 const REVIEW_FONT_KEY = 'dhvani_review_font_px';
@@ -875,6 +881,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const reviewTextStyle: React.CSSProperties = { fontSize: `${reviewFontPx}px` };
   /** The original sits a step smaller than the dub line, so the dub reads first. */
   const reviewSourceStyle: React.CSSProperties = { fontSize: `${Math.max(REVIEW_FONT_MIN, reviewFontPx - 2)}px` };
+  // One line of the dub as a cue row shows it (leading-relaxed, 2 px padding and a border each side): the row's other cells match it.
+  const lineBox = Math.round(reviewFontPx * 1.625) + 6;
   /** The cue being worked on: only its row shows counts, the fit meter and the wording buttons. */
   const [openCueId, setOpenCueId] = useState<string | null>(null);
   /** Detailed: every row shows its counts and fit, as the list did before. */
@@ -1206,6 +1214,31 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
   const getSourceText = (seg: AudioSegment) => seg.textSource || seg.originalText || '';
   const getTargetText = (seg: AudioSegment) => seg.textTarget || seg.targetText || '';
+  // The phonetic switch in Review's More menu names the dub's script; none where it has no phonetic typing.
+  const phoneticName = findIndicLanguageConfig(targetLanguage)?.nativeName;
+  // The script as a Word file, from Review's More menu in the Cues and Script views.
+  const [savingWord, setSavingWord] = useState(false);
+  const [wordError, setWordError] = useState<string | null>(null);
+  const saveWordFile = async () => {
+    setSavingWord(true);
+    setWordError(null);
+    try {
+      await saveScriptWord({
+        segments,
+        sourceLanguage: activeJob.detectedLanguage || activeJob.sourceLanguage || sourceLanguage,
+        targetLanguage,
+        getSourceText,
+        getTargetText,
+        title: activeJob.file?.name,
+        fileStem: projectFileStem(activeJob),
+      });
+    } catch (err) {
+      console.warn('Saving the Word script failed:', err);
+      setWordError(`Couldn't save the Word file: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSavingWord(false);
+    }
+  };
 
   const formatSeconds = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -3758,19 +3791,16 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             >
               {/* Toolbar */}
               <div className="flex flex-wrap items-center gap-2 px-3 sm:px-4 py-3 border-b border-edge">
-                <div
-                  role="group"
-                  aria-label="View"
-                  className="flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5 max-w-full overflow-x-auto [scrollbar-width:none]"
-                >
+                {/* Views: a line under the one open, quiet counts (a red count only for QA blockers) */}
+                <div role="group" aria-label="View" className="flex items-center gap-4 max-w-full overflow-x-auto [scrollbar-width:none]">
                   {REVIEW_VIEWS.map(({ id, label, Icon }) => (
                     <button
                       key={id}
                       type="button"
                       aria-pressed={reviewMode === id}
                       onClick={() => setReviewMode(id)}
-                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-default ${
-                        reviewMode === id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                      className={`flex items-center gap-1.5 h-8 border-b-2 text-xs font-medium whitespace-nowrap transition-colors cursor-default ${
+                        reviewMode === id ? 'border-slate-400 text-slate-100' : 'border-transparent text-slate-400 hover:text-slate-200'
                       }`}
                     >
                       <Icon className="w-3.5 h-3.5" />
@@ -3781,132 +3811,16 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                             {qaBlockingCount}
                           </span>
                         ) : qaReport.warningCount > 0 ? (
-                          <span className="px-1.5 rounded-md bg-amber-500 text-slate-950 text-[10px] font-mono font-semibold leading-4">
+                          <span className="flex items-center gap-1 text-[11px] font-mono text-slate-400 tabular-nums" title={`${qaReport.warningCount} warnings`}>
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500/80" />
                             {qaReport.warningCount}
                           </span>
                         ) : (
-                          <Check className="w-3 h-3 text-emerald-400" />
+                          <Check className="w-3 h-3 text-slate-400" />
                         ))}
                     </button>
                   ))}
                 </div>
-
-                {/* The cockpit does its own filtering, so these would only confuse. */}
-                {reviewMode !== 'qa' && (
-                  <>
-                    {findOpen || searchQuery ? (
-                      <div className="relative flex-1 min-w-[10rem] max-w-[22rem]">
-                        <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        <input
-                          id="express-step2-search"
-                          type="text"
-                          autoFocus
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          onBlur={() => !searchQuery && setFindOpen(false)}
-                          onKeyDown={(e) => {
-                            if (e.key !== 'Escape') return;
-                            e.stopPropagation();
-                            setSearchQuery('');
-                            setFindOpen(false);
-                          }}
-                          placeholder={reviewMode === 'script' ? 'Find in script' : 'Find in cues'}
-                          className="w-full h-8 bg-slate-950 border border-edge rounded-xl pl-8 pr-7 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                        />
-                        {searchQuery && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSearchQuery('');
-                              setFindOpen(false);
-                            }}
-                            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-200 cursor-default"
-                            aria-label="Clear search"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        )}
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setFindOpen(true)}
-                        aria-label={reviewMode === 'script' ? 'Find in script' : 'Find in cues'}
-                        title={`${reviewMode === 'script' ? 'Find in script' : 'Find in cues'} (Ctrl+F)`}
-                        className="w-8 h-8 flex items-center justify-center rounded-xl border border-edge text-slate-300 hover:text-slate-100 hover:bg-slate-800 cursor-default"
-                      >
-                        <Search className="w-4 h-4" />
-                      </button>
-                    )}
-
-                    {/* One filter, its counts in lines once the Sync fit is worked out (as the strip counts them), else in cues */}
-                    <div className="ml-auto">
-                    <ShowLinesMenu
-                      value={pacingFilter}
-                      onChange={(id) => setPacingFilter(id)}
-                      bar={!awaitingScript && linePreview ? <FitBar parts={fitBarParts(linePreview)} /> : undefined}
-                      loading={!awaitingScript && !linePreview && syncPreview.loading}
-                      footer={
-                        awaitingScript ? undefined : (
-                          <FitMenuFooter
-                            preview={linePreview}
-                            error={syncPreview.error}
-                            rateBasis={rateBasis}
-                            basis={
-                              linePreview
-                                ? `${estimateBasis(linePreview, rateBasis, expertBasis, mainPace?.lines)}${
-                                    linePreview.placedShare < 1 ? `, each line at ${Math.round(linePreview.placedShare * 100)}% of its read once placed` : ''
-                                  }.`
-                                : undefined
-                            }
-                            toFix={{
-                              shorter: linesToFix.filter((u) => lineFixes.directionOf(u) === 'shorter').length,
-                              longer: linesToFix.filter((u) => lineFixes.directionOf(u) === 'longer').length,
-                            }}
-                            onFixAll={() => {
-                              lineFixes.suggestAll(linesToFix);
-                              setReviewMode('table');
-                              setPacingFilter('fix');
-                            }}
-                          />
-                        )
-                      }
-                      options={[
-                        { id: 'all' as const, label: linePreview ? 'All lines' : 'All cues', count: linePreview ? linePreview.units.length : segments.length },
-                        ...(linePreview ? [{ id: 'fix' as const, label: 'Lines to fix', count: linesToFixCount, dot: 'bg-indigo-400' }] : []),
-                        { id: 'risk' as const, label: linePreview ? 'Too long' : 'Too fast', count: pacingCounts.fast, dot: 'bg-rose-400', divided: true },
-                        { id: 'tight' as const, label: 'Tight', count: pacingCounts.tight, dot: 'bg-amber-400' },
-                        { id: 'short' as const, label: 'Ends early', count: pacingCounts.short, dot: 'bg-sky-400' },
-                      ]}
-                    />
-                    </div>
-                  </>
-                )}
-
-                {/* Speakers: who is filtered, labels to check, names and merges, in a window */}
-                {multiSpeaker && reviewMode !== 'qa' && (
-                  <button
-                    type="button"
-                    onClick={() => setReviewWindow('speakers')}
-                    className={`h-8 px-3 rounded-xl border flex items-center gap-2 text-[13px] whitespace-nowrap cursor-default ${
-                      speakerFilter.length > 0 || slipsOnly || voiceOnly ? 'border-indigo-500/60 bg-indigo-500/10 text-indigo-200' : 'border-edge text-slate-200 hover:bg-slate-800'
-                    }`}
-                    title={`${speakers.length} speakers: show only some, check labels, rename or merge`}
-                  >
-                    <span className="flex -space-x-1" aria-hidden="true">
-                      {speakers.slice(0, 4).map((sp) => (
-                        <span key={sp.name} className="w-2.5 h-2.5 rounded-full ring-2 ring-slate-900" style={{ backgroundColor: sp.color }} />
-                      ))}
-                    </span>
-                    <span className="truncate max-w-[10rem]">{speakerFilter.length > 0 ? speakerFilter.join(', ') : 'Speakers'}</span>
-                    {speakerSlips.size + voiceFlags.size > 0 && (
-                      <span className="px-1.5 rounded-md bg-amber-500 text-slate-950 text-[10px] font-mono font-semibold leading-4" title="Labels to check">
-                        {speakerSlips.size + voiceFlags.size}
-                      </span>
-                    )}
-                    <ChevronDown className="w-3.5 h-3.5 opacity-70" />
-                  </button>
-                )}
 
                 {/* Mark pauses for every line with no marks for its original's pauses: shown only while there is one. */}
                 {reviewMode !== 'qa' && linePreview && (pauseMarking.size > 0 || markableLines.length > 0) && (
@@ -3933,20 +3847,144 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   )
                 )}
 
-                {reviewMode !== 'qa' && (
-                  <div>
-                    <GrammarCheckButton
-                      picked={selectedCues.size}
-                      shown={filteredSegments.length}
-                      total={segments.length}
-                      busy={Boolean(grammar?.running)}
-                      onStart={startGrammarCheck}
-                    />
-                  </div>
-                )}
+                {/* Icons only (Mock B, 2026-11-27): Find, Show, Speakers, Grammar, More, each named in its hover tip */}
+                <div className="ml-auto flex items-center gap-0.5 rounded-xl border border-edge p-0.5">
+                  {reviewMode !== 'qa' && (
+                    <>
+                      {findOpen || searchQuery ? (
+                        <div className="relative w-56 max-w-[40vw]">
+                          <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <input
+                            id="express-step2-search"
+                            type="text"
+                            autoFocus
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onBlur={() => !searchQuery && setFindOpen(false)}
+                            onKeyDown={(e) => {
+                              if (e.key !== 'Escape') return;
+                              e.stopPropagation();
+                              setSearchQuery('');
+                              setFindOpen(false);
+                            }}
+                            placeholder={reviewMode === 'script' ? 'Find in script' : 'Find in cues'}
+                            className="w-full h-7 bg-slate-950 border border-edge rounded-[9px] pl-8 pr-7 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                          />
+                          {searchQuery && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSearchQuery('');
+                                setFindOpen(false);
+                              }}
+                              className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-200 cursor-default"
+                              aria-label="Clear search"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="group relative">
+                          <button
+                            type="button"
+                            onClick={() => setFindOpen(true)}
+                            aria-label={reviewMode === 'script' ? 'Find in script' : 'Find in cues'}
+                            className={toolIcon(false)}
+                          >
+                            <Search className="w-4 h-4" />
+                          </button>
+                          <ToolTip title={reviewMode === 'script' ? 'Find in script' : 'Find in cues'} keys="Ctrl F" />
+                        </div>
+                      )}
 
-                {/* How the list looks: line details, text size, passages, estimate, lanes, keyboard */}
-                <div className={reviewMode === 'qa' ? 'ml-auto' : ''}>
+                      {/* One filter, its counts in lines once the Sync fit is worked out (as the strip counts them), else in cues */}
+                      <ShowLinesMenu
+                        value={pacingFilter}
+                        onChange={(id) => setPacingFilter(id)}
+                        bar={
+                          !awaitingScript && linePreview ? (
+                            <span className="flex w-[18px] h-1 rounded overflow-hidden">
+                              <FitBar className="w-full" parts={greyFitParts(fitBarParts(linePreview))} />
+                            </span>
+                          ) : undefined
+                        }
+                        loading={!awaitingScript && !linePreview && syncPreview.loading}
+                        footer={
+                          awaitingScript ? undefined : (
+                            <FitMenuFooter
+                              preview={linePreview}
+                              error={syncPreview.error}
+                              rateBasis={rateBasis}
+                              basis={
+                                linePreview
+                                  ? `${estimateBasis(linePreview, rateBasis, expertBasis, mainPace?.lines)}${
+                                      linePreview.placedShare < 1 ? `, each line at ${Math.round(linePreview.placedShare * 100)}% of its read once placed` : ''
+                                    }.`
+                                  : undefined
+                              }
+                              toFix={{
+                                shorter: linesToFix.filter((u) => lineFixes.directionOf(u) === 'shorter').length,
+                                longer: linesToFix.filter((u) => lineFixes.directionOf(u) === 'longer').length,
+                              }}
+                              onFixAll={() => {
+                                lineFixes.suggestAll(linesToFix);
+                                setReviewMode('table');
+                                setPacingFilter('fix');
+                              }}
+                            />
+                          )
+                        }
+                        options={[
+                          { id: 'all' as const, label: linePreview ? 'All lines' : 'All cues', count: linePreview ? linePreview.units.length : segments.length },
+                          ...(linePreview ? [{ id: 'fix' as const, label: 'Lines to fix', count: linesToFixCount, dot: 'bg-indigo-400' }] : []),
+                          { id: 'risk' as const, label: linePreview ? 'Too long' : 'Too fast', count: pacingCounts.fast, dot: 'bg-rose-400', divided: true },
+                          { id: 'tight' as const, label: 'Tight', count: pacingCounts.tight, dot: 'bg-amber-400' },
+                          { id: 'short' as const, label: 'Ends early', count: pacingCounts.short, dot: 'bg-sky-400' },
+                        ]}
+                      />
+
+                      {/* Speakers: who is filtered, labels to check, names and merges, in a window */}
+                      {multiSpeaker && (
+                        <div className="group relative">
+                          <button
+                            type="button"
+                            onClick={() => setReviewWindow('speakers')}
+                            aria-label={`Speakers: ${speakers.length}`}
+                            className={toolIcon(speakerFilter.length > 0 || slipsOnly || voiceOnly)}
+                          >
+                            <Users className="w-4 h-4" />
+                            {speakerFilter.length > 0 ? <ToolCount n={speakerFilter.length} /> : speakerSlips.size + voiceFlags.size > 0 && <ToolDot />}
+                          </button>
+                          <ToolTip
+                            title={`Speakers · ${speakers.length}`}
+                            detail={
+                              [
+                                speakerFilter.length > 0 ? `Showing ${speakerFilter.join(', ')}` : '',
+                                speakerSlips.size + voiceFlags.size > 0
+                                  ? `${speakerSlips.size + voiceFlags.size} label${speakerSlips.size + voiceFlags.size === 1 ? '' : 's'} to check`
+                                  : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' · ') || 'show only some, rename or merge'
+                            }
+                          />
+                        </div>
+                      )}
+
+                      <GrammarCheckButton
+                        picked={selectedCues.size}
+                        shown={filteredSegments.length}
+                        total={segments.length}
+                        busy={Boolean(grammar?.running)}
+                        onStart={startGrammarCheck}
+                      />
+
+                      <span className="w-px h-4 bg-edge mx-0.5" aria-hidden="true" />
+                    </>
+                  )}
+
+                  {/* How the list looks: line details, text size, passages, estimate, lanes, phonetic, Word */}
                   <ReviewViewMenu
                     detailed={reviewDetailed}
                     onDetailed={setReviewDetailed}
@@ -3965,11 +4003,23 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     onUnfoldAll={() => setFoldedPassages(new Set())}
                     estimate={<EstimateSwitch method={estimateMethod} onChange={changeEstimateMethod} />}
                     onOpenKeyboard={onOpenPhoneticKeyboard ? () => onOpenPhoneticKeyboard() : undefined}
+                    phoneticName={phoneticName}
+                    onSaveWord={reviewMode !== 'qa' ? () => void saveWordFile() : undefined}
+                    savingWord={savingWord}
                   />
                 </div>
               </div>
 
 
+
+              {wordError && reviewMode !== 'qa' && (
+                <div role="alert" className="flex items-center gap-2 px-4 py-1.5 border-b border-edge text-[12px] text-rose-300">
+                  <span className="flex-1">{wordError}</span>
+                  <button type="button" onClick={() => setWordError(null)} aria-label="Dismiss" className="p-1 text-slate-500 hover:text-slate-200 cursor-default">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
 
               {/* Active view */}
               <div ref={scriptScrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain custom-scrollbar">
@@ -4017,8 +4067,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               onPlayPassage={handlePlayPassage}
               onTogglePlay={onTogglePlay}
               fontSize={reviewFontPx}
-              exportTitle={activeJob.file?.name}
-              exportFileStem={projectFileStem(activeJob)}
               onOpenKeyboard={onOpenPhoneticKeyboard}
             />
           )}
@@ -4046,7 +4094,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           {reviewMode === 'table' && filteredSegments.length > 0 && (
             <div>
               {/* Group rows and the pause that starts a passage live in the ⋯ menu */}
-              <div className="hidden md:grid grid-cols-[4.75rem_5.5rem_minmax(0,1fr)_minmax(0,1.3fr)_2rem] gap-4 px-4 py-2 sticky top-0 z-10 bg-slate-900 border-b border-edge text-[12px] font-medium text-slate-400">
+              <div className="hidden md:grid grid-cols-[4.6rem_6.6rem_minmax(0,1fr)_minmax(0,1.3fr)_1.5rem] gap-x-3.5 px-4 py-1.5 sticky top-0 z-10 bg-slate-900 border-b border-edge text-[12px] font-medium text-slate-400">
                 <span>#</span>
                 <span>Time</span>
                 <span>Original</span>
@@ -4145,6 +4193,61 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       ? 'bg-sky-400'
                       : '';
                 const isLastCue = cueIndexById.get(String(seg.id))! >= segments.length - 1;
+                // A sync line can span several cues: its fit and rewording sit once, under its last cue; its pills beside the words.
+                const lineFit = (() => {
+                  if (!linePreview) return null;
+                  const unit = unitOfCue.get(String(seg.id));
+                  if (!unit || String(unit.cueIds[unit.cueIds.length - 1]) !== String(seg.id)) return null;
+                  const fix = lineFixes.controlsFor(unit);
+                  // Every line carries its fit in one row (Mock A): state, meter, seconds, what to change, wording buttons; the advice opens under it.
+                  const moved = unit.parts?.filter((part) => part.placed) ?? [];
+                  // Cuts at the original's pauses are Sync's: only the user's own cuts and moves are noted.
+                  const ownCuts = unit.parts?.filter((part) => part.index > 0 && !part.byPause).length ?? 0;
+                  const skippedPauses = unit.pauseMarks?.filter((mark) => mark.state === 'skipped').length ?? 0;
+                  const placed =
+                    unit.parts && (moved.length > 0 || ownCuts > 0 || skippedPauses > 0)
+                      ? {
+                          label: ownCuts > 0 ? `Cut in ${ownCuts + 1}` : moved.length > 0 ? 'Placed' : `${skippedPauses} pause cut${skippedPauses === 1 ? '' : 's'} off`,
+                          // The pill on the fit row: a cut line shows the scissors and its parts, a placed one only an arrow.
+                          short: ownCuts > 0 ? { kind: 'cut' as const, text: String(ownCuts + 1) } : moved.length > 0 ? { kind: 'moved' as const, text: '' } : { kind: 'pauses' as const, text: `${skippedPauses} off` },
+                          detail: `${ownCuts > 0 ? `Cut by you in ${ownCuts + 1} parts` : moved.length > 0 ? 'Placed by you' : `${skippedPauses} cut at a pause turned off`}${
+                            moved.length > 0
+                              ? `, ${moved
+                                  .map((part) => `${unit.parts!.length > 1 ? `part ${part.index + 1} ` : ''}${part.start - part.auto > 0 ? '+' : '−'}${Math.abs(part.start - part.auto).toFixed(1)} s`)
+                                  .join(', ')} from where Sync puts it`
+                              : ''
+                          }. Sync places it there.`,
+                          onReset: () => setLinePlace(unit, () => null),
+                        }
+                      : null;
+                  const fasterOn = readsFaster(unit);
+                  const fasterSeconds = unit.estimate * PACE_SHARE;
+                  const faster =
+                    canReadFaster && (unit.status === 'long' || fasterOn)
+                      ? {
+                          on: fasterOn,
+                          seconds: fasterSeconds,
+                          fits: fasterSeconds - unit.slot <= ALLOWED_OVERFLOW[syncOptions.precision],
+                          model: elModelId?.startsWith('eleven_v4') ? 'Eleven v4' : 'Eleven v3',
+                          onToggle: (on: boolean) => setReadsFaster(unit, on),
+                        }
+                      : null;
+                  const firstCue = cueIndexById.get(String(unit.cueIds[0]));
+                  const syl = syllableFitOf(seg);
+                  const counts = `${unit.text.length} characters · ${syl.syllables} syllables${syl.holds > 0 ? `, the slot holds about ${syl.holds}` : ''}.`;
+                  return {
+                    unit,
+                    cps: linePreview.charsPerSecond,
+                    fix,
+                    open: unit.cueIds.some((id) => String(id) === openCueId),
+                    cuesLabel: unit.cueIds.length > 1 && firstCue !== undefined ? `Cues ${firstCue + 1}–${cueNumber}` : undefined,
+                    pauses: pauseAdvice(unit),
+                    faster,
+                    placed,
+                    onResetTrim: () => trimLine(unit, null),
+                    counts,
+                  };
+                })();
 
                 return (
                   <React.Fragment key={seg.id}>
@@ -4154,7 +4257,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     id={`cue-card-${seg.id}`}
                     onMouseDown={() => setOpenCueId(String(seg.id))}
                     onFocusCapture={() => setOpenCueId(String(seg.id))}
-                    className={`group relative grid grid-cols-[auto_minmax(0,1fr)_auto] md:grid-cols-[4.75rem_5.5rem_minmax(0,1fr)_minmax(0,1.3fr)_2rem] gap-x-4 gap-y-2 px-4 py-3 border-b transition-colors ${
+                    className={`group relative grid grid-cols-[auto_minmax(0,1fr)_auto] md:grid-cols-[4.6rem_6.6rem_minmax(0,1fr)_minmax(0,1.3fr)_1.5rem] gap-x-3.5 gap-y-1 px-4 py-1 border-b transition-colors ${
                       String(cueEditing.boundaryId) === String(seg.id) ? 'border-b-indigo-400' : 'border-edge'
                     } ${
                       isCueActive ? 'bg-indigo-950/40' : isOpen ? 'bg-slate-800/40' : 'hover:bg-slate-800/30'
@@ -4166,8 +4269,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       (isCueActive || isOpen) && <span className={`absolute left-0 top-0 bottom-0 w-0.5 ${isCueActive ? 'bg-indigo-400' : 'bg-slate-500'}`} />
                     )}
 
-                    {/* Number and audition */}
-                    <div className="flex items-start gap-2">
+                    {/* Number and audition, as tall as one line of the dub so the row stays one line (Mock A, 2026-11-27) */}
+                    <div className="flex items-center gap-2" style={{ height: lineBox }}>
                       {multiSpeaker && (
                         <input
                           type="checkbox"
@@ -4191,7 +4294,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           }}
                           aria-label={`Select cue ${cueNumber}. Shift-click selects a range.`}
                           title="Select. Shift-click to select a range."
-                          className="w-3.5 h-3.5 mt-2 accent-indigo-500 cursor-default shrink-0"
+                          className="w-3.5 h-3.5 accent-indigo-500 cursor-default shrink-0"
                         />
                       )}
                       <button
@@ -4201,7 +4304,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           onPlaySegmentSolo(seg);
                           setTimeout(() => setPlayingSegmentId(null), seg.duration * 1000 + 500);
                         }}
-                        className={`w-7 h-7 rounded-full border flex items-center justify-center shrink-0 transition-colors cursor-default ${
+                        className={`w-[22px] h-[22px] rounded-full border flex items-center justify-center shrink-0 transition-colors cursor-default ${
                           isCuePlaying
                             ? 'bg-indigo-500 border-indigo-500 text-white'
                             : 'border-slate-700 text-slate-300 hover:border-indigo-400 hover:text-indigo-300'
@@ -4209,9 +4312,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         title="Listen to the original line"
                         aria-label={`Listen to cue ${cueNumber}`}
                       >
-                        {isCuePlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3 ml-px" />}
+                        {isCuePlaying ? <Pause className="w-2.5 h-2.5" /> : <Play className="w-2.5 h-2.5 ml-px" />}
                       </button>
-                      <span className="font-mono text-[12px] text-slate-400 pt-1.5 tabular-nums">
+                      <span className="font-mono text-[12px] text-slate-400 tabular-nums">
                         {String(cueNumber).padStart(2, '0')}
                         {grammarOpenIds.has(String(seg.id)) && (
                           <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-amber-400 align-middle" title="Grammar fix waiting in the Grammar panel" />
@@ -4223,15 +4326,16 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <button
                       type="button"
                       onClick={() => seekSource(seg.startTime)}
-                      className="self-start text-left font-mono text-[12.5px] text-slate-300 hover:text-indigo-300 leading-snug tabular-nums cursor-default md:pt-1"
+                      className="self-start flex items-center text-left font-mono text-[12px] text-slate-300 hover:text-indigo-300 tabular-nums whitespace-nowrap cursor-default"
+                      style={{ height: lineBox }}
                       title="Jump the player to this cue"
                     >
                       {formatSeconds(seg.startTime)}
-                      <span className="md:block text-[12px] text-slate-400 ml-1.5 md:ml-0">{seg.duration.toFixed(1)}s</span>
+                      <span className="text-slate-500 ml-1.5">{seg.duration.toFixed(1)}s</span>
                     </button>
 
                     {/* Split, the cut and join, in the row's ⋯ (right column on desktop, top-right on phones) */}
-                    <div className="md:order-last flex justify-end md:pt-0.5">
+                    <div className="md:order-last flex items-center justify-end" style={{ height: lineBox }}>
                       <CueRowMenu
                         label={`More for cue ${cueNumber}: split, the cut, join`}
                         className={isOpen || String(cueEditing.boundaryId) === String(seg.id) ? '' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity'}
@@ -4248,20 +4352,22 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     </div>
 
                     {/* Original */}
-                    <div className="col-span-3 md:col-span-1 text-slate-400 leading-relaxed" style={reviewSourceStyle}>
+                    {/* The speaker is a small chip at the start of the line, not a row of its own (Mock A, 2026-11-27) */}
+                    <div className="col-span-3 md:col-span-1 text-slate-400 leading-relaxed" style={{ ...reviewSourceStyle, paddingTop: 5 }}>
                       {multiSpeaker ? (
-                        <span className="block mb-1">
+                        <span className="inline-flex align-middle -mt-0.5 mr-1.5">
                           <SpeakerPicker
                             value={speakerOf(seg)}
                             speakers={speakers}
                             onChange={(speaker) => onUpdateSegment(seg.id, { speaker })}
                             newSpeaker={nextSpeakerName}
+                            chip
                           />
                         </span>
                       ) : (
                         seg.speaker && (
-                          <span className="block text-[12px] font-medium text-slate-400 mb-0.5">
-                            {seg.speaker}
+                          <span className="mr-1.5 text-[11px] font-semibold text-slate-500" title={seg.speaker}>
+                            {speakerShortName(seg.speaker)}
                           </span>
                         )
                       )}
@@ -4302,23 +4408,34 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     </div>
 
                     {/* Translation */}
-                    <div className="col-span-3 md:col-span-1 min-w-0" data-review-text>
-                      <PhoneticSmartTextarea
-                        showQuickSymbols={false}
-                        value={tgtText}
-                        language={targetLanguage}
-                        onChange={(newVal) =>
-                          onUpdateSegment(seg.id, {
-                            textTarget: newVal,
-                            targetText: newVal,
-                          })
-                        }
-                        rows={1}
-                        autoGrow
-                        placeholder={`${targetLanguage} line`}
-                        bare
-                        fontSize={reviewFontPx}
-                      />
+                    {/* No box around the words until the row is open or typed in; a cut or placed pill sits at the line's end (Mock A, 2026-11-27) */}
+                    <div className="relative col-span-3 md:col-span-1 min-w-0" data-review-text>
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <PhoneticSmartTextarea
+                            showQuickSymbols={false}
+                            value={tgtText}
+                            language={targetLanguage}
+                            onChange={(newVal) =>
+                              onUpdateSegment(seg.id, {
+                                textTarget: newVal,
+                                targetText: newVal,
+                              })
+                            }
+                            rows={1}
+                            autoGrow
+                            placeholder={`${targetLanguage} line`}
+                            bare
+                            quiet={isOpen ? 'open' : 'line'}
+                            fontSize={reviewFontPx}
+                          />
+                        </div>
+                        {lineFit && hasSyncFitPills(lineFit) && (
+                          <span className="shrink-0 flex items-center" style={{ height: lineBox }}>
+                            <SyncFitPills unit={lineFit.unit} cuesLabel={lineFit.cuesLabel} placed={lineFit.placed} onResetTrim={lineFit.onResetTrim} />
+                          </span>
+                        )}
+                      </div>
                       {/* Once the line fit is worked out, its row says it once; the counts sit behind its i. */}
                       {showDetail && !linePreview && (
                         <span className="flex flex-wrap gap-x-2 mt-1">
@@ -4341,62 +4458,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         </div>
                       )}
                       {(() => {
-                        if (linePreview) {
-                          // A sync line can span several cues: its fit and rewording sit once, under its last cue.
-                          const unit = unitOfCue.get(String(seg.id));
-                          if (!unit || String(unit.cueIds[unit.cueIds.length - 1]) !== String(seg.id)) return null;
-                          const fix = lineFixes.controlsFor(unit);
-                          // Every line carries its fit in one row (Mock A): state, meter, seconds, what to change, wording buttons; the advice opens under it.
-                          const moved = unit.parts?.filter((part) => part.placed) ?? [];
-                          // Cuts at the original's pauses are Sync's: only the user's own cuts and moves are noted.
-                          const ownCuts = unit.parts?.filter((part) => part.index > 0 && !part.byPause).length ?? 0;
-                          const skippedPauses = unit.pauseMarks?.filter((mark) => mark.state === 'skipped').length ?? 0;
-                          const placed =
-                            unit.parts && (moved.length > 0 || ownCuts > 0 || skippedPauses > 0)
-                              ? {
-                                  label: ownCuts > 0 ? `Cut in ${ownCuts + 1}` : moved.length > 0 ? 'Placed' : `${skippedPauses} pause cut${skippedPauses === 1 ? '' : 's'} off`,
-                                  // The pill on the fit row: a cut line shows the scissors and its parts, a placed one only an arrow.
-                                  short: ownCuts > 0 ? { kind: 'cut' as const, text: String(ownCuts + 1) } : moved.length > 0 ? { kind: 'moved' as const, text: '' } : { kind: 'pauses' as const, text: `${skippedPauses} off` },
-                                  detail: `${ownCuts > 0 ? `Cut by you in ${ownCuts + 1} parts` : moved.length > 0 ? 'Placed by you' : `${skippedPauses} cut at a pause turned off`}${
-                                    moved.length > 0
-                                      ? `, ${moved
-                                          .map((part) => `${unit.parts!.length > 1 ? `part ${part.index + 1} ` : ''}${part.start - part.auto > 0 ? '+' : '−'}${Math.abs(part.start - part.auto).toFixed(1)} s`)
-                                          .join(', ')} from where Sync puts it`
-                                      : ''
-                                  }. Sync places it there.`,
-                                  onReset: () => setLinePlace(unit, () => null),
-                                }
-                              : null;
-                          const fasterOn = readsFaster(unit);
-                          const fasterSeconds = unit.estimate * PACE_SHARE;
-                          const faster =
-                            canReadFaster && (unit.status === 'long' || fasterOn)
-                              ? {
-                                  on: fasterOn,
-                                  seconds: fasterSeconds,
-                                  fits: fasterSeconds - unit.slot <= ALLOWED_OVERFLOW[syncOptions.precision],
-                                  model: elModelId?.startsWith('eleven_v4') ? 'Eleven v4' : 'Eleven v3',
-                                  onToggle: (on: boolean) => setReadsFaster(unit, on),
-                                }
-                              : null;
-                          const firstCue = cueIndexById.get(String(unit.cueIds[0]));
-                          const syl = syllableFitOf(seg);
-                          const counts = `${unit.text.length} characters · ${syl.syllables} syllables${syl.holds > 0 ? `, the slot holds about ${syl.holds}` : ''}.`;
-                          return (
-                            <SyncFitStrip
-                              unit={unit}
-                              cps={linePreview.charsPerSecond}
-                              fix={fix}
-                              open={unit.cueIds.some((id) => String(id) === openCueId)}
-                              cuesLabel={unit.cueIds.length > 1 && firstCue !== undefined ? `Cues ${firstCue + 1}–${cueNumber}` : undefined}
-                              pauses={pauseAdvice(unit)}
-                              faster={faster}
-                              placed={placed}
-                              onResetTrim={() => trimLine(unit, null)}
-                              counts={counts}
-                            />
-                          );
-                        }
+                        if (linePreview) return lineFit ? <SyncFitStrip {...lineFit} pillsBeside /> : null;
                         // Until the line fit is worked out, each cue is judged on its own.
                         const { cps: lineCps, ...line } = reviewLineOf(seg, tgtText, srcText);
                         const fix = reviewFixes.controlsFor(line);

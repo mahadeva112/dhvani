@@ -9,7 +9,6 @@ import { usePhoneticTyping, type PhoneticField } from './usePhoneticTyping';
 import { inlineField, placeCaret } from './inlineField';
 import { DOCX_MIME, buildScriptDocx, scriptDocxFileName, scriptDocxRows } from '../../services/scriptDocx';
 import { saveFileAs } from '../../services/saveFile';
-import { WordSaveButton } from './ReviewMenus';
 
 export interface LinePacing {
   level: 'natural' | 'tight' | 'fast';
@@ -61,6 +60,37 @@ function InlineLine({ text, cueId, ...rest }: { text: string; cueId: string } & 
   );
 }
 
+/**
+ * The Script view's Word file (from Review's ⋯ since 2026-11-27): every
+ * passage, not just those shown, the original's paragraph left, the dub's right.
+ */
+export async function saveScriptWord(args: {
+  segments: AudioSegment[];
+  sourceLanguage: string;
+  targetLanguage: string;
+  getSourceText: (seg: AudioSegment) => string;
+  getTargetText: (seg: AudioSegment) => string;
+  /** The file's heading, e.g. the media's name. */
+  title?: string;
+  /** The file's name without ".docx": the project's name. */
+  fileStem: string;
+}) {
+  const { segments, sourceLanguage, targetLanguage, getSourceText, getTargetText, title, fileStem } = args;
+  const build = async () =>
+    new Blob(
+      [
+        await buildScriptDocx({
+          title: title || `${targetLanguage || 'Dub'} script`,
+          sourceLanguage,
+          targetLanguage,
+          rows: scriptDocxRows(segments, getSourceText, getTargetText),
+        }),
+      ],
+      { type: DOCX_MIME }
+    );
+  await saveFileAs(build, scriptDocxFileName(fileStem), { description: 'Word document', mime: DOCX_MIME, extension: '.docx' });
+}
+
 interface ScriptTableViewProps {
   segments: AudioSegment[];
   /** Paragraphs shown: those with at least one of these cues, so search and the pacing filter still narrow the table. */
@@ -82,10 +112,6 @@ interface ScriptTableViewProps {
   onPlayPassage: (start: number, end: number) => void;
   onTogglePlay: () => void;
   fontSize?: number;
-  /** The Word file's heading, e.g. the media's name. */
-  exportTitle?: string;
-  /** The Word file's name without ".docx": the project's name. */
-  exportFileStem: string;
   /** Opens the on-screen phonetic keyboard on a line, as from a cue in the Cues table. */
   onOpenKeyboard?: (seg: AudioSegment) => void;
 }
@@ -112,8 +138,6 @@ export function ScriptTableView({
   onPlayPassage,
   onTogglePlay,
   fontSize = 15,
-  exportTitle,
-  exportFileStem,
   onOpenKeyboard,
 }: ScriptTableViewProps) {
   // The getter is a new function each render; the paragraphs only change with the cues.
@@ -474,57 +498,8 @@ export function ScriptTableView({
   const keepCaret = (e: React.MouseEvent) => e.preventDefault();
   const barButton = 'h-7 px-2 rounded-md border flex items-center gap-1 text-[11px] font-medium transition-colors cursor-default disabled:opacity-50';
 
-  /** Every passage, not just those shown, as a Word table: the original's paragraph left, the dub's right. */
-  const [savingWord, setSavingWord] = useState(false);
-  const [wordError, setWordError] = useState<string | null>(null);
-  const saveWord = async () => {
-    setSavingWord(true);
-    setWordError(null);
-    const build = async () =>
-      new Blob(
-        [
-          await buildScriptDocx({
-            title: exportTitle || `${targetLanguage || 'Dub'} script`,
-            sourceLanguage,
-            targetLanguage,
-            rows: scriptDocxRows(segments, getSourceText, getTargetText),
-          }),
-        ],
-        { type: DOCX_MIME }
-      );
-    try {
-      await saveFileAs(build, scriptDocxFileName(exportFileStem), { description: 'Word document', mime: DOCX_MIME, extension: '.docx' });
-    } catch (err) {
-      console.warn('Saving the Word script failed:', err);
-      setWordError(`Couldn't save the Word file: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setSavingWord(false);
-    }
-  };
-
   return (
     <div ref={rootRef}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 border-b border-edge text-[11px] text-slate-400">
-        {/* The Word file has this view's paragraphs, sized on their own: nothing to pick */}
-        <WordSaveButton
-          saving={savingWord}
-          onSave={() => void saveWord()}
-          title={`Save as a Word file: the script in this view's paragraphs, ${sourceLanguage || 'the original'} on the left, ${targetLanguage || 'the dub'} on the right`}
-        />
-        {wordError && <span className="text-rose-300">{wordError}</span>}
-        <button
-          type="button"
-          onClick={phonetic.toggle}
-          aria-pressed={phonetic.enabled}
-          className={`ml-auto h-6 px-2 rounded-md border flex items-center gap-1 font-medium transition-colors cursor-default ${
-            phonetic.enabled ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-300' : 'border-edge text-slate-400 hover:text-slate-200'
-          }`}
-          title={`Type Roman letters and get ${langConfig.nativeName} as you go (Ctrl+G)`}
-        >
-          <Keyboard className="w-3 h-3" />
-          Phonetic {phonetic.enabled ? langConfig.nativeName : 'off'}
-        </button>
-      </div>
       <div className="p-3 sm:p-4">
         <table className="w-full table-fixed border-collapse text-slate-200" style={{ fontSize: `${fontSize}px` }}>
           <colgroup>

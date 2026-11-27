@@ -50,6 +50,12 @@ export interface PhoneticSmartTextareaProps {
   fontSize?: number;
   /** As tall as its text: one line of words is one row, never a scrollbar. `rows` is the least it shows. */
   autoGrow?: boolean;
+  /**
+   * No box around the words (Review rows, Mock A 2026-11-27): 'line' shows a
+   * faint shade on hover, 'open' (the picked row) a quiet frame; typing in it
+   * shows the usual blue one. The words stay where they are in all three.
+   */
+  quiet?: 'line' | 'open';
 }
 
 export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
@@ -67,6 +73,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
   bare = false,
   fontSize,
   autoGrow = false,
+  quiet,
 }) => {
   // Enabled state for phonetic auto-transliteration (persisted or on by default)
   const isPhoneticOn = usePhoneticSwitch();
@@ -389,7 +396,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
   ].filter(Boolean);
 
   return (
-    <div className="relative group/phonetic flex flex-col space-y-1">
+    <div className="relative group/phonetic flex flex-col gap-1">
       {bare && isPhoneticOn && value && /[a-zA-Z]{2,}/.test(value) && (
         <div className="flex justify-end text-[11px]">
           <button
@@ -554,7 +561,13 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
               ? `Dialogue translation in ${langConfig.nativeName} (${langConfig.name})... Type in English phonetically (e.g. "namaste").`
               : `Dialogue translation...`)
           }
-          className={`w-full ${autoGrow ? 'px-2.5 py-1.5 overflow-hidden' : 'p-2.5'} rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 text-xs font-serif text-slate-900 dark:text-white focus:outline-none resize-none leading-relaxed transition-[border-color,box-shadow] shadow-inner ${className}`}
+          className={
+            quiet
+              ? `block w-[calc(100%+1.25rem)] -mx-2.5 px-2.5 py-0.5 overflow-hidden rounded-lg border focus:border-indigo-500 focus:bg-slate-950 focus:ring-2 focus:ring-indigo-500/20 text-xs font-serif text-slate-900 dark:text-white focus:outline-none resize-none leading-relaxed transition-[border-color,background-color,box-shadow] ${
+                  quiet === 'open' ? 'border-slate-700 bg-slate-950' : 'border-transparent bg-transparent hover:bg-slate-800/40'
+                } ${className}`
+              : `w-full ${autoGrow ? 'px-2.5 py-1.5 overflow-hidden' : 'p-2.5'} rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 text-xs font-serif text-slate-900 dark:text-white focus:outline-none resize-none leading-relaxed transition-[border-color,box-shadow] shadow-inner ${className}`
+          }
         />
 
         {/* Live Word Suggestions Popup (Candidate List with Number Keys 1-5) */}

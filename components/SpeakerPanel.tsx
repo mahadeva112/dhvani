@@ -395,6 +395,12 @@ export const CueSelectionBar: React.FC<{
   </div>
 );
 
+/** "Speaker 3" → "S3"; a real name stays (the chip truncates it). */
+export const speakerShortName = (name: string) => {
+  const numbered = name.match(/^Speaker\s+(\d+)$/i);
+  return numbered ? `S${numbered[1]}` : name;
+};
+
 /** Who says a cue, with a menu to hand it to another speaker. */
 export const SpeakerPicker: React.FC<{
   value: string;
@@ -402,19 +408,22 @@ export const SpeakerPicker: React.FC<{
   onChange?: (speaker: string) => void;
   /** The name a new speaker gets, offered last in the menu. */
   newSpeaker?: string;
-}> = ({ value, speakers, onChange, newSpeaker }) => {
+  /** A small chip with the short name ("S1"), for one-line rows (Review, Mock A 2026-11-27). */
+  chip?: boolean;
+}> = ({ value, speakers, onChange, newSpeaker, chip = false }) => {
   const speaker = speakers.find((s) => s.name === value);
-  if (!onChange) return <SpeakerChip speaker={speaker} name={value} />;
+  if (!onChange) return <SpeakerChip speaker={speaker} name={chip ? speakerShortName(value) : value} />;
   return (
     <span className="inline-flex max-w-full">
       <Select
         value={value}
         onChange={onChange}
         ariaLabel="Who says this line"
-        title="Who says this line"
+        title={chip ? `${value}. Click to change who says this line.` : 'Who says this line'}
         size="sm"
+        chip={chip}
         options={[
-          ...speakers.map((s) => ({ value: s.name, label: s.name, color: s.color })),
+          ...speakers.map((s) => ({ value: s.name, label: s.name, color: s.color, short: speakerShortName(s.name) })),
           ...(newSpeaker ? [{ value: newSpeaker, label: '+ New speaker', hint: newSpeaker }] : []),
         ]}
       />

@@ -93,7 +93,44 @@ export interface SyncFitStripProps {
   onResetTrim?: () => void;
   /** "107 characters · 36 syllables, …", shown behind the i. */
   counts?: string;
+  /**
+   * The cut, placed and trim pills and "Cues 2–3" sit beside the words
+   * (SyncFitPills, Review rows Mock A 2026-11-27), not in this row. A line
+   * that fits then takes no room here: its wording buttons and i float over
+   * the end of the line on hover.
+   */
+  pillsBeside?: boolean;
 }
+
+type SyncFitPillsProps = Pick<SyncFitStripProps, 'unit' | 'cuesLabel' | 'placed' | 'onResetTrim'>;
+
+/** Whether a line has any pill for SyncFitPills to show. */
+export const hasSyncFitPills = ({ unit, cuesLabel, placed, onResetTrim }: SyncFitPillsProps) =>
+  Boolean(cuesLabel || placed || (unit.wantSeconds !== undefined && onResetTrim));
+
+/** What was done to a line (cut, placed, trimmed) and the cues it spans, as pills beside its words. */
+export const SyncFitPills: React.FC<SyncFitPillsProps & { className?: string }> = ({ unit, cuesLabel, placed, onResetTrim, className = '' }) => (
+  <span className={`flex flex-wrap items-center gap-1.5 ${className}`}>
+    {cuesLabel && <span className="text-[11.5px] text-indigo-300/80 whitespace-nowrap">{cuesLabel}</span>}
+    {placed && (
+      <button
+        type="button"
+        onClick={placed.onReset}
+        className={`${pill} ${pillOn}`}
+        title={`${placed.detail} Click to join its parts and let Sync place the line again.`}
+        aria-label={`${placed.label}. Click to let Sync place it again.`}
+      >
+        {placed.short?.kind === 'cut' ? <Scissors /> : placed.short?.kind === 'moved' ? <MoveHorizontal /> : <RotateCcw />}
+        {placed.short ? placed.short.text : `${placed.label} · auto`}
+      </button>
+    )}
+    {unit.wantSeconds !== undefined && onResetTrim && (
+      <button type="button" onClick={onResetTrim} className={`${pill} ${pillOn}`} title="Trimmed by you. Click to go back to the length worked out from the slot.">
+        <Scissors /> Trim {unit.wantSeconds.toFixed(1)} s · reset
+      </button>
+    )}
+  </span>
+);
 
 /** Said on the warning icon, and under the i, when shortening would lose too much. */
 const DEEP_CUT_HINT = 'Shorter would cut over a third of its words: drag its end on the timeline, or join it with the next line.';
@@ -103,7 +140,7 @@ const AHEAD_HOVER_MS = 500;
 /** How long the open line's words stay unchanged before its wording is asked for ahead. */
 const AHEAD_SETTLE_MS = 1200;
 
-export const SyncFitStrip: React.FC<SyncFitStripProps> = ({ unit, cps, fix, open = false, cuesLabel, pauses, faster, placed, onResetTrim, counts }) => {
+export const SyncFitStrip: React.FC<SyncFitStripProps> = ({ unit, cps, fix, open = false, cuesLabel, pauses, faster, placed, onResetTrim, counts, pillsBeside = false }) => {
   const [infoOpen, setInfoOpen] = useState(false);
   const { state, direction, onPrefetch, ...controls } = fix;
   // Picked, or hovered for a moment: the wording the line points to is asked for before the click.
@@ -135,10 +172,13 @@ export const SyncFitStrip: React.FC<SyncFitStripProps> = ({ unit, cps, fix, open
   // A line that fits says nothing on its own: the passage's "All fit" and the top bar already say so.
   const quiet = unit.status === 'fits' || unit.status === 'tight';
   const seconds = `About ${unit.estimate.toFixed(1)} s of speech${unit.read - unit.estimate >= 0.1 ? ` once placed (read in ${unit.read.toFixed(1)} s)` : ''} · slot ${unit.slot.toFixed(1)} s · original speech ${unit.spoken.toFixed(1)} s`;
+  const hoverOnly = idle && !flagged && !infoOpen;
+  // A fitting line with its pills beside the words has nothing to show here: no room taken, buttons over the line's end on hover.
+  const floating = pillsBeside && quiet && hoverOnly && state.kind === 'idle' && !delta && !shortCut;
 
   return (
-    <div className="mt-1.5" onPointerEnter={startHover} onPointerLeave={endHover} onFocus={() => prefetchRef.current?.()}>
-      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1.5 min-h-[26px]">
+    <div className={floating ? '' : 'mt-1.5'} onPointerEnter={startHover} onPointerLeave={endHover} onFocus={() => prefetchRef.current?.()}>
+      <div className={floating ? '' : 'flex flex-wrap items-center gap-x-1.5 gap-y-1.5 min-h-[26px]'}>
         {!quiet && (
           <>
             <span
@@ -162,29 +202,14 @@ export const SyncFitStrip: React.FC<SyncFitStripProps> = ({ unit, cps, fix, open
             <AlertTriangle className="w-3.5 h-3.5" />
           </span>
         )}
-        {cuesLabel && <span className="text-[11.5px] text-indigo-300/80 whitespace-nowrap">{cuesLabel}</span>}
-        {placed && (
-          <button
-            type="button"
-            onClick={placed.onReset}
-            className={`${pill} ${pillOn}`}
-            title={`${placed.detail} Click to join its parts and let Sync place the line again.`}
-            aria-label={`${placed.label}. Click to let Sync place it again.`}
-          >
-            {placed.short?.kind === 'cut' ? <Scissors /> : placed.short?.kind === 'moved' ? <MoveHorizontal /> : <RotateCcw />}
-            {placed.short ? placed.short.text : `${placed.label} · auto`}
-          </button>
-        )}
-        {unit.wantSeconds !== undefined && onResetTrim && (
-          <button type="button" onClick={onResetTrim} className={`${pill} ${pillOn}`} title="Trimmed by you. Click to go back to the length worked out from the slot.">
-            <Scissors /> Trim {unit.wantSeconds.toFixed(1)} s · reset
-          </button>
-        )}
+        {!pillsBeside && <SyncFitPills unit={unit} cuesLabel={cuesLabel} placed={placed} onResetTrim={onResetTrim} />}
 
         <span
-          className={`ml-auto flex flex-wrap items-center gap-1 ${
-            idle && !flagged && !infoOpen ? 'opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity' : ''
-          }`}
+          className={`${
+            floating
+              ? 'absolute right-0 top-0.5 z-10 rounded-md bg-slate-900/95 shadow-lg shadow-black/40 px-0.5 pointer-events-none group-hover:pointer-events-auto focus-within:pointer-events-auto'
+              : 'ml-auto'
+          } flex flex-wrap items-center gap-1 ${hoverOnly ? 'opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity' : ''}`}
         >
           {state.kind === 'error' && (
             <>

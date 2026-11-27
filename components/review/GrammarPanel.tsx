@@ -2,12 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, SpellCheck, X } from 'lucide-react';
 import type { GrammarFix, GrammarState } from '../../services/grammarCheck';
 import { diffWords } from '../../services/wordDiff';
+import { ToolTip, toolIcon } from './ReviewMenus';
 
 export type GrammarScope = 'picked' | 'shown' | 'all';
 
 /**
- * Review's Check grammar button: asks which lines to check, then starts. Never
- * runs by itself.
+ * Review's Check grammar button (an icon, its name in the tip): asks which
+ * lines to check, then starts. Never runs by itself.
  */
 export function GrammarCheckButton({
   picked,
@@ -48,18 +49,23 @@ export function GrammarCheckButton({
     { id: 'all', label: 'All lines', count: total },
   ];
   return (
-    <div ref={box} className="relative">
+    <div ref={box} className="group relative">
       <button
         type="button"
         disabled={busy || total === 0}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="h-8 px-2.5 flex items-center gap-1.5 rounded-xl border border-edge text-xs font-medium text-slate-300 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 transition-colors cursor-default"
-        title="Check the dub lines' spelling, matras, agreement and punctuation. Runs only when you press it; nothing changes until you accept a fix."
+        aria-label="Check grammar"
+        className={toolIcon(open)}
       >
-        {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <SpellCheck className="w-3.5 h-3.5" />}
-        Check grammar
+        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <SpellCheck className="w-4 h-4" />}
       </button>
+      {!open && (
+        <ToolTip
+          title={busy ? 'Checking grammar' : 'Check grammar'}
+          detail={busy ? 'the fixes come in the side panel' : picked > 0 ? `${picked} picked line${picked === 1 ? '' : 's'}, or all` : 'spelling, matras, agreement; only when you press it'}
+        />
+      )}
       {open && (
         <div role="dialog" aria-label="Check grammar" className="absolute right-0 top-10 z-40 w-72 rounded-xl border border-slate-700 bg-slate-950 shadow-2xl p-3 text-[12.5px]">
           <div className="font-medium text-slate-100 mb-1.5">Check grammar on</div>

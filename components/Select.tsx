@@ -11,6 +11,8 @@ export interface SelectOption {
   description?: string;
   /** A dot in this colour before the label, e.g. a speaker's colour. */
   color?: string;
+  /** What a `chip` button shows in place of the label, e.g. "S1" for Speaker 1. */
+  short?: string;
   disabled?: boolean;
 }
 
@@ -34,6 +36,8 @@ interface SelectProps {
   segmented?: boolean;
   /** sm: a 28 px button for tight rows; md: the usual 36 px one. */
   size?: 'sm' | 'md';
+  /** A small chip in the picked option's colour, its short name, the arrow on hover: for one-line rows (Review's speaker). */
+  chip?: boolean;
   /** Classes for the button (or the segmented row): width, margins. */
   className?: string;
   /** The list's width when it should be wider than the button, in px. */
@@ -104,6 +108,7 @@ export const Select: React.FC<SelectProps> = ({
   searchable,
   segmented = false,
   size = 'md',
+  chip = false,
   className = '',
   menuWidth,
   title,
@@ -383,19 +388,43 @@ export const Select: React.FC<SelectProps> = ({
             setQuery(e.key);
           }
         }}
-        className={`min-w-0 flex items-center gap-2 text-left border rounded-lg bg-slate-950 transition-colors disabled:opacity-50 disabled:hover:border-edge cursor-default ${
-          size === 'sm' ? 'h-7 pl-2 pr-1.5 text-[12px]' : 'h-9 pl-3 pr-2 text-[13px]'
-        } ${open ? 'border-indigo-500 ring-2 ring-indigo-500/20' : 'border-edge hover:border-slate-600'} ${className}`}
+        className={
+          chip
+            ? `group/chip max-w-[9rem] inline-flex items-center gap-1 h-5 pl-1.5 pr-1 rounded-md border text-[11px] font-semibold text-left transition-colors disabled:opacity-50 cursor-default ${
+                open ? 'ring-2 ring-indigo-500/30' : 'hover:brightness-125'
+              } ${className}`
+            : `min-w-0 flex items-center gap-2 text-left border rounded-lg bg-slate-950 transition-colors disabled:opacity-50 disabled:hover:border-edge cursor-default ${
+                size === 'sm' ? 'h-7 pl-2 pr-1.5 text-[12px]' : 'h-9 pl-3 pr-2 text-[13px]'
+              } ${open ? 'border-indigo-500 ring-2 ring-indigo-500/20' : 'border-edge hover:border-slate-600'} ${className}`
+        }
+        style={
+          chip
+            ? { color: current?.color, borderColor: `${current?.color ?? '#64748b'}40`, backgroundColor: `${current?.color ?? '#64748b'}1a` }
+            : undefined
+        }
       >
-        {dot(current)}
-        <span className={`flex-1 min-w-0 truncate ${current ? 'text-slate-100 font-medium' : 'text-slate-500'}`}>
-          {current ? current.label : placeholder}
-          {current?.hint && <span className="ml-1.5 font-normal text-slate-500">{current.hint}</span>}
-        </span>
-        <ChevronDown
-          className={`shrink-0 ${size === 'sm' ? 'w-3.5 h-3.5' : 'w-4 h-4'} transition-transform ${open ? 'rotate-180 text-indigo-300' : 'text-slate-500'}`}
-          aria-hidden="true"
-        />
+        {chip ? (
+          <>
+            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: current?.color ?? '#64748b' }} aria-hidden="true" />
+            <span className="min-w-0 truncate">{current ? current.short ?? current.label : placeholder}</span>
+            <ChevronDown
+              className={`shrink-0 w-3 h-3 -ml-0.5 transition-opacity ${open ? 'opacity-100' : 'opacity-0 group-hover/chip:opacity-100 group-focus-visible/chip:opacity-100'}`}
+              aria-hidden="true"
+            />
+          </>
+        ) : (
+          <>
+            {dot(current)}
+            <span className={`flex-1 min-w-0 truncate ${current ? 'text-slate-100 font-medium' : 'text-slate-500'}`}>
+              {current ? current.label : placeholder}
+              {current?.hint && <span className="ml-1.5 font-normal text-slate-500">{current.hint}</span>}
+            </span>
+            <ChevronDown
+              className={`shrink-0 ${size === 'sm' ? 'w-3.5 h-3.5' : 'w-4 h-4'} transition-transform ${open ? 'rotate-180 text-indigo-300' : 'text-slate-500'}`}
+              aria-hidden="true"
+            />
+          </>
+        )}
       </button>
       {menu}
     </>

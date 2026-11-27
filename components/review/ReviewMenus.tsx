@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Download, Keyboard, Loader2, Minus, MoreHorizontal, MoreVertical, Plus } from 'lucide-react';
+import { Download, Keyboard, ListFilter, Loader2, Minus, MoreHorizontal, MoreVertical, Plus } from 'lucide-react';
+import { togglePhonetic, usePhoneticSwitch } from './usePhoneticTyping';
 
 /** Closes a small menu on a click outside it or on Escape. */
 function useAwayClose(open: boolean, close: () => void) {
@@ -26,6 +27,43 @@ function useAwayClose(open: boolean, close: () => void) {
 
 const menuPanel = 'absolute top-full z-50 mt-1.5 rounded-xl border border-slate-700 bg-slate-900 p-1.5 shadow-xl shadow-black/50';
 
+/**
+ * Review's toolbar is icons only (Mock B, 2026-11-27): each says what it is in
+ * a tip under it on hover. Put it inside a `group relative` box with the button.
+ */
+export function ToolTip({ title, detail, keys, align = 'center' }: { title: React.ReactNode; detail?: React.ReactNode; keys?: string; align?: 'center' | 'right' }) {
+  return (
+    <span
+      role="tooltip"
+      className={`pointer-events-none absolute top-full mt-1.5 z-50 flex flex-col items-start gap-0.5 whitespace-nowrap rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-[11.5px] text-slate-300 shadow-xl shadow-black/50 invisible opacity-0 transition-opacity group-hover:visible group-hover:opacity-100 group-hover:delay-200 group-focus-within:visible group-focus-within:opacity-100 ${
+        align === 'right' ? 'right-0' : 'left-1/2 -translate-x-1/2'
+      }`}
+    >
+      <span className="flex items-center gap-1.5">
+        <span className="font-semibold text-slate-100">{title}</span>
+        {keys && <span className="font-mono text-[10px] text-slate-400 border border-slate-600 rounded px-1">{keys}</span>}
+      </span>
+      {detail && <span className="text-[11px] text-slate-400">{detail}</span>}
+    </span>
+  );
+}
+
+/** A toolbar icon button: grey, lit while on or open. */
+export const toolIcon = (on: boolean) =>
+  `relative w-[30px] h-7 rounded-[9px] flex items-center justify-center transition-colors cursor-default disabled:opacity-40 ${
+    on ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-100'
+  }`;
+
+/** A count in the corner of a toolbar icon: how many the choice on it shows. */
+export const ToolCount: React.FC<{ n: number }> = ({ n }) => (
+  <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-[3px] rounded-full bg-slate-600 text-slate-50 text-[9px] font-mono font-semibold leading-[14px] text-center tabular-nums">
+    {n}
+  </span>
+);
+
+/** Something to look at behind a toolbar icon (labels to check): one small amber dot. */
+export const ToolDot: React.FC = () => <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-500/80" aria-hidden="true" />;
+
 export interface ShowOption<T extends string> {
   id: T;
   label: string;
@@ -38,8 +76,9 @@ export interface ShowOption<T extends string> {
 
 /**
  * Review's one filter: which lines the list shows, each choice with how many
- * lines it holds. On the button, the lines' fit as one colour bar (red: some
- * run long); the counts are only in the menu.
+ * lines it holds. The button is an icon: the lines' fit as a small grey bar,
+ * a count in its corner while a choice other than All is on; the rest is in
+ * its tip and its menu.
  */
 export function ShowLinesMenu<T extends string>({
   value,
@@ -62,23 +101,35 @@ export function ShowLinesMenu<T extends string>({
   const [open, setOpen] = useState(false);
   const ref = useAwayClose(open, () => setOpen(false));
   const current = options.find((o) => o.id === value) ?? options[0];
+  const filtered = value !== options[0].id;
+  // The other problem choices with lines in them, for the tip.
+  const others = options.slice(1).filter((o) => o.id !== value && o.count > 0 && o.dot);
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="group relative">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="true"
         aria-expanded={open}
-        className={`h-8 px-3 rounded-xl border border-edge flex items-center gap-2 text-[13px] whitespace-nowrap cursor-default ${
-          value !== options[0].id ? 'bg-slate-100 text-slate-900 border-slate-100' : 'bg-slate-950 text-slate-200 hover:bg-slate-800'
-        }`}
+        aria-label={`Show: ${current.label}, ${current.count}`}
+        className={toolIcon(open || filtered)}
       >
-        {bar ?? (loading && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-500" aria-label="Working out the fit" />)}
-        <span className={value !== options[0].id ? 'text-slate-600' : 'text-slate-400'}>Show</span>
-        {current.label}
-        <span className={`font-mono text-[12px] tabular-nums ${value !== options[0].id ? 'text-slate-600' : 'text-slate-400'}`}>{current.count}</span>
-        <ChevronDown className="w-3.5 h-3.5 opacity-70" />
+        {bar ?? (loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-label="Working out the fit" /> : <ListFilter className="w-4 h-4" />)}
+        {filtered && <ToolCount n={current.count} />}
       </button>
+      {!open && (
+        <ToolTip
+          title="Show"
+          detail={
+            <>
+              <span className="text-slate-200">
+                {current.label} · {current.count}
+              </span>
+              {others.length > 0 && <span className="block">{others.map((o) => `${o.label} ${o.count}`).join(' · ')}</span>}
+            </>
+          }
+        />
+      )}
       {open && (
         <div className={`${menuPanel} right-0 w-72`} role="menu">
           {options.map((o) => (
@@ -144,7 +195,8 @@ const Row: React.FC<{ label: string; hint?: string; children: React.ReactNode }>
 
 /**
  * Review's ⋯: how the list looks. Line details, text size, passages, the
- * estimate and the lanes, and the phonetic keyboard, out of the toolbar.
+ * estimate and the lanes, phonetic typing (no badge over the script since
+ * 2026-11-27) and the keyboard, and the Word file (Cues and Script views).
  */
 export function ReviewViewMenu(props: {
   detailed: boolean;
@@ -167,25 +219,48 @@ export function ReviewViewMenu(props: {
   /** The Wave | Blocks | Bars switch. */
   lanes?: React.ReactNode;
   onOpenKeyboard?: () => void;
+  /** The dub language's own name, for the phonetic typing switch; none hides the switch. */
+  phoneticName?: string;
+  /** Cues and Script views: save the script as a Word file, in its paragraphs. */
+  onSaveWord?: () => void;
+  savingWord?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useAwayClose(open, () => setOpen(false));
+  const phoneticOn = usePhoneticSwitch();
   const p = props;
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="group relative">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="true"
         aria-expanded={open}
-        title="View: line details, text size, passages, estimate, lanes, keyboard"
-        aria-label="View options"
-        className={`w-8 h-8 flex items-center justify-center rounded-xl border border-edge cursor-default ${open ? 'bg-slate-800 text-slate-100' : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800'}`}
+        aria-label="More: view options"
+        className={toolIcon(open)}
       >
         <MoreHorizontal className="w-4 h-4" />
       </button>
+      {!open && <ToolTip align="right" title="More" detail={`${p.onSaveWord ? 'Word file, ' : ''}text size, passages${p.phoneticName ? ', phonetic typing' : ''}`} />}
       {open && (
         <div className={`${menuPanel} right-0 w-[21rem] max-w-[calc(100vw-2rem)] p-2`}>
+          {p.onSaveWord && (
+            <>
+              <button
+                type="button"
+                disabled={p.savingWord}
+                onClick={() => {
+                  setOpen(false);
+                  p.onSaveWord?.();
+                }}
+                title="The script in this view's paragraphs, the original on the left, the dub on the right"
+                className="w-full flex items-center gap-2 px-1.5 py-1.5 rounded-lg text-[13px] text-slate-300 hover:text-slate-100 hover:bg-slate-800/70 disabled:opacity-50 cursor-default"
+              >
+                {p.savingWord ? <Loader2 className="w-4 h-4 animate-spin text-slate-400" /> : <Download className="w-4 h-4 text-slate-400" />} Save as Word
+              </button>
+              <div className="my-1.5 border-t border-edge" />
+            </>
+          )}
           <Row label="Line details">
             <Choice
               label="Line details"
@@ -263,9 +338,28 @@ export function ReviewViewMenu(props: {
           {(p.estimate || p.lanes) && <div className="my-1.5 border-t border-edge" />}
           {p.estimate && <Row label="Estimate">{p.estimate}</Row>}
           {p.lanes && <Row label="Lanes">{p.lanes}</Row>}
+          {(p.phoneticName || p.onOpenKeyboard) && <div className="my-1.5 border-t border-edge" />}
+          {p.phoneticName && (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={phoneticOn}
+              onClick={togglePhonetic}
+              title={`Type Roman letters and get ${p.phoneticName} as you go`}
+              className="w-full flex items-center gap-2 px-1.5 py-1.5 rounded-lg text-[13px] text-slate-300 hover:text-slate-100 hover:bg-slate-800/70 cursor-default"
+            >
+              <Keyboard className="w-4 h-4 text-slate-400" />
+              <span className="flex-1 text-left">
+                Phonetic typing <span className="text-slate-500">· {p.phoneticName}</span>
+              </span>
+              <span className="font-mono text-[10.5px] text-slate-500 border border-slate-700 rounded px-1">Ctrl G</span>
+              <span className={`relative w-7 h-4 rounded-full transition-colors ${phoneticOn ? 'bg-indigo-500' : 'bg-slate-700'}`}>
+                <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-slate-100 transition-all ${phoneticOn ? 'left-[14px]' : 'left-0.5'}`} />
+              </span>
+            </button>
+          )}
           {p.onOpenKeyboard && (
             <>
-              <div className="my-1.5 border-t border-edge" />
               <button
                 type="button"
                 onClick={() => {
@@ -281,22 +375,6 @@ export function ReviewViewMenu(props: {
         </div>
       )}
     </div>
-  );
-}
-
-/** The Script view's Word button: one click saves the file, in the view's own paragraphs. */
-export function WordSaveButton({ saving, onSave, title }: { saving: boolean; onSave: () => void; title: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onSave}
-      disabled={saving}
-      title={title}
-      className="h-6 px-2 rounded-md border border-edge flex items-center gap-1 font-medium transition-colors cursor-default disabled:opacity-50 text-slate-400 hover:text-slate-200"
-    >
-      {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
-      Word
-    </button>
   );
 }
 
